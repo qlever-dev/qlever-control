@@ -17,6 +17,7 @@ script_name = Path(sys.argv[0]).stem
 ENGINE_NAMES = {
     "qlever": "QLever",
     "qmdb": "MillenniumDB",
+    "sparql_conformance": "SPARQL Conformance",
 }
 # Default engine_name = script_name without starting 'q' and capitalized
 engine_name = ENGINE_NAMES.get(script_name, script_name[1:].capitalize())
