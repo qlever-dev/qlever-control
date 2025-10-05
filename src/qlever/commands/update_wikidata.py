@@ -252,46 +252,74 @@ class UpdateWikidataCommand(QleverCommand):
                 # operation = event_data.get("operation")
                 rdf_added_data = event_data.get("rdf_added_data")
                 rdf_deleted_data = event_data.get("rdf_deleted_data")
+                rdf_linked_shared_data = event_data.get(
+                    "rdf_linked_shared_data"
+                )
+                rdf_unlinked_shared_data = event_data.get(
+                    "rdf_unlinked_shared_data"
+                )
 
                 # Process the to-be-deleted triples.
-                if rdf_deleted_data is not None:
-                    try:
-                        rdf_deleted_data = rdf_deleted_data.get("data")
-                        graph = Graph()
-                        log.debug(f"RDF deleted data: {rdf_deleted_data}")
-                        graph.parse(data=rdf_deleted_data, format="turtle")
-                        for s, p, o in graph:
-                            triple = f"{s.n3()} {p.n3()} {o.n3()}"
-                            # NOTE: In case there was a previous `insert` of that
-                            # triple, it is safe to remove that `insert`, but not
-                            # the `delete` (in case the triple is contained in the
-                            # original data).
-                            if triple in insert_triples:
-                                insert_triples.remove(triple)
-                            delete_triples.add(triple)
-                    except Exception as e:
-                        log.error(f"Error reading `rdf_deleted_data`: {e}")
-                        return False
+                for rdf_to_be_deleted in (
+                    rdf_deleted_data,
+                    rdf_unlinked_shared_data,
+                ):
+                    if rdf_to_be_deleted is not None:
+                        try:
+                            rdf_to_be_deleted_data = rdf_to_be_deleted.get(
+                                "data"
+                            )
+                            graph = Graph()
+                            log.debug(
+                                f"RDF to_be_deleted data: {rdf_to_be_deleted_data}"
+                            )
+                            graph.parse(
+                                data=rdf_to_be_deleted_data, format="turtle"
+                            )
+                            for s, p, o in graph:
+                                triple = f"{s.n3()} {p.n3()} {o.n3()}"
+                                # NOTE: In case there was a previous `insert` of that
+                                # triple, it is safe to remove that `insert`, but not
+                                # the `delete` (in case the triple is contained in the
+                                # original data).
+                                if triple in insert_triples:
+                                    insert_triples.remove(triple)
+                                delete_triples.add(triple)
+                        except Exception as e:
+                            log.error(
+                                f"Error reading `rdf_to_be_deleted_data`: {e}"
+                            )
+                            return False
 
                 # Process the to-be-added triples.
-                if rdf_added_data is not None:
-                    try:
-                        rdf_added_data = rdf_added_data.get("data")
-                        graph = Graph()
-                        log.debug("RDF added data: {rdf_added_data}")
-                        graph.parse(data=rdf_added_data, format="turtle")
-                        for s, p, o in graph:
-                            triple = f"{s.n3()} {p.n3()} {o.n3()}"
-                            # NOTE: In case there was a previous `delete` of that
-                            # triple, it is safe to remove that `delete`, but not
-                            # the `insert` (in case the triple is not contained in
-                            # the original data).
-                            if triple in delete_triples:
-                                delete_triples.remove(triple)
-                            insert_triples.add(triple)
-                    except Exception as e:
-                        log.error(f"Error reading `rdf_added_data`: {e}")
-                        return False
+                for rdf_to_be_added in (
+                    rdf_added_data,
+                    rdf_linked_shared_data,
+                ):
+                    if rdf_to_be_added is not None:
+                        try:
+                            rdf_to_be_added_data = rdf_to_be_added.get("data")
+                            graph = Graph()
+                            log.debug(
+                                "RDF to be added data: {rdf_to_be_added_data}"
+                            )
+                            graph.parse(
+                                data=rdf_to_be_added_data, format="turtle"
+                            )
+                            for s, p, o in graph:
+                                triple = f"{s.n3()} {p.n3()} {o.n3()}"
+                                # NOTE: In case there was a previous `delete` of that
+                                # triple, it is safe to remove that `delete`, but not
+                                # the `insert` (in case the triple is not contained in
+                                # the original data).
+                                if triple in delete_triples:
+                                    delete_triples.remove(triple)
+                                insert_triples.add(triple)
+                        except Exception as e:
+                            log.error(
+                                f"Error reading `rdf_to_be_added_data`: {e}"
+                            )
+                            return False
 
             except Exception as e:
                 log.error(f"Error reading data from message: {e}")
