@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>SPARQL Engine Comparison</title>
+
+        <!-- Bootstrap 5 and ag-grid -->
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/css/bootstrap.min.css" rel="stylesheet" />
+        <link
+            rel="stylesheet"
+            href="https://cdn.jsdelivr.net/npm/ag-grid-community@33.3.2/styles/ag-theme-balham.css"
+        />
+        <!-- Custom CSS -->
+        <link href="styles.css" rel="stylesheet" />
+        <link
+            rel="stylesheet"
+            href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css"
+        />
+        <script src="https://unpkg.com/navigo@8.11.1/lib/navigo.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.6/dist/js/bootstrap.bundle.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/ag-grid-community/dist/ag-grid-community.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/raphael@2.3.0/raphael.min.js "></script>
+        <script src="https://cdn.jsdelivr.net/gh/sparqling/sparql-formatter@v1.0.2/dist/spfmt.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/anchorme/3.0.8/anchorme.min.js"></script>
+        <script src="treant.js"></script>
+        <script src="util.js"></script>
+        <script src="details.js"></script>
+        <script src="comparison.js"></script>
+        <script src="compareExecTrees.js"></script>
+        <script src="main.js"></script>
+    </head>
+    <body>
+        <nav class="navbar navbar-expand-lg sticky-top border-bottom">
+            <div class="container-fluid flex-nowrap mx-2">
+                <a href="/" data-navigo class="btn d-flex align-items-center" style="z-index: 1030">
+                    <i class="bi bi-house-fill fs-5"></i>
+                </a>
+
+                <div class="container-lg d-flex justify-content-between align-items-center ps-0 pe-lg-5">
+                    <div class="d-flex align-items-center" id="mainTitleWrapper">
+                        <div id="main-page-header" class="fw-bold fs-4 mb-0"></div>
+                    </div>
+
+                    <div class="d-flex align-items-center">
+                        <button id="themeToggleBtn" class="btn btn-outline-theme me-2 d-flex align-items-center">
+                            <i class="bi bi-moon-fill" id="themeToggleIcon"></i>
+                        </button>
+
+                        <div class="dropdown">
+                            <button
+                                class="btn btn-outline-theme dropdown-toggle"
+                                type="button"
+                                id="resourcesDropdown"
+                                data-bs-toggle="dropdown"
+                            >
+                                Resources
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="resourcesDropdown">
+                                <li>
+                                    <a
+                                        class="dropdown-item"
+                                        target="_blank"
+                                        href="https://ad-publications.informatik.uni-freiburg.de/CIKM_qlever_BB_2017.pdf"
+                                    >
+                                        <i class="bi bi-journal-text me-1"></i>
+                                        QLever publication
+                                    </a>
+                                </li>
+                                <li>
+                                    <a
+                                        class="dropdown-item"
+                                        target="_blank"
+                                        href="https://ad-publications.cs.uni-freiburg.de/ISWC_sparqloscope_BKTU_2025.pdf"
+                                    >
+                                        <i class="bi bi-journal-text me-1"></i>
+                                        Sparqloscope publication
+                                    </a>
+                                </li>
+                                <li>
+                                    <a
+                                        class="dropdown-item"
+                                        target="_blank"
+                                        href="https://github.com/ad-freiburg/qlever"
+                                    >
+                                        <i class="bi bi-github me-1"></i>
+                                        QLever on GitHub
+                                    </a>
+                                </li>
+                                <li>
+                                    <a
+                                        class="dropdown-item"
+                                        target="_blank"
+                                        href="https://github.com/ad-freiburg/qlever-control"
+                                    >
+                                        <i class="bi bi-github me-1"></i>
+                                        QLever-control on GitHub
+                                    </a>
+                                </li>
+                                <li>
+                                    <a
+                                        class="dropdown-item"
+                                        target="_blank"
+                                        href="https://github.com/ad-freiburg/sparqloscope"
+                                    >
+                                        <i class="bi bi-github me-1"></i>
+                                        Sparqloscope on GitHub
+                                    </a>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <div
+            id="spinner"
+            class="d-none position-absolute top-0 start-0 w-100 h-100 bg-body bg-opacity-75 d-flex justify-content-center align-items-center"
+            style="z-index: 10"
+        >
+            <div class="spinner-border" style="color: var(--bs-body-color); width: 3rem; height: 3rem" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <span class="ms-4 text-center spinner-text">Fetching evaluation results</span>
+        </div>
+
+        <div id="page-main" class="page container-lg">
+            <!-- <div class="main-title">SPARQL Engine Comparison</div> -->
+            <div class="accordion mb-3" id="helpAccordion">
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="headingHelp">
+                        <button
+                            class="accordion-button collapsed bg-info bg-opacity-25 py-2"
+                            type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#collapseHelp"
+                            aria-expanded="false"
+                            aria-controls="collapseHelp"
+                        >
+                            What am I looking at here?
+                        </button>
+                    </h2>
+                    <div
+                        id="collapseHelp"
+                        class="accordion-collapse collapse"
+                        aria-labelledby="headingHelp"
+                        data-bs-parent="#helpAccordion"
+                    >
+                        <div class="accordion-body bg-info bg-opacity-10 pb-1">
+                            <p>
+                                Each table shows the <strong>aggregate metrics</strong> for all SPARQL engines on the
+                                given benchmark.
+                            </p>
+                            <ul>
+                                <li>
+                                    <strong>Column headers</strong>: Hover over any header to see detailed explanations
+                                    of the metrics, including how failed queries are penalized.
+                                </li>
+                                <li>
+                                    <strong>Sorting</strong>: Click a column header to sort by that metric. Hold
+                                    <kbd class="bg-info">Shift</kbd> and click multiple headers to sort by more than one
+                                    column in order.
+                                </li>
+                                <li>
+                                    <strong>Filtering</strong>: Each column has a built-in filter menu with powerful
+                                    options to quickly narrow down the results.
+                                </li>
+                                <li>
+                                    <strong>Column resizing</strong>: Drag the edges of column headers to resize. Hold
+                                    <kbd class="bg-info">Shift</kbd> while resizing to change the column width without
+                                    shifting neighboring columns.
+                                </li>
+                                <li>
+                                    <strong>Column reordering</strong>: Drag and drop column headers to reorder them.
+                                </li>
+                                <li>
+                                    <strong>Engine rows</strong>: Click a row to view the individual query details for
+                                    that engine on the given benchmark.
+                                </li>
+                                <li>
+                                    <strong>Compare results</strong>: Use the compare button to see a per-query
+                                    performance comparison of all engines.
+                                </li>
+                                <li>
+                                    <strong>Download</strong>: Export the table contents as <code>TSV</code> for offline
+                                    analysis or reporting.
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="main-table-container"></div>
+        </div>
+
+        <div id="page-details" class="page hidden container-lg" data-kb="" data-engine="">
+            <!-- Tabs here -->
+            <ul class="nav nav-tabs sticky-top bg-body d-flex align-items-center" id="myTab" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button
+                        class="nav-link active text-body"
+                        id="runtimes-tab"
+                        data-bs-toggle="tab"
+                        data-bs-target="#runtimes-tab-pane"
+                        type="button"
+                        role="tab"
+                        aria-controls="runtimes-tab-pane"
+                        aria-selected="true"
+                    >
+                        Query runtimes
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button
+                        class="nav-link text-body"
+                        id="query-tab"
+                        data-bs-toggle="tab"
+                        data-bs-target="#query-tab-pane"
+                        type="button"
+                        role="tab"
+                        aria-controls="query-tab-pane"
+                        aria-selected="false"
+                    >
+                        Full query
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button
+                        class="nav-link text-body"
+                        id="exec-tree-tab"
+                        data-bs-toggle="tab"
+                        data-bs-target="#exec-tree-tab-pane"
+                        type="button"
+                        role="tab"
+                        aria-controls="exec-tree-tab-pane"
+                        aria-selected="false"
+                    >
+                        Execution tree
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button
+                        class="nav-link text-body"
+                        id="results-tab"
+                        data-bs-toggle="tab"
+                        data-bs-target="#results-tab-pane"
+                        type="button"
+                        role="tab"
+                        aria-controls="results-tab-pane"
+                        aria-selected="false"
+                    >
+                        Query result
+                    </button>
+                </li>
+                <li class="ms-auto">
+                    <button id="detailsCompareExecTreesBtn" class="btn btn-outline-theme">
+                        Compare Execution Trees
+                    </button>
+                </li>
+            </ul>
+            <div class="tab-content px-3" id="myTabContent">
+                <div
+                    class="tab-pane fade show active"
+                    id="runtimes-tab-pane"
+                    role="tabpanel"
+                    aria-labelledby="runtimes-tab"
+                    tabindex="0"
+                >
+                    <!-- Tab 1 content -->
+
+                    <div id="details-grid" class="ag-theme-balham-dark mt-4" style="width: 100%"></div>
+                </div>
+                <div class="tab-pane fade" id="query-tab-pane" role="tabpanel" aria-labelledby="query-tab" tabindex="0">
+                    <!-- Tab 2 content -->
+                    <div class="alert alert-info mt-4">Please select a query from the Query Runtimes table!</div>
+                    <div class="p-3 bg-body border mt-4">
+                        <div id="query-title"></div>
+                        <pre><code id="full-query"></code></pre>
+                    </div>
+                </div>
+                <div
+                    class="tab-pane fade"
+                    id="exec-tree-tab-pane"
+                    role="tabpanel"
+                    aria-labelledby="exec-tree-tab"
+                    tabindex="0"
+                >
+                    <div class="alert alert-info mt-4">Please select a query from the Query Runtimes table!</div>
+                    <!-- Tab 2 content -->
+                    <div id="result-tree-div" class="mt-4">
+                        <div class="alert alert-info mt-4">
+                            Execution Tree is only available for QLever with accept header
+                            application/qlever-results+json!
+                        </div>
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <div id="meta-info" class="flex-grow-1"></div>
+
+                            <div class="ms-2" role="group" aria-label="Details zoom controls">
+                                <button id="zoomIn" title="Zoom in" class="btn btn-outline-secondary">+</button>
+                                <button id="zoomOut" title="Zoom out" class="btn btn-outline-secondary">−</button>
+                            </div>
+                        </div>
+                        <div id="result-tree" class="overflow-auto" style="height: calc(100vh - 280px)"></div>
+                    </div>
+                </div>
+                <div
+                    class="tab-pane fade"
+                    id="results-tab-pane"
+                    role="tabpanel"
+                    aria-labelledby="results-tab"
+                    tabindex="0"
+                >
+                    <!-- Tab 3 content -->
+                    <div class="alert alert-info mt-4">Please select a query from the Query Runtimes table!</div>
+                    <div id="results-container" class="mt-4">
+                        <div class="alert p-2"></div>
+                        <div id="results-grid" class="ag-theme-balham-dark mt-4" style="width: 100%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="page-comparison" class="page hidden container-lg pb-0" data-kb="">
+            <div class="accordion mb-1" id="comparisonHelpAccordion">
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="comparisonHeadingHelp">
+                        <button
+                            class="accordion-button collapsed bg-info bg-opacity-25 py-2"
+                            type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#collapseComparisonHelp"
+                            aria-expanded="false"
+                            aria-controls="collapseComparisonHelp"
+                        >
+                            What am I looking at here?
+                        </button>
+                    </h2>
+                    <div
+                        id="collapseComparisonHelp"
+                        class="accordion-collapse collapse"
+                        aria-labelledby="comparisonHeadingHelp"
+                        data-bs-parent="#comparisonHelpAccordion"
+                    >
+                        <div class="accordion-body bg-info bg-opacity-10 pb-1">
+                            <p>
+                                This table shows the <strong>per-query runtime performance comparison</strong>
+                                of multiple SPARQL engines on the selected benchmark.
+                            </p>
+                            <ul>
+                                <li>
+                                    <span class="text-success fw-bold">Green cells</span>: Best runtime performance for
+                                    a query across all engines.
+                                </li>
+                                <li>
+                                    <span class="text-danger fw-bold">Red cells</span>: Query either failed or timed out for that engine.
+                                </li>
+                                <li>
+                                    <span class="fw-bold"
+                                        ><i class="bi bi-exclamation-triangle-fill"></i> in an engine column cell</span
+                                    >: Result size for that engine differs from the majority.
+                                </li>
+                                <li>
+                                    <span class="fw-bold"
+                                        ><i class="bi bi-exclamation-triangle-fill"></i> in the query column cell</span
+                                    >: Result sizes differ across all engines.
+                                </li>
+                                <li>
+                                    <span class="fw-bold"
+                                        ><i class="bi bi-bootstrap-reboot"></i> in an engine column cell:</span
+                                    >
+                                    The server for that engine was restarted after the query, either due to a crash or no
+                                    response after timeout + 30s.
+                                </li>
+                                <li>
+                                    <span class="fw-bold">Click a cell</span>: Shows additional information which can be
+                                    copied. (Copying feature only works in a secure context i.e. https or localhost)
+                                </li>
+                                <li>
+                                    <strong>Other features</strong>: Sorting, filtering, resizing, reordering, and TSV
+                                    export are all available.
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="d-flex align-items-start">
+                <!-- Accordion takes most of the space -->
+                <div class="flex-grow-1">
+                    <div class="py-2 pe-3" id="columns-checkbox-container">
+                        <div class="d-flex align-items-center flex-wrap gap-3">
+                            <label
+                                class="fw-bold"
+                                title="Toggle which engines are displayed in the table"
+                                style="cursor: pointer"
+                                >Show Engines:</label
+                            >
+                            <div class="d-flex flex-wrap gap-3 mt-1" id="columnCheckboxContainer">
+                                <!-- Checkboxes will be added here dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <button id="goToCompareExecTreesBtn" class="btn btn-sm btn-outline-theme ms-3 mt-2">
+                    Compare Execution Trees
+                </button>
+            </div>
+
+            <div class="d-flex align-items-center justify-content-between flex-wrap">
+                <!-- Left side: Label + dropdown -->
+                <div class="d-flex align-items-center gap-2 flex-grow-1 flex-wrap py-2">
+                    <label
+                        for="orderColumnsDropdown"
+                        title="Change how the engines are ordered from left to right"
+                        class="fw-bold"
+                        style="font-size: 0.95rem; cursor: pointer"
+                        >Order Engines by Metric:</label
+                    >
+                    <select class="form-select form-select-sm" id="orderColumnsDropdown" style="max-width: 250px">
+                        <option value="gmeanTime2-asc">Geometric Mean (P=2) ↑</option>
+                        <option value="gmeanTime2-desc">Geometric Mean (P=2) ↓</option>
+                        <option value="gmeanTime10-asc">Geometric Mean (P=10) ↑</option>
+                        <option value="gmeanTime10-desc">Geometric Mean (P=10) ↓</option>
+                        <option value="failed-asc">Failed Queries ↑</option>
+                        <option value="failed-desc">Failed Queries ↓</option>
+                        <option value="medianTime-asc">Median ↑</option>
+                        <option value="medianTime-desc">Median ↓</option>
+                        <option value="ameanTime-asc">Arithmetic Mean ↑</option>
+                        <option value="ameanTime-desc">Arithmetic Mean ↓</option>
+                    </select>
+                </div>
+
+                <!-- Right side: toggles -->
+                <div class="d-flex align-items-center gap-3 ms-3 flex-wrap">
+                    <button id="comparisonDownloadTsv" class="btn btn-outline-theme btn-sm" title="Download as TSV">
+                        <i class="bi bi-download"></i>
+                    </button>
+                    <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox" id="showMetrics" style="cursor: pointer" />
+                        <label class="form-check-label small" for="showMetrics" style="cursor: pointer">
+                            Show Aggregate Metrics
+                        </label>
+                    </div>
+
+                    <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox" id="showResultSize" style="cursor: pointer" />
+                        <label class="form-check-label small" for="showResultSize" style="cursor: pointer">
+                            Show result size
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div id="comparison-grid" class="ag-theme-balham-dark mt-3" style="width: 100%"></div>
+        </div>
+
+        <div id="page-compareExecTrees" class="page hidden container-lg">
+            <div id="compareExecQueryContainer" class="d-flex align-items-center mb-3">
+                <!-- Query content (left-aligned) -->
+                <div id="compareExecQuery" class="alert alert-secondary p-2 mb-0 flex-grow-1 text-center"></div>
+
+                <!-- Toggle (right-aligned) -->
+                <div class="form-check form-switch ms-2 mb-0">
+                    <input class="form-check-input" type="checkbox" id="syncScrollCheck" />
+                    <label class="form-check-label" for="syncScrollCheck">Sync Zoom & Scroll</label>
+                </div>
+            </div>
+
+            <!-- Second row: Two selects + Compare button -->
+            <div class="row g-3 align-items-end">
+                <div class="col-md-5">
+                    <!-- <label for="select1" class="form-label">Select QLever tree 1</label> -->
+                    <select title="First QLever instance" class="form-select" id="select1"></select>
+                </div>
+                <div class="col-md-5">
+                    <!-- <label for="select2" class="form-label">Select QLever tree 2</label> -->
+                    <select title="Second QLever instance" class="form-select" id="select2"></select>
+                </div>
+                <div class="col-md-2">
+                    <button id="compareExecTreesBtn" class="btn btn-outline-theme w-100">Compare</button>
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <div class="row g-3 overflow-hidden">
+                    <div class="col-6">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <div id="meta-info-1" class="flex-grow-1"></div>
+
+                            <div class="ms-2" role="group" aria-label="CompareExecTrees zoom">
+                                <button id="zoomIn1" title="Zoom in" class="btn btn-outline-secondary">+</button>
+                                <button id="zoomOut1" title="Zoom out" class="btn btn-outline-secondary">−</button>
+                            </div>
+                        </div>
+                        <div id="tree1" class="overflow-auto" style="height: calc(100vh - 250px)"></div>
+                    </div>
+                    <div class="col-6 border-start border-dark border-2">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <div id="meta-info-2" class="flex-grow-1"></div>
+
+                            <div class="ms-2" role="group" aria-label="CompareExecTrees zoom">
+                                <button id="zoomIn2" title="Zoom in" class="btn btn-outline-secondary">+</button>
+                                <button id="zoomOut2" title="Zoom out" class="btn btn-outline-secondary">−</button>
+                            </div>
+                        </div>
+                        <div id="tree2" class="overflow-auto" style="height: calc(100vh - 250px)"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="page-error" class="page hidden container mt-3">
+            <div id="siteErrorMsg" class="alert alert-danger">404: Page Not Found!</div>
+        </div>
+    </body>
+</html>
