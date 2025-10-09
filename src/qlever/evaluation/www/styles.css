@@ -1,0 +1,540 @@
+body {
+    /* background-color: #f9f9f9; */
+    font-family: "Helvetica Neue", sans-serif;
+}
+
+.ag-theme-balham {
+    font-size: 16px; /* Change this to 15px, 16px etc. as needed */
+}
+
+.btn-outline-theme {
+    color: var(--bs-body-color);
+    border-color: var(--bs-body-color);
+
+    &:hover {
+        color: var(--bs-body-bg);
+        background-color: var(--bs-body-color);
+    }
+}
+
+.spinner-text {
+    font-weight: bold;
+    font-size: 1.5rem;
+}
+
+.kg-section {
+    border-radius: 10px;
+    box-shadow: var(--bs-box-shadow);
+    padding: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.kg-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.ag-center-cols-viewport {
+    min-height: unset !important;
+}
+
+.page {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    position: absolute;
+    left: 0;
+    right: 0;
+    padding: 20px;
+}
+
+.page.visible {
+    opacity: 1;
+    transform: translateY(0);
+    z-index: 1;
+}
+
+.page.hidden {
+    display: none;
+    z-index: 0;
+}
+
+#comparison-grid .ag-row-focus {
+    background-color: unset !important;
+}
+
+/* .ag-row-focus {
+  background-color: unset !important;
+} */
+
+.nav-link.active {
+    background-color: var(--bs-body-color) !important;
+    color: var(--bs-body-bg) !important;
+}
+
+/* .custom-tooltip {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px;
+    background-color: #212529;
+    color: white;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.tooltip-text {
+    flex: 1;
+    user-select: text;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.popover-body {
+    color: white;
+} */
+
+.custom-tooltip,
+.popover {
+  background-color: var(--bs-body-color);
+  color: var(--bs-body-bg);
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.25rem;
+  box-shadow: var(--bs-box-shadow-sm);
+  /* padding: 0.5rem; */
+}
+
+.popover-body {
+    color: var(--bs-body-bg);
+}
+
+/* Common styling */
+.custom-tooltip {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.tooltip-text {
+    flex: 1;
+    user-select: text;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.copy-btn {
+    background: none;
+    border: none;
+    /* font-size: 16px; */
+    cursor: pointer;
+    /* padding: 2px; */
+    color: var(--bs-body-bg);
+}
+
+/* .form-check-input:checked {
+  background-color: var(--bs-body-color);
+  border-color: var(--bs-body-color);
+} */
+
+#meta-info,
+#meta-info-1,
+#meta-info-2 p {
+    font-size: 80%;
+}
+
+/* .Treant {
+    position: relative;
+    overflow: hidden;
+    padding: 0 !important;
+}
+.Treant > .node,
+.Treant > .pseudo {
+    position: absolute;
+    display: block;
+    visibility: hidden;
+}
+.Treant.Treant-loaded .node,
+.Treant.Treant-loaded .pseudo {
+    visibility: visible;
+}
+.Treant > .pseudo {
+    width: 0;
+    height: 0;
+    border: none;
+    padding: 0;
+}
+.Treant .collapse-switch {
+    width: 3px;
+    height: 3px;
+    display: block;
+    border: 1px solid black;
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    cursor: pointer;
+}
+.Treant .collapsed .collapse-switch {
+    background-color: #868dee;
+}
+.Treant > .node img {
+    border: none;
+    float: left;
+}
+
+.node {
+    padding: 3px;
+    border-radius: 3px;
+    background-color: #fefefe;
+    border: 1px solid #000;
+    min-width: 25em;
+    font-size: 80%;
+    color: black;
+}
+
+.node > p {
+    margin: 0;
+    white-space: nowrap;
+}
+.node-name {
+    font-weight: bold;
+}
+p.node-name {
+    width: 30em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.node-status {
+    font-size: 90%;
+    color: #000099;
+}
+.node.not-started {
+    color: #999;
+}
+p.fully-materialized {
+    display: none;
+}
+p.lazily-materialized {
+    display: none;
+}
+.node-status.failed {
+    font-weight: bold;
+    color: red;
+}
+.node-status.child-failed {
+    color: red;
+}
+.node-status.not-started {
+    color: blue;
+}
+.node-status.optimized-out {
+    color: blue;
+}
+.node-status.lazily-materialized {
+    color: blue;
+}
+.node-cols:before {
+    content: "Cols: ";
+}
+p.node-cols {
+    width: 30em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.node-size:before {
+    content: "Size: ";
+}
+.node-size {
+    display: inline;
+}
+.node-size-estimate {
+    display: inline;
+    padding-left: 1em;
+}
+.node-time:before {
+    content: "\ATime: ";
+    white-space: pre;
+}
+.node-time {
+    display: inline;
+}
+.node-cost-estimate {
+    display: inline;
+    padding-left: 1em;
+}
+.node-status {
+    display: inline;
+    padding-left: 1em;
+}
+.node-time:after {
+    content: "ms";
+}
+.node-details {
+    display: none;
+    color: blue;
+}
+.node-details:before {
+    content: "Details: ";
+}
+div.cached-not-pinned .node-time:after {
+    content: "ms [cached]";
+}
+div.cached-pinned .node-time:after {
+    content: "ms [cached, pinned]";
+}
+div.ancestor-cached .node-time:after {
+    content: "ms [ancestor cached]";
+}
+p.node-cache-status {
+    display: none;
+}
+.node.cached-pinned {
+    color: grey;
+    border: 1px solid grey;
+}
+.node.cached-not-pinned {
+    color: grey;
+    border: 1px solid grey;
+}
+.node-total {
+    display: none;
+}
+.node.high {
+    background-color: #ffeeee;
+}
+.node.veryhigh {
+    background-color: #ffcccc;
+}
+.node.high.cached {
+    background-color: #ffffee;
+}
+.node.veryhigh.cached {
+    background-color: #ffffcc;
+} */
+
+.Treant {
+    position: relative;
+    overflow: hidden;
+    padding: 0 !important;
+}
+
+.Treant > .node,
+.Treant > .pseudo {
+    position: absolute;
+    display: block;
+    visibility: hidden;
+}
+
+.Treant.Treant-loaded .node,
+.Treant.Treant-loaded .pseudo {
+    visibility: visible;
+}
+
+.Treant > .pseudo {
+    width: 0;
+    height: 0;
+    border: none;
+    padding: 0;
+}
+
+.Treant .collapse-switch {
+    width: 3px;
+    height: 3px;
+    display: block;
+    border: 1px solid var(--bs-border-color);
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    cursor: pointer;
+}
+
+.Treant .collapsed .collapse-switch {
+    background-color: var(--bs-primary);
+}
+
+.Treant > .node img {
+    border: none;
+    float: left;
+}
+
+.node {
+    padding: 3px;
+    border-radius: 3px;
+    background-color: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    min-width: 25em;
+    font-size: 80%;
+    color: var(--bs-body-color);
+}
+
+.node > p {
+    margin: 0;
+    white-space: nowrap;
+}
+
+.node-name {
+    font-weight: bold;
+}
+
+p.node-name {
+    width: 30em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.node-status {
+    font-size: 90%;
+    color: var(--bs-link-color);
+    display: inline;
+    padding-left: 1em;
+}
+
+.node.not-started {
+    color: var(--bs-secondary-color);
+}
+
+p.fully-materialized,
+p.lazily-materialized,
+p.node-cache-status,
+.node-total {
+    display: none;
+}
+
+.node-status.failed,
+.node-status.child-failed {
+    font-weight: bold;
+    color: var(--bs-danger-text);
+}
+
+.node-status.not-started,
+.node-status.optimized-out,
+.node-status.lazily-materialized {
+    color: var(--bs-primary);
+}
+
+.node-cols:before {
+    content: "Cols: ";
+}
+
+p.node-cols {
+    width: 30em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.node-size:before {
+    content: "Size: ";
+}
+
+.node-size {
+    display: inline;
+}
+
+.node-size-estimate {
+    display: inline;
+    padding-left: 1em;
+}
+
+.node-time:before {
+    content: "\ATime: ";
+    white-space: pre;
+}
+
+.node-time {
+    display: inline;
+}
+
+.node-time:after {
+    content: "ms";
+}
+
+.node-cost-estimate {
+    display: inline;
+    padding-left: 1em;
+}
+
+.node-details {
+    display: none;
+    color: var(--bs-link-color);
+}
+
+.node-details:before {
+    content: "Details: ";
+}
+
+/* Cache status suffixes */
+div.cached-not-pinned .node-time:after {
+    content: "ms [cached]";
+}
+
+div.cached-pinned .node-time:after {
+    content: "ms [cached, pinned]";
+}
+
+div.ancestor-cached .node-time:after {
+    content: "ms [ancestor cached]";
+}
+
+/* Cached nodes */
+.node.cached-pinned,
+.node.cached-not-pinned {
+    color: var(--bs-secondary-color);
+    border: 1px solid var(--bs-border-color);
+}
+
+/* Severity styling */
+.node.high {
+    background-color: var(--bs-warning-bg-subtle); /* yellow-ish */
+}
+
+.node.veryhigh {
+    background-color: var(--bs-danger-bg-subtle); /* red-ish */
+}
+
+/* Cached + high severity — subtle differences */
+.node.high.cached {
+    background-color: var(--bs-warning-border-subtle); /* lighter warning shade */
+}
+
+.node.veryhigh.cached {
+    background-color: var(--bs-danger-border-subtle); /* lighter danger shade */
+}
+
+.Treant .line,
+.Treant .line-horizontal,
+.Treant .line-vertical,
+.Treant .line-diagonal {
+    border-color: var(--bs-border-color);
+    background-color: var(--bs-border-color);
+}
+
+.Treant svg path {
+    stroke: var(--bs-border-color);
+}
+
+.font-size-30 {
+    font-size: 30%;
+}
+.font-size-40 {
+    font-size: 40%;
+}
+.font-size-50 {
+    font-size: 50%;
+}
+.font-size-60 {
+    font-size: 60%;
+}
+.font-size-70 {
+    font-size: 70%;
+}
+.font-size-80 {
+    font-size: 80%;
+}
