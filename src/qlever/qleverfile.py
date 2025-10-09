@@ -219,6 +219,12 @@ class Qleverfile:
             type=int,
             help="The port on which the server listens for requests",
         )
+        server_args["isql_port"] = arg(
+            "--isql-port",
+            type=int,
+            default=1111,
+            help="The port used by Virtuoso's ISQL index binary",
+        )
         server_args["access_token"] = arg(
             "--access-token",
             type=str,
