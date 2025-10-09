@@ -29,7 +29,7 @@ ENCODE_AS_IDS      = https://www.openstreetmap.org/node/ http://www.openstreetma
 
 # Server settings
 [server]
-HOSTNAME                    = localhost
+HOST_NAME                   = localhost
 PORT                        = 7025
 ACCESS_TOKEN                = ${data:NAME}_%RANDOM%
 MEMORY_FOR_QUERIES          = 20G
