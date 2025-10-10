@@ -1,17 +1,20 @@
 # Qleverfile for OSM Planet, use with the QLever CLI (`pip install qlever`)
 #
-# qlever get-data  # downloads ~400 GB (ttl.bz2), ~100 B triples
-# qlever index     # ~20 hours, ~60 GB RAM, ~1.5 TB index size on disk
+# qlever get-data  # download ~100 GB (pbf), convert with osm2rdf, ~200 B triples
+# qlever index     # ~40 hours, ~60 GB RAM, ~2.5 TB index size on disk
 # qlever start     # a few seconds, adjust MEMORY_FOR_QUERIES as needed
 #
-# Measured on an AMD Ryzen 9 7950X with 128 GB RAM and 2 x 8 TB NVMe (04.01.2025)
+# Measured on an AMD Ryzen 9 9950X with 128 GB RAM and 4 x 8 TB NVMe (02.10.2025)
 
 [data]
 NAME         = osm-planet
-GET_DATA_URL = https://osm2rdf.cs.uni-freiburg.de/ttl/planet.osm.ttl.bz2
-GET_DATA_CMD = unbuffer wget -O ${NAME}.ttl.bz2 ${GET_DATA_URL} | tee ${NAME}.download-log.txt
-VERSION      = $$(date -r ${NAME}.ttl.bz2 +"%d.%m.%Y" || echo "NO_DATE")
-DESCRIPTION  = OSM from ${GET_DATA_URL} (converted to RDF using osm2rdf, enhanced by GeoSPARQL triples ogc:sfContains, ogc:sfCovers, ogc:sfIntersects, ogc:sfEquals, ogc:sfTouches, ogc:sfCrosses, ogc:sfOverlaps)
+PLANET_PBF   = planet-250929.osm.pbf
+GET_DATA_URL = https://planet.openstreetmap.org/pbf/${PLANET_PBF}
+GET_PBF_CMD  = unbuffer wget -O ${PLANET_PBF} ${GET_DATA_URL}
+OSM2RDF_CMD  = unbuffer osm2rdf ${PLANET_PBF} -o ${NAME}.ttl --num-threads 20 --output-compression gz --cache . --store-locations disk-dense --iri-prefix-for-untagged-nodes http://www.openstreetmap.org/node/ --split-tag-key-by-semicolon ref --split-tag-key-by-semicolon service
+GET_DATA_CMD = ${GET_PBF_CMD} && ${OSM2RDF_CMD} 2>&1 | tee ${NAME}.osm2rdf-log.txt
+VERSION      = $$(date -r ${PLANET_PBF} +%d.%m.%Y || echo "NO_DATE")
+DESCRIPTION  = OSM from ${GET_DATA_URL}, converted to RDF using osm2rdf, enhanced by GeoSPARQL triples ogc:sfContains, ogc:sfCovers, ogc:sfIntersects, ogc:sfEquals, ogc:sfTouches, ogc:sfCrosses, ogc:sfOverlaps
 
 [index]
 INPUT_FILES        = ${data:NAME}.ttl.bz2
@@ -28,7 +31,7 @@ PORT                        = 7007
 ACCESS_TOKEN                = ${data:NAME}
 MEMORY_FOR_QUERIES          = 40G
 CACHE_MAX_SIZE              = 20G
-CACHE_MAX_SIZE_SINGLE_ENTRY = 20G
+CACHE_MAX_SIZE_SINGLE_ENTRY = 10G
 TIMEOUT                     = 600s
 
 [runtime]
