@@ -55,8 +55,8 @@ MULTI_INPUT_JSON = [{ "cmd": "zcat {}", "graph": "http://sparql.uniprot.org/unip
                     { "cmd": "zcat ${data:TTL_DIR}/examples_uniprot.ttl.gz", "graph": "http://sparql.uniprot.org/.well-known/sparql-examples" },
                     { "cmd": "zcat ${data:TTL_DIR}/core.ttl.gz", "graph": "http://purl.uniprot.org/core" }]
 SETTINGS_JSON    = { "languages-internal": [], "prefixes-external": [""], "locale": { "language": "en", "country": "US", "ignore-punctuation": true }, "ascii-prefixes-only": true, "num-triples-per-batch": 25000000 }
-STXXL_MEMORY     = 60G
-ULIMIT           = 10000
+STXXL_MEMORY     = 80G
+ULIMIT           = 50000
 
 [server]
 PORT                        = 7018
