@@ -42,7 +42,7 @@ jobs:
       - name: Build qlever binaries from source + download docker image
         run: |
           sudo apt update && sudo apt install -y wget
-          wget https://apt.kitware.com/kitware-archive.sh && chmod +x kitware-archive.sh && ./kitware-archive.sh
+          wget https://apt.kitware.com/kitware-archive.sh && chmod +x kitware-archive.sh && sudo ./kitware-archive.sh
           sudo apt install -y build-essential cmake libicu-dev tzdata pkg-config uuid-runtime uuid-dev git libjemalloc-dev ninja-build libzstd-dev libssl-dev libboost1.83-dev libboost-program-options1.83-dev libboost-iostreams1.83-dev libboost-url1.83-dev libboost-container1.83-dev
           if [ ! -d qlever-code ]; then
             git clone https://github.com/ad-freiburg/qlever.git qlever-code; fi
