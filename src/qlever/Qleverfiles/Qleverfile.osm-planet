@@ -15,7 +15,7 @@ DESCRIPTION  = OSM from ${GET_DATA_URL} (converted to RDF using osm2rdf, enhance
 
 [index]
 INPUT_FILES        = ${data:NAME}.ttl.bz2
-MULTI_INPUT_JSON   = { "cmd": "zcat ${INPUT_FILES}", "parallel": "true" }
+MULTI_INPUT_JSON   = { "cmd": "lbzcat -n 2 ${INPUT_FILES}", "parallel": "true" }
 VOCABULARY_TYPE    = on-disk-compressed-geo-split
 PARSER_BUFFER_SIZE = 100M
 STXXL_MEMORY       = 60G
