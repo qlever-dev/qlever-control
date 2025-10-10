@@ -1,6 +1,6 @@
 # Qleverfile for OSM Planet, use with the QLever CLI (`pip install qlever`)
 #
-# qlever get-data  # download ~100 GB (pbf), convert with osm2rdf, ~200 B triples
+# qlever get-data  # download ~100 GB (pbf), convert with osm2rdf, ~200B triples
 # qlever index     # ~40 hours, ~60 GB RAM, ~2.5 TB index size on disk
 # qlever start     # a few seconds, adjust MEMORY_FOR_QUERIES as needed
 #
@@ -17,7 +17,7 @@ VERSION      = $$(date -r ${PLANET_PBF} +%d.%m.%Y || echo "NO_DATE")
 DESCRIPTION  = OSM from ${GET_DATA_URL}, converted to RDF using osm2rdf, enhanced by GeoSPARQL triples ogc:sfContains, ogc:sfCovers, ogc:sfIntersects, ogc:sfEquals, ogc:sfTouches, ogc:sfCrosses, ogc:sfOverlaps
 
 [index]
-INPUT_FILES        = ${data:NAME}.ttl.bz2
+INPUT_FILES        = ${data:NAME}.ttl.gz
 MULTI_INPUT_JSON   = { "cmd": "zcat ${INPUT_FILES}", "parallel": "true" }
 VOCABULARY_TYPE    = on-disk-compressed-geo-split
 PARSER_BUFFER_SIZE = 100M
