@@ -7,7 +7,7 @@ import sparql_conformance.util as util
 from qlever.log import log
 from sparql_conformance.config import Config
 from sparql_conformance.engines.engine_manager import EngineManager
-from sparql_conformance.engines.qlever_binary import QLeverBinaryManager
+from sparql_conformance.engines.qlever import QLeverManager
 from sparql_conformance.json_tools import compare_json
 from sparql_conformance.protocol_tools import run_protocol_test
 from sparql_conformance.rdf_tools import compare_ttl
@@ -171,7 +171,7 @@ class TestSuite:
         if not server_success:
             self.engine_manager.cleanup(self.config)
             self.update_graph_status(list_of_tests, Status.FAILED, ErrorMessage.SERVER_ERROR)
-        if isinstance(self.engine_manager, QLeverBinaryManager) and index_success and server_success and "Syntax" in list_of_tests[0].type_name:
+        if isinstance(self.engine_manager, QLeverManager) and index_success and server_success and "Syntax" in list_of_tests[0].type_name:
             self.engine_manager.activate_syntax_test_mode(self.config.server_address, self.config.port)
         self.log_for_all_tests(list_of_tests, "index_log", index_log)
         self.log_for_all_tests(list_of_tests, "server_log", server_log)
@@ -407,9 +407,24 @@ class TestSuite:
                     util.remove_date_time_parts(server_log))
             self.engine_manager.cleanup(self.config)
 
+    def analyze(self):
+        """
+        Method to index and start the server for a specific test.
+        """
+        graphs_list_of_tests = {k: v for d in self.tests.values() for k, v in d.items()}
+        for graph_path in graphs_list_of_tests:
+            log.info(f"Running server for graph: {graph_path}")
+            if not self.prepare_test_environment(
+                    graph_path, graphs_list_of_tests[graph_path]):
+                break
+            print(f"Listening on: {self.config.server_address}:{self.config.port} ...")
+            print("\n" * 3)
+            input("Press Enter to shutdown the server and continue...")
+            self.engine_manager.cleanup(self.config)
+
     def run(self):
         """
-        Main method to run all query tests.
+        Main method to run all tests.
         """
         try:
             self.run_query_tests(self.tests["query"])
