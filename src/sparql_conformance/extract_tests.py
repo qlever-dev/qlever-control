@@ -19,6 +19,8 @@ def collect_tests_by_graph(tests: List[TestObject]) -> Dict[str, Dict[Tuple[Tupl
     The resulting dictionary has the following structure:
     {'query': { (('graph_path', 'graph_name'), ...): [Test1, Test2, ...], ...}, ...}
     """
+    if len(tests) == 0:
+        return {}
     type_to_category: Dict[str, str] = {
         'QueryEvaluationTest': 'query',
         'CSVResultFormatTest': 'format',
@@ -162,6 +164,8 @@ def load_tests_from_manifest(
             entailment_profile = g.value(test_uri, SD.entailmentProfile)
             group = os.path.basename(os.path.normpath(path))
             if str(name) in config.exclude or group in config.exclude:
+                continue
+            if config.include and str(name) not in config.include and group not in config.include:
                 continue
             tests.append(TestObject(
                 test=str(test_uri),

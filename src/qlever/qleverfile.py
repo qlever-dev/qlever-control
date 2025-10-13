@@ -49,7 +49,7 @@ class Qleverfile:
         args["testsuite_dir"] = arg(
             "--testsuite-dir",
             type=str,
-            required=True,
+            default=None,
             help="Path to the directory of the testsuite.",
         )
         args["type_alias"] = arg(
@@ -77,6 +77,21 @@ class Qleverfile:
             help=("Tests (names) or test groups to exclude from the run."
                   "ex. service,entailment,POST - existing graph"
             )
+        )
+        args["include"] = arg(
+            "--include",
+            type=lambda s: s.split(","),
+            default=None,
+            help=("Tests (names) or test groups to include in the run."
+                  "ex. service,entailment,POST - existing graph"
+            )
+        )
+        args["binaries_directory"] = arg(
+            "--binaries-directory",
+            type=str,
+            required=False,
+            help="Path to the directory of the IndexBuilderMain and ServerMain binaries.",
+            default=""
         )
         return args
 
@@ -429,13 +444,6 @@ class Qleverfile:
             help="The name of the container used for `qlever ui`",
         )
 
-        qlever_binaries_args["binaries_directory"] = arg(
-            "--binaries-directory",
-            type=str,
-            required=False,
-            help="Path to the directory of the IndexBuilderMain and ServerMain binaries.",
-            default=""
-        )
 
         qlever_args["qlever_image"] = arg(
             "--qlever-image",

@@ -14,6 +14,7 @@ class Config:
                  type_alias: List[Tuple[str, str]],
                  binaries_directory: str,
                  exclude: List[str],
+                 include: List[str] = None
                  ):
         self.server_address = 'localhost'
         self.image = image
@@ -24,6 +25,7 @@ class Config:
         self.path_to_test_suite = os.path.abspath(testsuite_dir)
         self.path_to_binaries = os.path.abspath(binaries_directory)
         self.exclude = exclude
+        self.include = include
         self.number_types = [
             "http://www.w3.org/2001/XMLSchema#integer",
             "http://www.w3.org/2001/XMLSchema#double",
