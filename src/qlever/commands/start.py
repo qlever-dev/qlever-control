@@ -166,7 +166,7 @@ class StartCommand(QleverCommand):
             "(default: run in the background with `nohup`)",
         )
 
-    def execute(self, args) -> bool:
+    def execute(self, args, called_from_conformance_test = False) -> bool:
         # Kill existing server with the same name if so desired.
         #
         # TODO: This is currently disabled because I never used it once over
@@ -267,8 +267,9 @@ class StartCommand(QleverCommand):
                 f" (Ctrl-C stops following the log, but NOT the server)"
             )
         log.info("")
-        tail_cmd = f"exec tail -f {args.name}.server-log.txt"
-        tail_proc = subprocess.Popen(tail_cmd, shell=True)
+        if not called_from_conformance_test:
+            tail_cmd = f"exec tail -f {args.name}.server-log.txt"
+            tail_proc = subprocess.Popen(tail_cmd, shell=True)
         while not is_qlever_server_alive(endpoint_url):
             time.sleep(1)
 
@@ -288,7 +289,7 @@ class StartCommand(QleverCommand):
                 return False
 
         # Kill the tail process. NOTE: `tail_proc.kill()` does not work.
-        if not args.run_in_foreground:
+        if not args.run_in_foreground and not called_from_conformance_test:
             tail_proc.terminate()
 
         # Execute the warmup command.

@@ -15,6 +15,7 @@ class QueryCommand(QleverCommand):
     """
 
     def __init__(self):
+        self.query_output = ""
         self.predefined_queries = {
             "all-predicates": (
                 "SELECT (?p AS ?predicate) (COUNT(?p) AS ?count) "
@@ -84,7 +85,7 @@ class QueryCommand(QleverCommand):
             help="Do not print the (end-to-end) time taken",
         )
 
-    def execute(self, args) -> bool:
+    def execute(self, args, called_from_conformance_test = False) -> bool:
         # Use a predefined query if requested.
         if args.predefined_query:
             args.query = self.predefined_queries[args.predefined_query]
@@ -105,6 +106,11 @@ class QueryCommand(QleverCommand):
             )
         else:
             curl_cmd_additions = ""
+        query_type = "query="
+        if called_from_conformance_test:
+            curl_cmd_additions += f" -w '\\nHTTP_STATUS:%{{http_code}}'"
+            query_type = args.content_type
+            curl_cmd_additions += f" --data-urlencode access-token={shlex.quote(args.access_token)}"
 
         # Show what the command will do.
         sparql_endpoint = (
@@ -115,7 +121,7 @@ class QueryCommand(QleverCommand):
         curl_cmd = (
             f"curl -s {sparql_endpoint}"
             f' -H "Accept: {args.accept}"'
-            f" --data-urlencode query={shlex.quote(args.query)}"
+            f" --data-urlencode {query_type}{shlex.quote(args.query)}"
             f"{curl_cmd_additions}"
         )
         self.show(curl_cmd, only_show=args.show)
@@ -125,7 +131,10 @@ class QueryCommand(QleverCommand):
         # Launch query.
         try:
             start_time = time.time()
-            run_command(curl_cmd, show_output=True)
+            if called_from_conformance_test:
+                self.query_output = run_command(curl_cmd, return_output=True)
+            else:
+                run_command(curl_cmd, show_output=True)
             time_msecs = round(1000 * (time.time() - start_time))
             if not args.no_time and args.log_level != "NO_LOG":
                 log.info("")
