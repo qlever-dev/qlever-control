@@ -218,12 +218,16 @@ def run_protocol_test(
         response = prepare_response(test, request_with_reponse, newpath)
         responses.append(response)
         tn = telnet.Telnet(server_address, int(port))
+        tn.sock.settimeout(5)
         if 'charset=UTF-16' in request_head:
             encoding = 'utf-16'
         else:
             encoding = 'utf-8'
         tn.write(request_head.encode('utf-8') + request_body.encode(encoding))
-        tn_response = tn.read_until(b"\r\n\r\n", timeout=1.7).decode('utf-8')
+        try:
+            tn_response = tn.read_all().decode('utf-8')
+        except Exception as e:
+            tn_response = str(e)
         got_responses.append(tn_response)
         matching, newpath = compare_response(response, tn_response, 'SELECT' in request_with_reponse)
         status.append(matching)
