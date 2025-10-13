@@ -1,12 +1,28 @@
+from pathlib import Path
+
 from qlever.command import QleverCommand
+from qlever.log import log
 from sparql_conformance.config import Config
-from sparql_conformance.engines.engine_manager import EngineManager
-from sparql_conformance.engines.qlever_binary import QLeverBinaryManager
-from sparql_conformance.engines.qlever import QLeverManager
-from sparql_conformance.engines.mdb import MDBManager
-from sparql_conformance.engines.oxigraph import OxigraphManager
 from sparql_conformance.extract_tests import extract_tests
 from sparql_conformance.testsuite import TestSuite
+from sparql_conformance.engines.engine_manager import EngineManager
+from sparql_conformance.engines.qlever import QLeverManager
+
+
+def get_engine_manager(engine_type: str) -> EngineManager:
+    """Get the appropriate engine manager for the given engine type"""
+    managers = {
+        'qlever': QLeverManager,
+        # 'mdb': MDBManager,
+        # 'oxigraph': OxigraphManager
+    }
+
+    manager_class = managers.get(engine_type)
+    if manager_class is None:
+        raise ValueError(f"Unsupported engine type: {engine_type}")
+
+    return manager_class()
+
 
 class TestCommand(QleverCommand):
     """
@@ -17,31 +33,9 @@ class TestCommand(QleverCommand):
         self.options = [
             'qlever',
             'qlever-binaries',
-            #'mdb',
-            #'oxigraph'
+            # 'mdb',
+            # 'oxigraph'
         ]
-        self.options_with_binaries = [
-            'qlever-binaries'
-        ]
-        self.options_with_images = [
-            'qlever',
-            'oxigraph'
-        ]
-
-    def get_engine_manager(self, engine_type: str) -> EngineManager:
-        """Get the appropriate engine manager for the given engine type"""
-        managers = {
-            'qlever-binaries': QLeverBinaryManager,
-            'qlever': QLeverManager,
-            'mdb': MDBManager,
-            'oxigraph': OxigraphManager
-        }
-
-        manager_class = managers.get(engine_type)
-        if manager_class is None:
-            raise ValueError(f"Unsupported engine type: {engine_type}")
-
-        return manager_class()
 
     def description(self) -> str:
         return "Run SPARQL conformance tests against different engines"
@@ -51,10 +45,10 @@ class TestCommand(QleverCommand):
 
     def relevant_qleverfile_arguments(self) -> dict[str: list[str]]:
         return {
-            "conformance": ["name", "port", "engine", "graph_store",
-                            "testsuite_dir", "type_alias", "exclude"],
+            "conformance": ["name", "port", "engine",
+                            "graph_store", "testsuite_dir",
+                            "type_alias", "exclude", "include", "binaries_directory"],
             "runtime": ["system"],
-            "qlever_binaries": ["binaries_directory"],
             "qlever": ["qlever_image"],
             "oxigraph": ["oxigraph_image"]
         }
@@ -64,19 +58,27 @@ class TestCommand(QleverCommand):
 
     def execute(self, args) -> bool:
         if args.engine not in self.options:
-            return False
-        if args.engine in self.options_with_binaries and args.binaries_directory is "":
+            log.error(f"Invalid engine type: {args.engine}")
             return False
         image = getattr(args, f"{args.engine}_image", None)
-        if args.engine in self.options_with_images and (image is None or args.system is "native"):
+        if (args.system == "native" and args.binaries_directory == "" or
+                args.system != "native" and image is None):
+            log.error(
+                f"Selected system {args.system} not compatible with image: {image}"
+                f" and binaries_directory: {args.binaries_directory}"
+            )
+            return False
+
+        if args.testsuite_dir is None or not Path(args.testsuite_dir).is_dir():
+            log.error("Could not find testsuite directory. Use `sparql_conformance setup` to download it.")
             return False
         alias = [tuple(x) for x in args.type_alias] if args.type_alias else []
         config = Config(image, args.system, args.port, args.graph_store, args.testsuite_dir, alias,
-                        args.binaries_directory, args.exclude)
+                        args.binaries_directory, args.exclude, args.include)
         print("Running testsuite...")
         tests, test_count = extract_tests(config)
         test_suite = TestSuite(name=args.name, tests=tests, test_count=test_count, config=config,
-                               engine_manager=self.get_engine_manager(args.engine))
+                               engine_manager=get_engine_manager(args.engine))
         test_suite.run()
         test_suite.generate_json_file()
         print("Finished!")

@@ -3,6 +3,8 @@ import os
 from pathlib import Path
 from argparse import Namespace
 from typing import Tuple, List
+import requests
+
 
 from qlever.commands.query import QueryCommand
 from qlever.log import mute_log
@@ -26,7 +28,7 @@ class QLeverManager(EngineManager):
         return "sparql"
 
     def cleanup(self, config: Config):
-        self._stop_server(config.port)
+        self._stop_server(config)
         with mute_log():
             run_command('rm -f qlever-sparql-conformance*')
 
@@ -35,18 +37,10 @@ class QLeverManager(EngineManager):
 
     def _query(self, config: Config, query: str, query_type: str, result_format: str) -> Tuple[int, str]:
         content_type = "query=" if query_type == "rq" else "update="
-        args = Namespace(
-            query=query,
-            host_name=config.server_address,
-            port=config.port,
-            sparql_endpoint=None,
+        args = util.make_args(
+            config,
             accept=util.get_accept_header(result_format),
-            access_token='abc',
-            pin_to_cache=False,
-            no_time=True,
-            predefined_query=None,
-            show=False,
-            log_level="ERROR",
+            query=query,
             content_type=content_type,
         )
 
@@ -86,14 +80,14 @@ class QLeverManager(EngineManager):
             delete_ttl_file(path)
         return index_success, server_success, index_log, server_log
 
-    def _stop_server(self, port: str) -> Tuple[bool, str]:
+    def _stop_server(self, config: Config) -> Tuple[bool, str]:
         args = Namespace(
             name='qlever-sparql-conformance',
-            port=port,
+            port=config.port,
             server_container='qlever-sparql-conformance-server-container',
-            cmdline_regex=f"^ServerMain.* -p {port}",
-            no_containers=False,
-            show=False
+            no_containers=config.system == 'native',
+            show=False,
+            cmdline_regex='ServerMain.* -i [^ ]*%%NAME%%'
         )
         try:
             with mute_log(50):
@@ -104,32 +98,11 @@ class QLeverManager(EngineManager):
         return result, 'Success'
 
     def _start_server(self, config: Config) -> Tuple[bool, str]:
-        args = Namespace(
-            name='qlever-sparql-conformance',
-            description='',
-            text_description='',
-            server_binary='ServerMain',
-            host_name=config.server_address,
-            port=config.port,
-            access_token='abc',
-            memory_for_queries='4GB',
-            cache_max_size='1GB',
-            cache_max_size_single_entry='100MB',
-            cache_max_num_entries=1000000,
-            num_threads=1,
-            timeout=None,
-            persist_updates=False,
-            only_pso_and_pos_permutations=False,
-            use_patterns=True,
-            use_text_index='no',
-            warmup_cmd=None,
-            system=config.system,
-            image=config.image,
-            server_container='qlever-sparql-conformance-server-container',
-            kill_existing_with_same_port=False,
-            no_warmup=True,
-            run_in_foreground=False,
-            show=False
+        binary = 'ServerMain'
+        binary = binary if config.system != 'native' else Path(config.path_to_binaries, binary)
+        args = util.make_args(
+            config,
+            server_binary=binary,
         )
         try:
             with mute_log():
@@ -144,27 +117,12 @@ class QLeverManager(EngineManager):
         return result, server_log
 
     def _index(self, config: Config, graph_paths: List[Tuple[str, str]]) -> Tuple[bool, str]:
-        args = Namespace(
-            name='qlever-sparql-conformance',
-            cat_input_files=None,
+        binary = 'IndexBuilderMain'
+        index_binary = binary if config.system != 'native' else Path(config.path_to_binaries, binary)
+        args = util.make_args(
+            config,
             multi_input_json=self._generate_multi_input_json(graph_paths),
-            input_files='*.ttl',
-            format='ttl',
-            settings_json='{ "num-triples-per-batch": 1000000 }',
-            system=config.system,
-            image=config.image,
-            parallel_parsing=False,
-            only_pso_and_pos_permutations=False,
-            use_patterns=True,
-            text_index=None,
-            stxxl_memory=None,
-            parser_buffer_size=None,
-            ulimit=None,
-            show=None,
-            overwrite_existing=True,
-            index_binary='IndexBuilderMain',
-            index_container='qlever-sparql-conformance-index-container',
-            vocabulary_type='on-disk-compressed'
+            index_binary=index_binary
         )
         try:
             with mute_log():
@@ -189,3 +147,11 @@ class QLeverManager(EngineManager):
             }
             input_list.append(entry)
         return json.dumps(input_list)
+
+    def activate_syntax_test_mode(self, server_address, port):
+        url = f'http://{server_address}:{port}'
+        params = {
+            "access-token": "abc",
+            "syntax-test-mode": "true"
+        }
+        requests.get(url, params)
