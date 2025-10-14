@@ -44,6 +44,7 @@ class SettingsCommand(QleverCommand):
             "lazy-result-max-cache-size",
             "query-planning-budget",
             "request-body-limit",
+            "service-max-redirects",
             "service-max-value-rows",
             "sort-estimate-cancellation-factor",
             "spatial-join-prefilter-max-size",
