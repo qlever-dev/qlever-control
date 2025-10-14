@@ -21,7 +21,7 @@ PARSER_BUFFER_SIZE = 100M
 STXXL_MEMORY       = 60G
 SETTINGS_JSON      = { "num-triples-per-batch": 10000000 }
 ULIMIT             = 50000
-ENCODE_AS_IDS      = https://www.openstreetmap.org/node/ http://www.openstreetmap.org/node/ https://www.openstreetmap.org/way/ https://www.openstreetmap.org/relation/ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmnode_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmway_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmrel_ https://www.openstreetmap.org/changeset/
+ENCODE_AS_ID       = https://www.openstreetmap.org/node/ http://www.openstreetmap.org/node/ https://www.openstreetmap.org/way/ https://www.openstreetmap.org/relation/ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmnode_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmway_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmrel_ https://www.openstreetmap.org/changeset/
 
 [server]
 PORT                        = 7007

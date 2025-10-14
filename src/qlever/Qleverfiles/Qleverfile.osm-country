@@ -25,13 +25,13 @@ INPUT_FILES       = ${data:NAME}.ttl.bz2
 CAT_INPUT_FILES   = bzcat ${data:NAME}.ttl.bz2
 STXXL_MEMORY      = 10G
 SETTINGS_JSON      = { "num-triples-per-batch": 10000000 }
-ENCODE_AS_IDS      = https://www.openstreetmap.org/node/ http://www.openstreetmap.org/node/ https://www.openstreetmap.org/way/ https://www.openstreetmap.org/relation/ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osm_node_tagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osm_node_untagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osm_way_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osm_relation_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osm_wayarea_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osm_relationarea_ https://www.openstreetmap.org/changeset/
+ENCODE_AS_ID       = https://www.openstreetmap.org/node/ http://www.openstreetmap.org/node/ https://www.openstreetmap.org/way/ https://www.openstreetmap.org/relation/ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmnode_tagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmnode_untagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmway_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmrel_ https://www.openstreetmap.org/changeset/
 
 # Server settings
 [server]
 HOSTNAME                    = localhost
 PORT                        = 7025
-ACCESS_TOKEN                = ${data:NAME}_%RANDOM%
+ACCESS_TOKEN                = ${data:NAME}
 MEMORY_FOR_QUERIES          = 20G
 CACHE_MAX_SIZE              = 10G
 CACHE_MAX_SIZE_SINGLE_ENTRY = 5G
