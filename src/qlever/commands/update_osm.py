@@ -43,7 +43,7 @@ class UpdateOsmCommand(QleverCommand):
         return True
 
     def relevant_qleverfile_arguments(self) -> dict[str: list[str]]:
-        return {"data": ["name", "polygon", "get_polygon_cmd"],
+        return {"data": ["name"],
                 "server": ["host_name", "port", "access_token"],
                 "runtime": ["system"]}
 
@@ -286,10 +286,7 @@ class UpdateOsmCommand(QleverCommand):
             # Check if the polygon file exists
             if not os.path.exists(args.polygon):
                 raise FileNotFoundError(f'No file matching "{args.polygon}"'
-                                        f' found. Did you call '
-                                        f'`qlever update-osm --get-polygon`? If'
-                                        f' you did, check POLYGON and '
-                                        f'GET_POLYGON_CMD in the QLeverfile')
+                                        f' found.')
 
             olu_cmd += f" --polygon {args.polygon}"
         # If the user has not specified a bounding box or polygon, we assume
