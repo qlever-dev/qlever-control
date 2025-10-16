@@ -1,0 +1,42 @@
+# Qleverfile for OSM Planet, use with the QLever CLI (`pip install qlever`)
+#
+# qlever get-data  # download ~100 GB (pbf), convert with osm2rdf, ~200B triples
+# qlever index     # ~40 hours, ~60 GB RAM, ~2.5 TB index size on disk
+# qlever start     # a few seconds, adjust MEMORY_FOR_QUERIES as needed
+#
+# Measured on an AMD Ryzen 9 9950X with 128 GB RAM and 4 x 8 TB NVMe (02.10.2025)
+
+[data]
+NAME         = osm-planet
+PLANET_PBF   = planet-250929.osm.pbf
+GET_DATA_URL = https://planet.openstreetmap.org/pbf/${PLANET_PBF}
+GET_PBF_CMD  = unbuffer wget -O ${PLANET_PBF} ${GET_DATA_URL}
+OSM2RDF_CMD  = unbuffer osm2rdf ${PLANET_PBF} -o ${NAME}.ttl --num-threads 20 --output-compression gz --cache . --store-locations disk-dense --iri-prefix-for-untagged-nodes http://www.openstreetmap.org/node/ --split-tag-key-by-semicolon ref --split-tag-key-by-semicolon service
+GET_DATA_CMD = ${GET_PBF_CMD} && ${OSM2RDF_CMD} 2>&1 | tee ${NAME}.osm2rdf-log.txt
+VERSION      = $$(date -r ${PLANET_PBF} +%d.%m.%Y || echo "NO_DATE")
+DESCRIPTION  = OSM from ${GET_DATA_URL}, converted to RDF using osm2rdf, enhanced by GeoSPARQL triples ogc:sfContains, ogc:sfCovers, ogc:sfIntersects, ogc:sfEquals, ogc:sfTouches, ogc:sfCrosses, ogc:sfOverlaps
+
+[index]
+INPUT_FILES        = ${data:NAME}.ttl.gz
+MULTI_INPUT_JSON   = { "cmd": "zcat ${INPUT_FILES}", "parallel": "true" }
+VOCABULARY_TYPE    = on-disk-compressed-geo-split
+PARSER_BUFFER_SIZE = 100M
+STXXL_MEMORY       = 60G
+SETTINGS_JSON      = { "num-triples-per-batch": 10000000 }
+ULIMIT             = 50000
+ENCODE_AS_ID       = https://www.openstreetmap.org/node/ http://www.openstreetmap.org/node/ https://www.openstreetmap.org/way/ https://www.openstreetmap.org/relation/ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmnode_tagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmnode_untagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmway_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmrel_ https://www.openstreetmap.org/changeset/
+
+[server]
+PORT                        = 7007
+ACCESS_TOKEN                = ${data:NAME}
+MEMORY_FOR_QUERIES          = 40G
+CACHE_MAX_SIZE              = 20G
+CACHE_MAX_SIZE_SINGLE_ENTRY = 10G
+TIMEOUT                     = 600s
+
+[runtime]
+SYSTEM = docker
+IMAGE  = docker.io/adfreiburg/qlever:latest
+
+[ui]
+UI_CONFIG = osm-planet

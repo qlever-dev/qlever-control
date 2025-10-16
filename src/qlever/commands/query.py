@@ -95,7 +95,7 @@ class QueryCommand(QleverCommand):
         if args.pin_to_cache:
             args.accept = "application/qlever-results+json"
             curl_cmd_additions = (
-                f" --data pinresult=true --data send=0"
+                f" --data pin-result=true --data send=0"
                 f" --data access-token="
                 f"{shlex.quote(args.access_token)}"
                 f" | jq .resultsize | numfmt --grouping"

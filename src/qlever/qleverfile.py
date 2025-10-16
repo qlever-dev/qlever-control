@@ -165,6 +165,14 @@ class Qleverfile:
             "large enough to contain the end of at least one statement "
             "(default: 10M)",
         )
+        index_args["encode_as_id"] = arg(
+            "--encode-as-id",
+            type=str,
+            help="Space-separated list of IRI prefixes (without angle "
+            "brackets); IRIs that start with one of these prefixes, followed "
+            "by a sequence of digits, do not require a vocabulary entry but "
+            "are directly encoded in the ID (default: none)",
+        )
         index_args["only_pso_and_pos_permutations"] = arg(
             "--only-pso-and-pos-permutations",
             action="store_true",

@@ -7,14 +7,6 @@
 # Make sure that osm2rdf is in your path. Set CONTINENT and COUNTRY such that
 # the link under GET_DATA_CMD exists (the names are usually the canonical
 # names). The time for osm2rdf is around the same as that for "qlever index".
-#
-# If you plan to use the 'osm-update' command, you should also define POLYGON
-# and GET_POLYGON_CMD, which should return a polygon that describes the area of
-# the dataset. Otherwise, the complete OSM planet data will be used to update
-# your endpoint.
-#
-# qlever get-polygon                              # downloads the .polygon file from Geofabrik, that defines the boundaries of your extract
-# qlever osm-update --granularity minute/hour/day # the endpoint will be updated every minute/hour/day
 
 # Dataset settings
 [data]
@@ -24,9 +16,7 @@ NAME              = osm-${COUNTRY}
 PBF               = ${NAME}.pbf
 WITH_TEXT         = false
 VERSION           = $$(ls -l --time-style=+%d.%m.%Y ${PBF} 2> /dev/null | cut -d' ' -f6)
-GET_DATA_CMD      = wget -nc -O ${PBF} https://download.geofabrik.de/${CONTINENT}/${COUNTRY}-latest.osm.pbf; rm -f ${NAME}.*.bz2; ( time osm2rdf ${PBF} -o ${NAME}.ttl --cache . ) 2>&1 | tee ${NAME}.osm2rdf-log.txt; rm -f spatial-*
-POLYGON           = ${NAME}.poly
-GET_POLYGON_CMD   = wget -O ${POLYGON} https://download.geofabrik.de/${CONTINENT}/${COUNTRY}.poly
+GET_DATA_CMD      = wget -nc -O ${PBF} https://download.geofabrik.de/${CONTINENT}/${COUNTRY}-latest.osm.pbf; rm -f ${NAME}.*.bz2; ( time osm2rdf ${PBF} -o ${NAME}.ttl --cache . --iri-prefix-for-untagged-nodes http://www.openstreetmap.org/node/) 2>&1 | tee ${NAME}.osm2rdf-log.txt; rm -f spatial-*
 DESCRIPTION       = OSM ${COUNTRY}, dump from ${VERSION} with ogc:sfContains
 
 # Indexer settings
@@ -34,13 +24,14 @@ DESCRIPTION       = OSM ${COUNTRY}, dump from ${VERSION} with ogc:sfContains
 INPUT_FILES       = ${data:NAME}.ttl.bz2
 CAT_INPUT_FILES   = bzcat ${data:NAME}.ttl.bz2
 STXXL_MEMORY      = 10G
-SETTINGS_JSON     = { "prefixes-external": [ "\"LINESTRING(", "\"MULTIPOLYGON(", "\"POLYGON(" ], "ascii-prefixes-only": false, "num-triples-per-batch": 1000000 }
+SETTINGS_JSON      = { "num-triples-per-batch": 10000000 }
+ENCODE_AS_ID       = https://www.openstreetmap.org/node/ http://www.openstreetmap.org/node/ https://www.openstreetmap.org/way/ https://www.openstreetmap.org/relation/ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmnode_tagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmnode_untagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmway_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmrel_ https://www.openstreetmap.org/changeset/
 
 # Server settings
 [server]
 HOSTNAME                    = localhost
 PORT                        = 7025
-ACCESS_TOKEN                = ${data:NAME}_%RANDOM%
+ACCESS_TOKEN                = ${data:NAME}
 MEMORY_FOR_QUERIES          = 20G
 CACHE_MAX_SIZE              = 10G
 CACHE_MAX_SIZE_SINGLE_ENTRY = 5G

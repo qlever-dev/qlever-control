@@ -11,7 +11,7 @@ NAME           = ohm-planet
 GET_DATA_URL   = https://planet.openhistoricalmap.org/planet
 CHECK_BINARIES = osm2rdf -h > /dev/null || (echo "osm2rdf not found, make sure that it's installed and in your PATH" && exit 1)
 GET_DATA_CMD_1 = unbuffer wget -O ${NAME}.pbf $$(curl -s ${GET_DATA_URL}/state.txt) 2>&1 | tee ${NAME}.download-log.txt
-GET_DATA_CMD_2 = osm2rdf ${NAME}.pbf -o ${NAME}.ttl --source-dataset OHM --output-compression gz --store-locations=disk-dense --cache . --num-threads 12 --add-way-node-order --no-untagged-nodes-geometric-relations 2>&1 | tee ${NAME}.osm2rdf-log.txt
+GET_DATA_CMD_2 = osm2rdf ${NAME}.pbf -o ${NAME}.ttl --source-dataset OHM --output-compression gz --store-locations=disk-dense --cache . --num-threads 12 --iri-prefix-for-untagged-nodes http://www.openhistoricalmap.org/node/ 2>&1 | tee ${NAME}.osm2rdf-log.txt
 GET_DATA_CMD   = ${CHECK_BINARIES} && ${GET_DATA_CMD_1} && echo && ${GET_DATA_CMD_2}
 VERSION        = $$(date -r ${NAME}.pbf +%d.%m.%Y || echo "NO_DATE")
 DESCRIPTION    = OHM Planet, data from ${GET_DATA_URL} version ${VERSION} (with GeoSPARQL predicates ogc:sfContains and ogc:sfIntersects)
@@ -22,6 +22,7 @@ MULTI_INPUT_JSON   = { "cmd": "zcat ${INPUT_FILES}", "parallel": "true" }
 STXXL_MEMORY       = 5G
 PARSER_BUFFER_SIZE = 50M
 SETTINGS_JSON      = { "num-triples-per-batch": 5000000 }
+ENCODE_AS_ID       = https://www.openhistoricalmap.org/node/ http://www.openhistoricalmap.org/node/ https://www.openhistoricalmap.org/way/ https://www.openhistoricalmap.org/relation/ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#ohmnode_tagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#ohmnode_untagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#ohmway_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#ohmrel_ https://www.openstreetmap.org/changeset/
 
 [server]
 PORT                        = 7037

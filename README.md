@@ -1,36 +1,29 @@
 # QLever
 
-QLever is a very fast SPARQL engine, much faster than most existing engines. It
-can handle graphs with more than hundred billion triples on a single machine
-with moderate resources. See https://qlever.cs.uni-freiburg.de for more
-information and many public SPARQL endpoints that use QLever
-
-This project provides a Python script that can control everything that QLever
-does, in particular, creating SPARQL endpoints for arbitrary RDF datasets. It
-is supposed to be very easy to use and self-explanatory as you use it. In
-particular, the tool provides context-sensitive autocompletion of all its
-commands and options. If you use a container system (like Docker or Podman),
-you don't even have to download any QLever code, but the script will download
-the required image for you.
-
-NOTE: There has been a major update on 24.03.2024, which changed some of the
-Qleverfile variables and command-line options (all for the better, of course).
-If you encounter any problems, please contact us by opening an issue on
-https://github.com/ad-freiburg/qlever-control/issues.
+This repository provides a self-documenting and easy-to-use command-line tool
+for QLever (pronounced "Clever"), a graph database implementing the
+[RDF](https://www.w3.org/TR/rdf11-concepts/) and
+[SPARQL](https://www.w3.org/TR/sparql11-overview/) standards. 
+For a detailed description of what QLever is and what it can do, see 
+[here](https://github.com/ad-freiburg/qlever).
 
 # Installation
 
-Simply do `pip install qlever` and make sure that the directory where pip
+Simply do `pip install qlever` and make sure that the directory where `pip`
 installs the package is in your `PATH`. Typically, `pip` will warn you when
-that is not the case and tell you what to do.
+that is not the case and tell you what to do. If you encounter an "Externally
+managed Environment" error, try `pipx` instead of `pip`.
+
+Type `qlever` without arguments to check that the installation worked. When
+using it for the first time, you will see a warning at the top with
+instructions on how to enable autocompletion. Do it, it makes using `qlever`
+so much easier (`pip` cannot do that for you automatically, sorry).
 
 # Usage
 
 Create an empty directory, with a name corresponding to the dataset you want to
 work with. For the following example, take `olympics`. Go to that directory
-and do the following. After the first call, `qlever` will tell you how to
-activate autocompletion for all its commands and options (it's very easy, but
-`pip` cannot do that automatically).
+and do the following.
 
 ```
 qlever setup-config olympics   # Get Qleverfile (config file) for this dataset
@@ -57,16 +50,34 @@ qlever index --show
 ```
 
 There are many more commands and options, see `qlever --help` for general help,
-`qlever <command> --help` for help on a specific command, or just the
+`qlever <command> --help` for help on a specific command, or just use the
 autocompletion.
+
+# Use on macOS and Windows
+
+By default, `qlever` uses [QLever's official Docker
+image](https://hub.docker.com/r/adfreiburg/qlever). In principle, that image
+runs on Linux, macOS, and Windows. On Linux, Docker runs natively
+and incurs only a relatively small overhead regarding performance and RAM
+consumption. On macOS and Windows, Docker runs in a virtual machine, which
+incurs a significant and sometimes unpredictable overhead. For example, `qlever
+index` might abort prematurely (without a proper error message) because the
+virtual machine runs out of RAM.
+
+For optimal performance, compile QLever from source on your machine. For Linux,
+this is relatively straightforward: just follow the `RUN` instructions in the
+[Dockerfile](https://github.com/ad-freiburg/qlever/blob/master/Dockerfile). For
+macOS, this is more complicated, see [this
+workflow](https://github.com/ad-freiburg/qlever/blob/master/.github/workflows/macos.yml).
 
 # Use with your own dataset
 
-To use QLever with your own dataset, you should also write a `Qleverfile`, like
-in the example above. The easiest way to write a `Qleverfile` is to get one of
-the existing ones (using `qlever setup-config ...` as explained above) and then
-change it according to your needs (the variable names should be self-explanatory).
-Pick one for a dataset that is similar to yours and when in doubt, pick `olympics`.
+To use QLever with your own dataset, you need a `Qleverfile`, like in the
+example above. The easiest way to write a `Qleverfile` is to get one of the
+existing ones (using `qlever setup-config ...` as explained above) and then
+change it according to your needs (the variable names should be
+self-explanatory). Pick one for a dataset that is similar to yours and when in
+doubt, pick `olympics`.
 
 # For developers
 

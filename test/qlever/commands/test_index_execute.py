@@ -45,6 +45,7 @@ class TestIndexCommand(unittest.TestCase):
         args.image = "test_image"
         args.multi_input_json = False
         args.ulimit = None
+        args.encode_as_id = None
         args.parser_buffer_size = None
 
         # Mock glob, get_total_file_size, get_existing_index_files,
@@ -250,6 +251,7 @@ class TestIndexCommand(unittest.TestCase):
         args.image = "test_image"
         args.multi_input_json = False
         args.ulimit = None
+        args.encode_as_id = None
         args.parser_buffer_size = None
 
         # Mock glob, get_total_file_size, get_existing_index_files,
@@ -357,6 +359,7 @@ class TestIndexCommand(unittest.TestCase):
         args.vocabulary_type = "on-disk-compressed"
         args.show = True
         args.ulimit = None
+        args.encode_as_id = None
         args.parser_buffer_size = None
 
         # Mock get_input_options_for_json

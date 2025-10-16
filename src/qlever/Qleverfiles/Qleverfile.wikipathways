@@ -8,7 +8,7 @@
 
 [data]
 NAME             = wikipathways
-RELEASE          = 20240810
+RELEASE          = current
 GET_DATA_URL     = https://data.wikipathways.org/${RELEASE}/rdf
 GET_DATA_CMD     = wget -O wikipathways-rdf-void.ttl ${GET_DATA_URL}/wikipathways-rdf-void.ttl && \
                     wget ${GET_DATA_URL}/wikipathways-${RELEASE}-rdf-wp.zip && \
