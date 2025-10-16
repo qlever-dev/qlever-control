@@ -56,7 +56,9 @@ class SystemInfoCommand(QleverCommand):
 
     def execute(self, args) -> bool:
         # Say what the command is doing.
-        self.show("Show system information and Qleverfile", only_show=args.show)
+        self.show(
+            "Show system information and Qleverfile", only_show=args.show
+        )
         if args.show:
             return True
 
@@ -80,13 +82,15 @@ class SystemInfoCommand(QleverCommand):
         memory_total = psutil.virtual_memory().total / (1024.0**3)
         memory_available = psutil.virtual_memory().available / (1024.0**3)
         log.info(
-            f"RAM: {memory_total:.1f} GB total, " f"{memory_available:.1f} GB available"
+            f"RAM: {memory_total:.1f} GB total, "
+            f"{memory_available:.1f} GB available"
         )
         num_cores = psutil.cpu_count(logical=False)
         num_threads = psutil.cpu_count(logical=True)
         cpu_freq = psutil.cpu_freq().max / 1000
         log.info(
-            f"CPU: {num_cores} Cores, " f"{num_threads} Threads @ {cpu_freq:.2f} GHz"
+            f"CPU: {num_cores} Cores, "
+            f"{num_threads} Threads @ {cpu_freq:.2f} GHz"
         )
 
         cwd = Path.cwd()

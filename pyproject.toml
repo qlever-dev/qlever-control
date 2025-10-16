@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "qlever"
-description = "Script for using the QLever SPARQL engine."
-version = "0.5.14"
+description = "Command-line tool for using the QLever graph database"
+version = "0.5.28"
 authors = [
     { name = "Hannah Bast", email = "bast@cs.uni-freiburg.de" }
 ]
@@ -13,21 +13,20 @@ readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.8"
 
-keywords = ["SPARQL", "RDF", "Knowledge Graphs", "Triple Store"]
+keywords = ["Graph database", "Triplestore", "Knowledge graphs", "SPARQL", "RDF"]
 
 classifiers = [
  "Topic :: Database :: Database Engines/Servers",
  "Topic :: Database :: Front-Ends"
 ]
 
-dependencies = [ "psutil", "termcolor", "argcomplete" ]
+dependencies = [ "psutil", "termcolor", "argcomplete", "pyyaml", "rdflib", "requests-sse"]
 
 [project.urls]
 Github = "https://github.com/ad-freiburg/qlever"
 
 [project.scripts]
 "qlever" = "qlever.qlever_main:main"
-"qlever-old" = "qlever.qlever_old:main"
 
 [tool.setuptools]
 license-files = ["LICENSE"]

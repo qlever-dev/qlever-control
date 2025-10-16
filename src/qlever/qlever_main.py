@@ -12,7 +12,7 @@ import traceback
 
 from termcolor import colored
 
-from qlever import command_objects
+from qlever import command_objects, script_name
 from qlever.config import ConfigException, QleverConfig
 from qlever.log import log, log_levels
 
@@ -35,21 +35,25 @@ def main():
         log.info("")
         log.info(colored(f"Command: {args.command}", attrs=["bold"]))
         log.info("")
-        commandWasSuccesful = command_object.execute(args)
+        command_successful = command_object.execute(args)
         log.info("")
-        if not commandWasSuccesful:
+        if not command_successful:
             exit(1)
     except KeyboardInterrupt:
-        log.info("")
-        log.info("Ctrl-C pressed, exiting ...")
+        log.warn("\rCtrl-C pressed, exiting ...")
         log.info("")
         exit(1)
     except Exception as e:
         # Check if it's a certain kind of `AttributeError` and give a hint in
         # that case.
+        log.debug(
+            "Command failed with exception, full traceback: "
+            f"{traceback.format_exc()}"
+        )
         match_error = re.search(r"object has no attribute '(.+)'", str(e))
         match_trace = re.search(
-            r"(qlever/commands/.+\.py)\", line (\d+)", traceback.format_exc()
+            rf"({script_name}/commands/.+\.py)\", line (\d+)",
+            traceback.format_exc(),
         )
         if isinstance(e, AttributeError) and match_error and match_trace:
             attribute = match_error.group(1)

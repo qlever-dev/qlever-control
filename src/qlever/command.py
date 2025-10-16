@@ -33,7 +33,6 @@ class QleverCommand(ABC):
 
     @abstractmethod
     def should_have_qleverfile(self) -> bool:
-
         """
         Return `True` if the command should have a Qleverfile, `False`
         otherwise. If a command should have a Qleverfile, but none is
@@ -43,7 +42,7 @@ class QleverCommand(ABC):
         pass
 
     @abstractmethod
-    def relevant_qleverfile_arguments(self) -> dict[str: list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
         """
         Retun the arguments relevant for this command. This must be a subset of
         the names of `all_arguments` defined in `QleverConfig`. Only these
@@ -81,6 +80,8 @@ class QleverCommand(ABC):
         log.info(colored(command_description, "blue"))
         log.info("")
         if only_show:
-            log.info("You called \"qlever ... --show\", therefore the command "
-                     "is only shown, but not executed (omit the \"--show\" to "
-                     "execute it)")
+            log.info(
+                'You passed the argument "--show", therefore the command '
+                'is only shown, but not executed (omit the "--show" to '
+                "execute it)"
+            )

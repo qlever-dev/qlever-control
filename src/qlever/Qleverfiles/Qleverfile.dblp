@@ -25,6 +25,7 @@ PORT               = 7015
 ACCESS_TOKEN       = ${data:NAME}
 MEMORY_FOR_QUERIES = 10G
 CACHE_MAX_SIZE     = 5G
+TIMEOUT            = 300s
 
 [runtime]
 SYSTEM = docker

@@ -10,7 +10,9 @@ import string
 import subprocess
 from datetime import date, datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
+
+import psutil
 
 from qlever.log import log
 
@@ -30,8 +32,12 @@ def get_total_file_size(patterns: list[str]) -> int:
 
 
 def run_command(
-    cmd: str, return_output: bool = False, show_output: bool = False
-) -> Optional[str]:
+    cmd: str,
+    return_output: bool = False,
+    show_output: bool = False,
+    show_stderr: bool = False,
+    use_popen: bool = False,
+) -> Optional[str | subprocess.Popen]:
     """
     Run the given command and throw an exception if the exit code is non-zero.
     If `return_output` is `True`, return what the command wrote to `stdout`.
@@ -41,31 +47,36 @@ def run_command(
 
     TODO: Find the executable for `bash` in `__init__.py`.
     """
+
     subprocess_args = {
         "executable": shutil.which("bash"),
         "shell": True,
         "text": True,
         "stdout": None if show_output else subprocess.PIPE,
-        "stderr": subprocess.PIPE,
+        "stderr": None if show_stderr else subprocess.PIPE,
     }
+
+    # With `Popen`, the command runs in the current shell and a process object
+    # is returned (which can be used, e.g., to kill the process).
+    if use_popen:
+        if return_output:
+            raise Exception("Cannot return output if `use_popen` is `True`")
+        return subprocess.Popen(f"set -o pipefail; {cmd}", **subprocess_args)
+
+    # With `run`, the command runs in a subshell and the output is captured.
     result = subprocess.run(f"set -o pipefail; {cmd}", **subprocess_args)
+
     # If the exit code is non-zero, throw an exception. If something was
     # written to `stderr`, use that as the exception message. Otherwise, use a
     # generic message (which is also what `subprocess.run` does with
     # `check=True`).
-    # log.debug(f"Command `{cmd}` returned the following result")
-    # log.debug("")
-    # log.debug(f"exit code: {result.returncode}")
-    # log.debug(f"stdout: {result.stdout}")
-    # log.debug(f"stderr: {result.stderr}")
-    # log.debug("")
     if result.returncode != 0:
         if len(result.stderr) > 0:
             raise Exception(result.stderr.replace("\n", " ").strip())
         else:
             raise Exception(
-                f"Command failed with exit code {result.returncode}"
-                f" but nothing written to stderr"
+                f"Command failed with exit code {result.returncode}, "
+                f" nothing written to stderr"
             )
     # Optionally, return what was written to `stdout`.
     if return_output:
@@ -88,7 +99,7 @@ def run_curl_command(
     default_result_file = "/tmp/qlever.curl.result"
     actual_result_file = result_file if result_file else default_result_file
     curl_cmd = (
-        f'curl -s -o "{actual_result_file}"'
+        f'curl -Ls -o "{actual_result_file}"'
         f' -w "%{{http_code}}\n" {url}'
         + "".join([f' -H "{key}: {value}"' for key, value in headers.items()])
         + "".join(
@@ -234,3 +245,85 @@ def format_size(bytes, suffix="B"):
         if bytes < factor:
             return f"{bytes:.2f} {unit}{suffix}"
         bytes /= factor
+
+
+def stop_process(proc: psutil.Process, pinfo: dict[str, Any]) -> bool:
+    """
+    Try to kill the given process, return True iff it was killed
+    successfully. The process_info is used for logging.
+    """
+    try:
+        proc.kill()
+        log.info(f"Killed process {pinfo['pid']}")
+        return True
+    except Exception as e:
+        log.error(
+            f"Could not kill process with PID "
+            f"{pinfo['pid']} ({e}) ... try to kill it "
+            f"manually"
+        )
+        log.info("")
+        show_process_info(proc, "", show_heading=True)
+        return False
+
+
+def stop_process_with_regex(cmdline_regex: str) -> list[bool] | None:
+    """
+    Given a cmdline_regex for a native process, try to kill the processes that
+    match the regex and return a list of their stopped status (bool).
+    Show the matched processes as log info.
+    """
+    stop_process_results = []
+    for proc in psutil.process_iter():
+        try:
+            pinfo = proc.as_dict(
+                attrs=[
+                    "pid",
+                    "username",
+                    "create_time",
+                    "memory_info",
+                    "cmdline",
+                ]
+            )
+            cmdline = " ".join(pinfo["cmdline"])
+        except Exception as e:
+            log.debug(f"Error getting process info: {e}")
+            return None
+        if re.search(cmdline_regex, cmdline):
+            log.info(
+                f"Found process {pinfo['pid']} from user "
+                f"{pinfo['username']} with command line: {cmdline}"
+            )
+            log.info("")
+            stop_process_results.append(stop_process(proc, pinfo))
+    return stop_process_results
+
+
+def binary_exists(binary: str, cmd_arg: str) -> bool:
+    """
+    When a command is run natively, check if the binary exists on the system
+    """
+    try:
+        run_command(f"{binary} --help")
+        return True
+    except Exception as e:
+        log.error(
+            f'Running "{binary}" failed, '
+            f"set `--{cmd_arg}` to a different binary or "
+            f"set `--system to a container system`"
+        )
+        log.info("")
+        log.info(f"The error message was: {e}")
+        return False
+
+
+def is_server_alive(url: str) -> bool:
+    """
+    Check if the server is already alive at the given endpoint url
+    """
+    check_server_cmd = f"curl -s {url}"
+    try:
+        run_command(check_server_cmd)
+        return True
+    except Exception:
+        return False

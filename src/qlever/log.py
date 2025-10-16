@@ -10,6 +10,7 @@ class QleverLogFormatter(logging.Formatter):
     """
     Custom formatter for logging.
     """
+
     def format(self, record):
         message = record.getMessage()
         if record.levelno == logging.DEBUG:
@@ -34,7 +35,7 @@ log_levels = {
     "WARNING": logging.WARNING,
     "ERROR": logging.ERROR,
     "CRITICAL": logging.CRITICAL,
-    "NO_LOG": logging.CRITICAL + 1
+    "NO_LOG": logging.CRITICAL + 1,
 }
 
 

@@ -39,7 +39,7 @@ class TestStartCommand(unittest.TestCase):
         # Test that the help text for server-url is correctly set
         argument_help = subparser._group_actions[-2].help
         self.assertEqual(
-            "URL of the QLever server, default is " "localhost:{port}",
+            "URL of the QLever server, default is {host_name}:{port}",
             argument_help,
         )
 

@@ -9,7 +9,7 @@ from pathlib import Path
 import argcomplete
 from termcolor import colored
 
-from qlever import command_objects, script_name
+from qlever import command_objects, engine_name, script_name
 from qlever.log import log, log_levels
 from qlever.qleverfile import Qleverfile
 
@@ -176,11 +176,18 @@ class QleverConfig:
         # are defined in the modules in `qlever/commands`. In `__init__.py`
         # an object of each class is created and stored in `command_objects`.
         parser = argparse.ArgumentParser(
-                description=colored("This is the qlever command line tool, "
-                                    "it's all you need to work with QLever",
-                                    attrs=["bold"]))
-        parser.add_argument("--version", action="version",
-                            version=f"%(prog)s {version('qlever')}")
+            description=colored(
+                f"This is the {script_name} command line tool, "
+                f"it's all you need to work with {engine_name}",
+                attrs=["bold"],
+            )
+        )
+        if script_name == "qlever":
+            parser.add_argument(
+                "--version",
+                action="version",
+                version=f"%(prog)s {version('qlever')}",
+            )
         add_qleverfile_option(parser)
         subparsers = parser.add_subparsers(dest='command')
         subparsers.required = True

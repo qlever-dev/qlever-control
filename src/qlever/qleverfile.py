@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import re
+import socket
 import subprocess
-from configparser import ConfigParser, ExtendedInterpolation
+from configparser import ConfigParser, ExtendedInterpolation, RawConfigParser
+from pathlib import Path
 
+from qlever import script_name
 from qlever.containerize import Containerize
 from qlever.log import log
 
@@ -76,7 +79,9 @@ class Qleverfile:
             "all the files of the dataset",
         )
         index_args["cat_input_files"] = arg(
-            "--cat-input-files", type=str, help="The command that produces the input"
+            "--cat-input-files",
+            type=str,
+            help="The command that produces the input",
         )
         index_args["multi_input_json"] = arg(
             "--multi-input-json",
@@ -103,6 +108,28 @@ class Qleverfile:
             default="{}",
             help="The `.settings.json` file for the index",
         )
+        index_args["ulimit"] = arg(
+            "--ulimit",
+            type=int,
+            default=None,
+            help="Explicitly set the limit for the maximal number of open "
+            "files (default: 1048576 when the total size of the input files "
+            "is larger than 10 GB)",
+        )
+        index_args["vocabulary_type"] = arg(
+            "--vocabulary-type",
+            type=str,
+            choices=[
+                "on-disk-compressed",
+                "on-disk-uncompressed",
+                "in-memory-compressed",
+                "in-memory-uncompressed",
+                "on-disk-compressed-geo-split",
+            ],
+            default="on-disk-compressed",
+            help="The type of the vocabulary to use for the index "
+            " (default: `on-disk-compressed`)",
+        )
         index_args["index_binary"] = arg(
             "--index-binary",
             type=str,
@@ -113,9 +140,24 @@ class Qleverfile:
         index_args["stxxl_memory"] = arg(
             "--stxxl-memory",
             type=str,
-            default="5G",
             help="The amount of memory to use for the index build "
             "(the name of the option has historical reasons)",
+        )
+        index_args["parser_buffer_size"] = arg(
+            "--parser-buffer-size",
+            type=str,
+            help="Each parser thread reads the input in batches of this size, "
+            "and in parallel parsing, each batch that is not the last must be "
+            "large enough to contain the end of at least one statement "
+            "(default: 10M)",
+        )
+        index_args["encode_as_id"] = arg(
+            "--encode-as-id",
+            type=str,
+            help="Space-separated list of IRI prefixes (without angle "
+            "brackets); IRIs that start with one of these prefixes, followed "
+            "by a sequence of digits, do not require a vocabulary entry but "
+            "are directly encoded in the ID (default: none)",
         )
         index_args["only_pso_and_pos_permutations"] = arg(
             "--only-pso-and-pos-permutations",
@@ -140,7 +182,8 @@ class Qleverfile:
                 "from_text_records_and_literals",
             ],
             default="none",
-            help="Whether to also build an index for text search" "and for which texts",
+            help="Whether to also build an index for text search"
+            "and for which texts",
         )
         index_args["text_words_file"] = arg(
             "--text-words-file",
@@ -168,10 +211,13 @@ class Qleverfile:
             "--host-name",
             type=str,
             default="localhost",
-            help="The name of the host on which the server listens for " "requests",
+            help="The name of the host on which the server listens for "
+            "requests",
         )
         server_args["port"] = arg(
-            "--port", type=int, help="The port on which the server listens for requests"
+            "--port",
+            type=int,
+            help="The port on which the server listens for requests",
         )
         server_args["access_token"] = arg(
             "--access-token",
@@ -220,6 +266,13 @@ class Qleverfile:
             type=int,
             default=8,
             help="The number of threads used for query processing",
+        )
+        server_args["persist_updates"] = arg(
+            "--persist-updates",
+            action="store_true",
+            default=False,
+            help="Persist updates to the index (write updates to disk and "
+            "read them back in when restarting the server)",
         )
         server_args["only_pso_and_pos_permutations"] = arg(
             "--only-pso-and-pos-permutations",
@@ -270,12 +323,12 @@ class Qleverfile:
         runtime_args["index_container"] = arg(
             "--index-container",
             type=str,
-            help="The name of the container used by `qlever index`",
+            help=f"The name of the container used by `{script_name} index`",
         )
         runtime_args["server_container"] = arg(
             "--server-container",
             type=str,
-            help="The name of the container used by `qlever start`",
+            help=f"The name of the container used by `{script_name} start`",
         )
 
         ui_args["ui_port"] = arg(
@@ -328,7 +381,9 @@ class Qleverfile:
 
         # Read the Qleverfile.
         defaults = {"random": "83724324hztz", "version": "01.01.01"}
-        config = ConfigParser(interpolation=ExtendedInterpolation(), defaults=defaults)
+        config = ConfigParser(
+            interpolation=ExtendedInterpolation(), defaults=defaults
+        )
         try:
             config.read(qleverfile_path)
         except Exception as e:
@@ -370,9 +425,9 @@ class Qleverfile:
             name = config["data"]["name"]
             runtime = config["runtime"]
             if "server_container" not in runtime:
-                runtime["server_container"] = f"qlever.server.{name}"
+                runtime["server_container"] = f"{script_name}.server.{name}"
             if "index_container" not in runtime:
-                runtime["index_container"] = f"qlever.index.{name}"
+                runtime["index_container"] = f"{script_name}.index.{name}"
             if "ui_container" not in config["ui"]:
                 config["ui"]["ui_container"] = f"qlever.ui.{name}"
             index = config["index"]
@@ -384,5 +439,49 @@ class Qleverfile:
         if index.get("text_index", "none") != "none":
             server["use_text_index"] = "yes"
 
+        # Add other non-trivial default values.
+        try:
+            config["server"]["host_name"] = socket.gethostname()
+        except Exception:
+            log.warning(
+                "Could not get the hostname, using `localhost` as default"
+            )
+            pass
+
         # Return the parsed Qleverfile with the added inherited values.
         return config
+
+    @staticmethod
+    def filter(
+        qleverfile_path: Path, options_included: dict[str, list[str]]
+    ) -> RawConfigParser:
+        """
+        Given a filter criteria (key: section_header, value: list[options]),
+        return a RawConfigParser object to create a new filtered Qleverfile
+        with only the specified sections and options (selects all options if
+        list[options] is empty). Mainly to be used by non-qlever scripts for
+        the setup-config command
+        """
+        # Read the Qleverfile.
+        config = RawConfigParser()
+        config.optionxform = str  # Preserve case sensitivity of keys
+        config.read(qleverfile_path)
+
+        filtered_config = RawConfigParser()
+        filtered_config.optionxform = str
+
+        for section, desired_fields in options_included.items():
+            if config.has_section(section):
+                filtered_config.add_section(section)
+
+                # If the list is empty, copy all fields
+                if not desired_fields:
+                    for field, value in config.items(section):
+                        filtered_config.set(section, field, value)
+                else:
+                    for desired_field in desired_fields:
+                        if config.has_option(section, desired_field):
+                            value = config.get(section, desired_field)
+                            filtered_config.set(section, desired_field, value)
+
+        return filtered_config

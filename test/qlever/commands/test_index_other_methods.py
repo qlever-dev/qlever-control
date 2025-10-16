@@ -33,14 +33,18 @@ class TestIndexCommand(unittest.TestCase):
                 "index": [
                     "input_files",
                     "cat_input_files",
+                    "encode_as_id",
                     "multi_input_json",
                     "parallel_parsing",
                     "settings_json",
+                    "vocabulary_type",
                     "index_binary",
                     "only_pso_and_pos_permutations",
+                    "ulimit",
                     "use_patterns",
                     "text_index",
                     "stxxl_memory",
+                    "parser_buffer_size",
                 ],
                 "runtime": ["system", "image", "index_container"],
             },
@@ -63,7 +67,7 @@ class TestIndexCommand(unittest.TestCase):
         argument_help = subparser._group_actions[-1].help
         self.assertEqual(
             argument_help,
-            "Overwrite an existing index, " "think twice before using.",
+            "Overwrite an existing index, " "think twice before using this",
         )
 
     def test_get_input_options_for_json_valid_input(self):
@@ -79,7 +83,8 @@ class TestIndexCommand(unittest.TestCase):
 
         # Expected command-line options string based on the JSON data
         expected_result = (
-            "-f <(test_data1) -g - -F json -f " "<(test_data2) -g - -F jsonld"
+            "-f <(test_data1) -g - -F json -p false "
+            "-f <(test_data2) -g - -F jsonld -p false"
         )
         self.assertEqual(result, expected_result)
 

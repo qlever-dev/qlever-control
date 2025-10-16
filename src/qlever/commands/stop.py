@@ -1,37 +1,25 @@
 from __future__ import annotations
-import re
-import psutil
+
 from qlever.command import QleverCommand
 from qlever.commands.status import StatusCommand
 from qlever.containerize import Containerize
 from qlever.log import log
-from qlever.util import show_process_info
-
-# try to kill the given process, return true iff it was killed successfully.
-# the process_info is used for logging.
-def stop_process(proc, pinfo):
-    try:
-        proc.kill()
-        log.info(f"Killed process {pinfo['pid']}")
-        return True
-    except Exception as e:
-        log.error(f"Could not kill process with PID "
-                  f"{pinfo['pid']} ({e}) ... try to kill it "
-                  f"manually")
-        log.info("")
-        show_process_info(proc, "", show_heading=True)
-        return False
+from qlever.util import stop_process_with_regex
 
 
-# try to stop and remove container. return True iff it was stopped
-# successfully. Gives log info accordingly.
-def stop_container(server_container):
+def stop_container(server_container: str) -> bool:
+    """
+    Try to stop and remove container. return True iff it was stopped
+    successfully. Gives log info accordingly.
+    """
     for container_system in Containerize.supported_systems():
         if Containerize.stop_and_remove_container(
-                container_system, server_container):
-            log.info(f"{container_system.capitalize()} container with "
-                     f"name \"{server_container}\" stopped "
-                     f" and removed")
+            container_system, server_container
+        ):
+            log.info(
+                f"{container_system.capitalize()} container with "
+                f'name "{server_container}" stopped and removed'
+            )
             return True
     return False
 
@@ -45,7 +33,7 @@ class StopCommand(QleverCommand):
         pass
 
     def description(self) -> str:
-        return "Stop QLever server for a given datasedataset or port"
+        return "Stop QLever server for a given dataset or port"
 
     def should_have_qleverfile(self) -> bool:
         return True
@@ -85,20 +73,11 @@ class StopCommand(QleverCommand):
         # Check if there is a process running on the server port using psutil.
         # NOTE: On MacOS, some of the proc's returned by psutil.process_iter()
         # no longer exist when we try to access them, so we just skip them.
-        for proc in psutil.process_iter():
-            try:
-                pinfo = proc.as_dict(
-                    attrs=['pid', 'username', 'create_time',
-                           'memory_info', 'cmdline'])
-                cmdline = " ".join(pinfo['cmdline'])
-            except Exception as e:
-                log.debug(f"Error getting process info: {e}")
-                return False
-            if re.search(cmdline_regex, cmdline):
-                log.info(f"Found process {pinfo['pid']} from user "
-                         f"{pinfo['username']} with command line: {cmdline}")
-                log.info("")
-                return stop_process(proc, pinfo)
+        stop_process_results = stop_process_with_regex(cmdline_regex)
+        if stop_process_results is None:
+            return False
+        if len(stop_process_results) > 0:
+            return all(stop_process_results)
 
         # If no matching process found, show a message and the output of the
         # status command.

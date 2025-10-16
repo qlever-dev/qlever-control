@@ -193,7 +193,7 @@ class TestStopCommand(unittest.TestCase):
     @patch("psutil.process_iter")
     @patch("qlever.containerize.Containerize.stop_and_remove_container")
     @patch("qlever.commands.stop.StopCommand.show")
-    @patch("qlever.commands.stop.show_process_info")
+    @patch("qlever.util.show_process_info")
     def test_execute_with_error_killing_process(
         self,
         mock_show_process_info,

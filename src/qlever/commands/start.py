@@ -10,11 +10,11 @@ from qlever.commands.stop import StopCommand
 from qlever.commands.warmup import WarmupCommand
 from qlever.containerize import Containerize
 from qlever.log import log
-from qlever.util import is_qlever_server_alive, run_command
+from qlever.util import binary_exists, is_qlever_server_alive, run_command
 
 
 # Construct the command line based on the config file.
-def construct_command_line(args) -> str:
+def construct_command(args) -> str:
     start_cmd = (
         f"{args.server_binary}"
         f" -i {args.name}"
@@ -30,6 +30,8 @@ def construct_command_line(args) -> str:
         start_cmd += f" -s {args.timeout}"
     if args.access_token:
         start_cmd += f" -a {args.access_token}"
+    if args.persist_updates:
+        start_cmd += " --persist-updates"
     if args.only_pso_and_pos_permutations:
         start_cmd += " --only-pso-and-pos-permutations"
     if not args.use_patterns:
@@ -53,7 +55,7 @@ def kill_existing_server(args) -> bool:
 
 
 # Run the command in a container
-def run_command_in_container(args, start_cmd) -> str:
+def wrap_command_in_container(args, start_cmd) -> str:
     if not args.server_container:
         args.server_container = f"qlever.server.{args.name}"
     start_cmd = Containerize().containerize_command(
@@ -69,24 +71,8 @@ def run_command_in_container(args, start_cmd) -> str:
     return start_cmd
 
 
-# When running natively, check if the binary exists and works.
-def check_binary(binary) -> bool:
-    try:
-        run_command(f"{binary} --help")
-        return True
-    except Exception as e:
-        log.error(
-            f'Running "{binary}" failed, '
-            f"set `--server-binary` to a different binary or "
-            f"set `--system to a container system`"
-        )
-        log.info("")
-        log.info(f"The error message was: {e}")
-        return False
-
-
-# Set the access token if specified. Try to set the index description
-def setting_index_description(access_arg, port, desc) -> bool:
+# Set the index description.
+def set_index_description(access_arg, port, desc) -> bool:
     curl_cmd = (
         f"curl -Gs http://localhost:{port}/api"
         f' --data-urlencode "index-description={desc}"'
@@ -101,8 +87,8 @@ def setting_index_description(access_arg, port, desc) -> bool:
     return True
 
 
-# Set the access token if specified. Try to set the text description
-def setting_text_description(access_arg, port, text_desc) -> bool:
+# Set the text description.
+def set_text_description(access_arg, port, text_desc) -> bool:
     curl_cmd = (
         f"curl -Gs http://localhost:{port}/api"
         f' --data-urlencode "text-description={text_desc}"'
@@ -148,6 +134,7 @@ class StartCommand(QleverCommand):
                 "cache_max_num_entries",
                 "num_threads",
                 "timeout",
+                "persist_updates",
                 "only_pso_and_pos_permutations",
                 "use_patterns",
                 "use_text_index",
@@ -157,12 +144,6 @@ class StartCommand(QleverCommand):
         }
 
     def additional_arguments(self, subparser) -> None:
-        # subparser.add_argument("--kill-existing-with-same-name",
-        #                        action="store_true",
-        #                        default=False,
-        #                        help="If a QLever server is already running "
-        #                             "with the same name, kill it before "
-        #                             "starting a new server")
         subparser.add_argument(
             "--kill-existing-with-same-port",
             action="store_true",
@@ -176,6 +157,13 @@ class StartCommand(QleverCommand):
             action="store_true",
             default=False,
             help="Do not execute the warmup command",
+        )
+        subparser.add_argument(
+            "--run-in-foreground",
+            action="store_true",
+            default=False,
+            help="Run the server in the foreground "
+            "(default: run in the background with `nohup`)",
         )
 
     def execute(self, args) -> bool:
@@ -197,12 +185,15 @@ class StartCommand(QleverCommand):
                 return False
 
         # Construct the command line based on the config file.
-        start_cmd = construct_command_line(args)
+        start_cmd = construct_command(args)
 
         # Run the command in a container (if so desired). Otherwise run with
-        # `nohup` so that it keeps running after the shell is closed.
+        # `nohup` so that it keeps running after the shell is closed. With
+        # `--run-in-foreground`, run the server in the foreground.
         if args.system in Containerize.supported_systems():
-            start_cmd = run_command_in_container(args, start_cmd)
+            start_cmd = wrap_command_in_container(args, start_cmd)
+        elif args.run_in_foreground:
+            start_cmd = f"{start_cmd}"
         else:
             start_cmd = f"nohup {start_cmd} &"
 
@@ -213,11 +204,11 @@ class StartCommand(QleverCommand):
 
         # When running natively, check if the binary exists and works.
         if args.system == "native":
-            if not check_binary(args.server_binary):
+            if not binary_exists(args.server_binary, "server-binary"):
                 return False
 
         # Check if a QLever server is already running on this port.
-        endpoint_url = f"http://localhost:{args.port}"
+        endpoint_url = f"http://{args.host_name}:{args.port}"
         if is_qlever_server_alive(endpoint_url):
             log.error(f"QLever server already running on {endpoint_url}")
             log.info("")
@@ -254,7 +245,10 @@ class StartCommand(QleverCommand):
 
         # Execute the command line.
         try:
-            run_command(start_cmd)
+            process = run_command(
+                start_cmd,
+                use_popen=args.run_in_foreground,
+            )
         except Exception as e:
             log.error(f"Starting the QLever server failed ({e})")
             return False
@@ -262,30 +256,40 @@ class StartCommand(QleverCommand):
         # Tail the server log until the server is ready (note that the `exec`
         # is important to make sure that the tail process is killed and not
         # just the bash process).
-        log.info(
-            f"Follow {args.name}.server-log.txt until the server is ready"
-            f" (Ctrl-C stops following the log, but not the server)"
-        )
+        if args.run_in_foreground:
+            log.info(
+                f"Follow {args.name}.server-log.txt as long as the server is"
+                f" running (Ctrl-C stops the server)"
+            )
+        else:
+            log.info(
+                f"Follow {args.name}.server-log.txt until the server is ready"
+                f" (Ctrl-C stops following the log, but NOT the server)"
+            )
         log.info("")
         tail_cmd = f"exec tail -f {args.name}.server-log.txt"
         tail_proc = subprocess.Popen(tail_cmd, shell=True)
         while not is_qlever_server_alive(endpoint_url):
             time.sleep(1)
 
-        # Set the access token if specified.
+        # Set the description for the index and text.
         access_arg = f'--data-urlencode "access-token={args.access_token}"'
-        if args.description and not setting_index_description(
-            access_arg, args.port, args.description
-        ):
-            return False
-
-        if args.text_description and not setting_text_description(
-            access_arg, args.port, args.text_description
-        ):
-            return False
+        if args.description:
+            ret = set_index_description(
+                access_arg, args.port, args.description
+            )
+            if not ret:
+                return False
+        if args.text_description:
+            ret = set_text_description(
+                access_arg, args.port, args.text_description
+            )
+            if not ret:
+                return False
 
         # Kill the tail process. NOTE: `tail_proc.kill()` does not work.
-        tail_proc.terminate()
+        if not args.run_in_foreground:
+            tail_proc.terminate()
 
         # Execute the warmup command.
         if args.warmup_cmd and not args.no_warmup:
@@ -295,8 +299,18 @@ class StartCommand(QleverCommand):
                 return False
 
         # Show cache stats.
-        log.info("")
-        args.detailed = False
-        args.server_url = None
-        CacheStatsCommand().execute(args)
+        if not args.run_in_foreground:
+            log.info("")
+            args.detailed = False
+            args.server_url = None
+            CacheStatsCommand().execute(args)
+
+        # With `--run-in-foreground`, wait until the server is stopped.
+        if args.run_in_foreground:
+            try:
+                process.wait()
+            except KeyboardInterrupt:
+                process.terminate()
+            tail_proc.terminate()
+
         return True

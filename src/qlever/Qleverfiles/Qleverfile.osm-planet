@@ -1,32 +1,35 @@
-# Qleverfile for OSM Planet, use with the qlever script (pip install qlever)
+# Qleverfile for OSM Planet, use with the QLever CLI (`pip install qlever`)
 #
-# qlever get-data  # takes ~50 mins to download .ttl.bz2 file of ~ 300 GB
-# qlever index     # takes ~12 hours and ~20 GB RAM (on an AMD Ryzen 9 5900X)
-# qlever start     # takes a few seconds
+# qlever get-data  # downloads ~400 GB (ttl.bz2), ~100 B triples
+# qlever index     # ~20 hours, ~60 GB RAM, ~1.5 TB index size on disk
+# qlever start     # a few seconds, adjust MEMORY_FOR_QUERIES as needed
 #
-# For the OSM data of a single country, do `qlever setup-config osm-country`
-# and edit the Qleverfile to specify the country,
+# Measured on an AMD Ryzen 9 7950X with 128 GB RAM and 2 x 8 TB NVMe (04.01.2025)
 
 [data]
 NAME         = osm-planet
-DATA_URL     = https://osm2rdf.cs.uni-freiburg.de/ttl/planet.osm.ttl.bz2
-GET_DATA_CMD = curl --location --fail --continue-at - --remote-time --output ${NAME}.ttl.bz2 ${DATA_URL}
+GET_DATA_URL = https://osm2rdf.cs.uni-freiburg.de/ttl/planet.osm.ttl.bz2
+GET_DATA_CMD = unbuffer wget -O ${NAME}.ttl.bz2 ${GET_DATA_URL} | tee ${NAME}.download-log.txt
 VERSION      = $$(date -r ${NAME}.ttl.bz2 +"%d.%m.%Y" || echo "NO_DATE")
-DESCRIPTION  = OSM Planet, data from ${DATA_URL} version ${VERSION} (complete OSM data, with GeoSPARQL predicates ogc:sfContains and ogc:sfIntersects)
+DESCRIPTION  = OSM from ${GET_DATA_URL} (converted to RDF using osm2rdf, enhanced by GeoSPARQL triples ogc:sfContains, ogc:sfCovers, ogc:sfIntersects, ogc:sfEquals, ogc:sfTouches, ogc:sfCrosses, ogc:sfOverlaps)
 
 [index]
-INPUT_FILES     = ${data:NAME}.ttl.bz2
-CAT_INPUT_FILES = lbzcat -f -n 2 ${INPUT_FILES}
-STXXL_MEMORY    = 20G
-SETTINGS_JSON   = { "languages-internal": [], "prefixes-external": [""], "ascii-prefixes-only": false, "num-triples-per-batch": 5000000 }
+INPUT_FILES        = ${data:NAME}.ttl.bz2
+MULTI_INPUT_JSON   = { "cmd": "lbzcat -n 2 ${INPUT_FILES}", "parallel": "true" }
+VOCABULARY_TYPE    = on-disk-compressed-geo-split
+PARSER_BUFFER_SIZE = 100M
+STXXL_MEMORY       = 60G
+SETTINGS_JSON      = { "num-triples-per-batch": 10000000 }
+ULIMIT             = 50000
+ENCODE_AS_ID       = https://www.openstreetmap.org/node/ http://www.openstreetmap.org/node/ https://www.openstreetmap.org/way/ https://www.openstreetmap.org/relation/ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmnode_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmway_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmrel_ https://www.openstreetmap.org/changeset/
 
 [server]
 PORT                        = 7007
 ACCESS_TOKEN                = ${data:NAME}
-MEMORY_FOR_QUERIES          = 90G
-CACHE_MAX_SIZE              = 40G
-CACHE_MAX_SIZE_SINGLE_ENTRY = 30G
-TIMEOUT                     = 300s
+MEMORY_FOR_QUERIES          = 40G
+CACHE_MAX_SIZE              = 20G
+CACHE_MAX_SIZE_SINGLE_ENTRY = 20G
+TIMEOUT                     = 600s
 
 [runtime]
 SYSTEM = docker
