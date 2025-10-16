@@ -136,12 +136,6 @@ class UpdateOsmCommand(QleverCommand):
         raise UserInterruptException()
 
     def execute(self, args) -> bool:
-        # If the '--get-polygon' flag is set, we download the polygon and
-        # return.
-        if args.get_polygon:
-            self.get_polygon(args)
-            return True
-
         # If the user has specified a replication server, use that one,
         # otherwise we use the planet replication server with the specified
         # granularity.
