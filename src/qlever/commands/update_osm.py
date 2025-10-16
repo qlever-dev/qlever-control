@@ -96,11 +96,11 @@ class UpdateOsmCommand(QleverCommand):
                  " to use when running natively.",
         )
         subparser.add_argument(
-            "--get-polygon",
-            action='store_true',
-            default=False,
-            help="If set, the command will get the polygon for an OSM country"
-                 " extract using the GET_POLYGON_CMD in the Qleverfile."
+            "--polygon",
+            type=str,
+            default=None,
+            help="The name of the file containing the polygon for an OSM "
+                 "extract",
         )
 
     # Handle Ctrl+C gracefully by finishing the current update and then
@@ -313,23 +313,3 @@ class UpdateOsmCommand(QleverCommand):
                 working_directory="/update",
                 use_bash=False
             )
-
-    def get_polygon(self, args) -> bool:
-        # Construct the command line and show it.
-        self.show(args.get_polygon_cmd, only_show=args.show)
-        if args.show:
-            return True
-
-        # Execute the command line.
-        try:
-            run_command(args.get_polygon_cmd, show_output=True)
-        except Exception as e:
-            log.error(f"Problem executing \"{args.get_polygon_cmd}\": {e}")
-            return False
-
-        # Show the total file size in GB and return.
-        patterns = shlex.split(args.polygon)
-        total_file_size = get_total_file_size(patterns)
-        print(f"Download successful, total file size: "
-              f"{total_file_size:,} bytes")
-        return True
