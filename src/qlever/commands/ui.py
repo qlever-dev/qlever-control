@@ -54,6 +54,10 @@ class UiCommand(QleverCommand):
         server_url = f"http://{args.host_name}:{args.port}"
         ui_url = f"http://{args.host_name}:{args.ui_port}"
         pull_cmd = f"{args.ui_system} pull -q {args.ui_image}"
+        cmd = Containerize().containerize_command(
+            cmd="python manage.py configure",
+            ports=args.ui_portm
+        )
         run_cmd = (
             f"{args.ui_system} run -d "
             f"--publish {args.ui_port}:7000 "
@@ -61,7 +65,7 @@ class UiCommand(QleverCommand):
             f"{args.ui_image}"
         )
         exec_cmd = (
-            f"{args.ui_system} exec -it "
+            f"{args.ui_system} exec " # -it
             f"{args.ui_container} "
             f'bash -c "python manage.py configure '
             f'{args.ui_config} {server_url}"'

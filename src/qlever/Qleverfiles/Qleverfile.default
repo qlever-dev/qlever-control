@@ -38,7 +38,7 @@ ACCESS_TOKEN =
 # will be downloaded automatically. Use SYSTEM = native to use self-compiled
 # binaries `IndexBuilderMain` and `ServerMain` (which should be in you PATH).
 [runtime]
-SYSTEM = docker
+SYSTEM = singularity
 IMAGE  = docker.io/adfreiburg/qlever:latest
 
 # UI_PORT specifies the port of the QLever UI web app, when you run `qlever ui`.

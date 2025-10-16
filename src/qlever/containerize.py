@@ -28,7 +28,7 @@ class Containerize:
         Return a list of the supported container systems. Make sure that they
         are all indeed supported by `containerize_command` below.
         """
-        return ["docker", "podman"]
+        return ["docker", "podman", "singularity"]
 
     @staticmethod
     def containerize_command(
@@ -85,6 +85,31 @@ class Containerize:
             f" --name {container_name} {image_name}"
             f" -c {shlex.quote(cmd)}"
         )
+
+        if container_system == "singularity":
+            print("using singularity")
+            if run_subcommand == "run -d --restart=unless-stopped":
+                run_subcommand = "exec --containall --cleanenv"
+            elif run_subcommand == "run --rm":
+                run_subcommand = "exec --containall --cleanenv  --writable-tmpfs"
+                
+            else:
+                raise ValueError(f"{run_subcommand} not implemented for singularity")
+            volume_options = volume_options.replace("-v", "--bind")
+            working_directory_option= working_directory_option.replace("-w", "--pwd")
+            image_name = image_name.replace("docker.io", "docker:/")
+            cmd = f"mkdir /index -p; {cmd}"
+            containerized_cmd = (
+                f"{container_system} {run_subcommand} "
+                f"{user_option} "
+                f"--bind  /etc/localtime:/etc/localtime:ro "
+                f" {volume_options} "
+                f"{working_directory_option} "
+                f"  {image_name} "
+                f" bash -c {shlex.quote(cmd)}"
+            )
+            print(containerized_cmd)
+        
         return containerized_cmd
 
     @staticmethod
