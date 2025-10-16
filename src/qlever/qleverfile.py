@@ -70,20 +70,6 @@ class Qleverfile:
             choices=["ttl", "nt", "nq"],
             help="The format of the data",
         )
-        data_args["polygon"] = arg(
-            "--polygon",
-            type=str,
-            default=None,
-            help="The name of the file containing the polygon for an OSM "
-                 "extract",
-        )
-        data_args["get_polygon_cmd"] = arg(
-            "--get-polygon-cmd",
-            type=str,
-            default=None,
-            help="The command to get the polygon defining the area for an OSM "
-                 "extract",
-        )
 
         index_args["input_files"] = arg(
             "--input-files",
