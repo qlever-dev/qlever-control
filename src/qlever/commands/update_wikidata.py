@@ -119,13 +119,14 @@ class UpdateWikidataCommand(QleverCommand):
     # Handle Ctrl+C gracefully by finishing the current batch and then exiting.
     def handle_ctrl_c(self, signal_received, frame):
         if self.ctrl_c_pressed:
-            log.warn("\rCtrl+C pressed again, undoing the previous Ctrl+C")
-            self.ctrl_c_pressed = False
+            log.warn(
+                "\rPressing Ctrl+C again does not speed things up"
+                ", you have to learn to be patient!"
+            )
         else:
             self.ctrl_c_pressed = True
             log.warn(
                 "\rCtrl+C pressed, will finish the current batch and then exit"
-                " [press Ctrl+C again to continue]"
             )
 
     def execute(self, args) -> bool:
@@ -175,10 +176,7 @@ class UpdateWikidataCommand(QleverCommand):
 
         # Special handling of Ctrl+C, see `handle_ctrl_c` above.
         signal.signal(signal.SIGINT, self.handle_ctrl_c)
-        log.warn(
-            "Press Ctrl+C to finish the current batch and end gracefully, "
-            "press Ctrl+C again to continue with the next batch"
-        )
+        log.warn("Press Ctrl+C to finish the current batch and end gracefully")
         log.info("")
         log.info(f"SINCE={args.since}")
         log.info("")
@@ -206,6 +204,7 @@ class UpdateWikidataCommand(QleverCommand):
             # Beginning of a new batch of messages.
             if current_batch_size == 0:
                 date_list = []
+                delete_entity_id = None
                 delta_to_now_list = []
                 batch_assembly_start_time = time.perf_counter()
                 insert_triples = set()
@@ -249,7 +248,8 @@ class UpdateWikidataCommand(QleverCommand):
                 # date = event_data.get("dt")
                 date = re.sub(r"\.\d*Z$", "Z", date)
                 # entity_id = event_data.get("entity_id")
-                # operation = event_data.get("operation")
+                entity_id = event_data.get("entity_id")
+                operation = event_data.get("operation")
                 rdf_added_data = event_data.get("rdf_added_data")
                 rdf_deleted_data = event_data.get("rdf_deleted_data")
                 rdf_linked_shared_data = event_data.get(
@@ -258,6 +258,10 @@ class UpdateWikidataCommand(QleverCommand):
                 rdf_unlinked_shared_data = event_data.get(
                     "rdf_unlinked_shared_data"
                 )
+
+                # Delete operations are not supported yet.
+                if operation == "delete":
+                    delete_entity_id = entity_id
 
                 # Process the to-be-deleted triples.
                 for rdf_to_be_deleted in (
@@ -355,6 +359,11 @@ class UpdateWikidataCommand(QleverCommand):
                         f"second{'s' if args.lag_seconds > 1 else ''} "
                         f"of the current time, finishing the current batch"
                     )
+                elif delete_entity_id:
+                    log.warn(
+                        f"Encountered delete operation (for entity "
+                        f"{delete_entity_id}), finishing the current batch"
+                    )
                 else:
                     continue
 
@@ -381,7 +390,9 @@ class UpdateWikidataCommand(QleverCommand):
             )
             wait_before_next_batch = (
                 args.wait_between_batches is not None
+                and args.wait_between_batches > 0
                 and current_batch_size < args.batch_size
+                and not delete_entity_id
             )
             current_batch_size = 0
 
@@ -410,14 +421,37 @@ class UpdateWikidataCommand(QleverCommand):
                 f"^^<http://www.w3.org/2001/XMLSchema#dateTime>"
             )
 
-            # Construct update operation.
+            # Construct UPDATE operation.
             delete_block = " . \n  ".join(delete_triples)
             insert_block = " . \n  ".join(insert_triples)
             delete_insert_operation = (
-                f"DELETE {{\n  {delete_block} .\n}} "
-                f"INSERT {{\n  {insert_block} .\n}} "
+                f"DELETE {{\n  {delete_block} \n}} "
+                f"INSERT {{\n  {insert_block} \n}} "
                 f"WHERE {{ }}\n"
             )
+
+            # If we have an entity delete (at most one, and it ends the batch),
+            # add a `DELETE WHERE` operation that deletes all triples
+            # associated with only that entity.
+            if delete_entity_id:
+                delete_where_operation = (
+                    f"PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n"
+                    f"PREFIX wikibase: <http://wikiba.se/ontology#>\n"
+                    f"PREFIX wd: <http://www.wikidata.org/entity/>\n"
+                    f"DELETE {{\n"
+                    f"  ?s ?p ?o .\n"
+                    f"}} WHERE {{\n"
+                    f"  {{\n"
+                    f"    VALUES ?s {{ wd:{delete_entity_id} }}\n"
+                    f"    ?s ?p ?o .\n"
+                    f"  }} UNION {{\n"
+                    f"    wd:{delete_entity_id} ?_ ?s .\n"
+                    f"    ?s ?p ?o .\n"
+                    f"    ?s rdf:type wikibase:Statement .\n"
+                    f"  }}\n"
+                    f"}}\n"
+                )
+                delete_insert_operation += ";\n" + delete_where_operation
 
             # Construct curl command. For batch size 1, send the operation via
             # `--data-urlencode`, otherwise write to file and send via `--data-binary`.
@@ -455,8 +489,6 @@ class UpdateWikidataCommand(QleverCommand):
             # Results should be a JSON, parse it.
             try:
                 result = json.loads(result)
-                if isinstance(result, list):
-                    result = result[0]
             except Exception as e:
                 log.error(
                     f"Error parsing JSON result: {e}"
@@ -473,93 +505,126 @@ class UpdateWikidataCommand(QleverCommand):
                 log.info("")
                 continue
 
-            # Helper function for getting the value of `result["time"][...]`
-            # without the "ms" suffix.
-            def get_time_ms(*keys: str) -> int:
-                value = result["time"]
-                for key in keys:
-                    value = value[key]
-                return int(value)
-                # return int(re.sub(r"ms$", "", value))
+            # Helper function for getting the value of `stats["time"][...]`
+            # without the "ms" suffix. If the extraction fails, return 0
+            # (and optionally log the failure).
+            def get_time_ms(stats, *keys: str, log_fail: bool = False) -> int:
+                try:
+                    value = stats["time"]
+                    for key in keys:
+                        value = value[key]
+                    value = int(value)
+                except Exception:
+                    if log_fail:
+                        log.error(
+                            f"Error extracting time from JSON statistics, "
+                            f"keys: {keys}"
+                        )
+                    value = 0
+                return value
 
-            # Show statistics of the update operation.
-            try:
-                ins_after = result["delta-triples"]["after"]["inserted"]
-                del_after = result["delta-triples"]["after"]["deleted"]
-                ops_after = result["delta-triples"]["after"]["total"]
-                num_ins = int(result["delta-triples"]["operation"]["inserted"])
-                num_del = int(result["delta-triples"]["operation"]["deleted"])
-                num_ops = int(result["delta-triples"]["operation"]["total"])
-                time_ms = get_time_ms("total")
-                time_us_per_op = int(1000 * time_ms / num_ops)
-                log.info(
-                    colored(
-                        f"NUM_OPS: {num_ops:+6,} -> {ops_after:6,}, "
-                        f"INS: {num_ins:+6,} -> {ins_after:6,}, "
-                        f"DEL: {num_del:+6,} -> {del_after:6,}, "
-                        f"TIME: {time_ms:7,} ms, "
-                        f"TIME/OP: {time_us_per_op:,} µs",
-                        attrs=["bold"],
+            # If the batch ended due to a delete operation, we have two
+            # operations (and two statistics), otherwise only one.
+            for i, stats in enumerate(result):
+                # Show statistics of the update operation.
+                try:
+                    ins_after = stats["delta-triples"]["after"]["inserted"]
+                    del_after = stats["delta-triples"]["after"]["deleted"]
+                    ops_after = stats["delta-triples"]["after"]["total"]
+                    num_ins = int(
+                        stats["delta-triples"]["operation"]["inserted"]
                     )
-                )
-
-                # Also show a detailed breakdown of the total time.
-                time_preparation = get_time_ms(
-                    "execution", "processUpdateImpl", "preparation"
-                )
-                time_insert = get_time_ms(
-                    "execution", "processUpdateImpl", "insertTriples", "total"
-                )
-                time_delete = get_time_ms(
-                    "execution", "processUpdateImpl", "deleteTriples", "total"
-                )
-                time_snapshot = get_time_ms("execution", "snapshotCreation")
-                time_writeback = get_time_ms("execution", "diskWriteback")
-                time_unaccounted = time_ms - (
-                    time_delete
-                    + time_insert
-                    + time_preparation
-                    + time_snapshot
-                    + time_writeback
-                )
-                log.info(
-                    f"PREPARATION: {100 * time_preparation / time_ms:2.0f}%, "
-                    # f"PLANNING: {100 * time_planning / time_ms:2.0f}%, "
-                    f"INSERT: {100 * time_insert / time_ms:2.0f}%, "
-                    f"DELETE: {100 * time_delete / time_ms:2.0f}%, "
-                    f"SNAPSHOT: {100 * time_snapshot / time_ms:2.0f}%, "
-                    f"WRITEBACK: {100 * time_writeback / time_ms:2.0f}%, "
-                    f"UNACCOUNTED: {100 * time_unaccounted / time_ms:2.0f}%",
-                )
-
-                # Show the totals so far.
-                total_num_ops += num_ops
-                total_time_s += time_ms / 1000.0
-                elapsed_time_s = time.perf_counter() - start_time
-                time_us_per_op = int(1e6 * total_time_s / total_num_ops)
-                log.info(
-                    colored(
-                        f"TOTAL NUM_OPS SO FAR: {total_num_ops:8,}, "
-                        f"TOTAL UPDATE TIME SO FAR: {total_time_s:4.0f} s, "
-                        f"ELAPSED TIME SO FAR: {elapsed_time_s:4.0f} s, "
-                        f"AVG TIME/OP SO FAR: {time_us_per_op:,} µs",
-                        attrs=["bold"],
+                    num_del = int(
+                        stats["delta-triples"]["operation"]["deleted"]
                     )
+                    num_ops = int(stats["delta-triples"]["operation"]["total"])
+                    time_ms = get_time_ms(stats, "total")
+                    time_us_per_op = int(1000 * time_ms / num_ops)
+                    time_us_per_op_str = (
+                        f"TIME/OP: {time_us_per_op:,} µs"
+                        if i == 0
+                        else "single DELETE WHERE"
+                    )
+                    log.info(
+                        colored(
+                            f"TRIPLES: {num_ops:+8,} -> {ops_after:8,}, "
+                            f"INS: {num_ins:+8,} -> {ins_after:8,}, "
+                            f"DEL: {num_del:+8,} -> {del_after:8,}, "
+                            f"TIME: {time_ms:7,} ms, {time_us_per_op_str}",
+                            attrs=["bold"],
+                        )
+                    )
+
+                    # Also show a detailed breakdown of the total time.
+                    time_preparation = get_time_ms(
+                        stats, "execution", "processUpdateImpl", "preparation"
+                    )
+                    time_insert = get_time_ms(
+                        stats,
+                        "execution",
+                        "processUpdateImpl",
+                        "insertTriples",
+                        "total",
+                        log_fail=False,
+                    )
+                    time_delete = get_time_ms(
+                        stats,
+                        "execution",
+                        "processUpdateImpl",
+                        "deleteTriples",
+                        "total",
+                        log_fail=False,
+                    )
+                    time_snapshot = get_time_ms(
+                        stats, "execution", "snapshotCreation"
+                    )
+                    time_writeback = get_time_ms(
+                        stats, "execution", "diskWriteback"
+                    )
+                    time_unaccounted = time_ms - (
+                        time_delete
+                        + time_insert
+                        + time_preparation
+                        + time_snapshot
+                        + time_writeback
+                    )
+                    log.info(
+                        f"PREPARATION: {100 * time_preparation / time_ms:2.0f}%, "
+                        f"INSERT: {100 * time_insert / time_ms:2.0f}%, "
+                        f"DELETE: {100 * time_delete / time_ms:2.0f}%, "
+                        f"SNAPSHOT: {100 * time_snapshot / time_ms:2.0f}%, "
+                        f"WRITEBACK: {100 * time_writeback / time_ms:2.0f}%, "
+                        f"UNACCOUNTED: {100 * time_unaccounted / time_ms:2.0f}%",
+                    )
+
+                    # Update the totals.
+                    total_num_ops += num_ops
+                    total_time_s += time_ms / 1000.0
+                    elapsed_time_s = time.perf_counter() - start_time
+                    time_us_per_op = int(1e6 * total_time_s / total_num_ops)
+
+                except Exception as e:
+                    log.warn(
+                        f"Error extracting statistics: {e}, "
+                        f"curl command was: {curl_cmd}"
+                    )
+                    # Show traceback for debugging.
+                    import traceback
+
+                    traceback.print_exc()
+                    log.info("")
+                    continue
+
+            # After each batch, show total statistics so far.
+            log.info(
+                colored(
+                    f"TOTAL TRIPLES SO FAR: {total_num_ops:8,}, "
+                    f"TOTAL UPDATE TIME SO FAR: {total_time_s:4.0f} s, "
+                    f"ELAPSED TIME SO FAR: {elapsed_time_s:4.0f} s, "
+                    f"AVG TIME/OP SO FAR: {time_us_per_op:,} µs",
+                    attrs=["bold"],
                 )
-
-            except Exception as e:
-                log.warn(
-                    f"Error extracting statistics: {e}, "
-                    f"curl command was: {curl_cmd}"
-                )
-                # Show traceback for debugging.
-                import traceback
-
-                traceback.print_exc()
-                log.info("")
-                continue
-
-            # Stop after processing the specified number of batches.
+            )
             log.info("")
 
         # Final statistics after all batches have been processed.
@@ -572,7 +637,7 @@ class UpdateWikidataCommand(QleverCommand):
         )
         log.info(
             colored(
-                f"TOTAL NUM_OPS: {total_num_ops:8,}, "
+                f"TOTAL TRIPLES: {total_num_ops:8,}, "
                 f"TOTAL TIME: {total_time_s:4.0f} s, "
                 f"ELAPSED TIME: {elapsed_time_s:4.0f} s, "
                 f"AVG TIME/OP: {time_us_per_op:,} µs",
