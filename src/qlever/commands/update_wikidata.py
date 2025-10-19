@@ -565,9 +565,9 @@ class UpdateWikidataCommand(QleverCommand):
                     time_us_per_op = int(1000 * time_ms / num_ops)
                     log.info(
                         colored(
-                            f"TRIPLES: {num_ops:+8,} -> {ops_after:8,}, "
-                            f"INS: {num_ins:+8,} -> {ins_after:8,}, "
-                            f"DEL: {num_del:+8,} -> {del_after:8,}, "
+                            f"TRIPLES: {num_ops:+10,} -> {ops_after:10,}, "
+                            f"INS: {num_ins:+10,} -> {ins_after:10,}, "
+                            f"DEL: {num_del:+10,} -> {del_after:10,}, "
                             f"TIME: {time_ms:7,} ms, "
                             f"TIME/TRIPLE: {time_us_per_op:6,} µs",
                             attrs=["bold"],
@@ -637,7 +637,7 @@ class UpdateWikidataCommand(QleverCommand):
             # After each batch, show total statistics so far.
             log.info(
                 colored(
-                    f"TOTAL TRIPLES SO FAR: {total_num_ops:8,}, "
+                    f"TOTAL TRIPLES SO FAR: {total_num_ops:10,}, "
                     f"TOTAL UPDATE TIME SO FAR: {total_time_s:4.0f} s, "
                     f"ELAPSED TIME SO FAR: {elapsed_time_s:4.0f} s, "
                     f"AVG TIME/TRIPLE SO FAR: {time_us_per_op:,} µs",
@@ -656,7 +656,7 @@ class UpdateWikidataCommand(QleverCommand):
         )
         log.info(
             colored(
-                f"TOTAL TRIPLES: {total_num_ops:8,}, "
+                f"TOTAL TRIPLES: {total_num_ops:10,}, "
                 f"TOTAL TIME: {total_time_s:4.0f} s, "
                 f"ELAPSED TIME: {elapsed_time_s:4.0f} s, "
                 f"AVG TIME/TRIPLE: {time_us_per_op:,} µs",
