@@ -204,7 +204,8 @@ class UpdateWikidataCommand(QleverCommand):
             # Beginning of a new batch of messages.
             if current_batch_size == 0:
                 date_list = []
-                delete_entity_id = None
+                delete_entity_ids = set()
+                delete_entity_id_followed_by_insert = False
                 delta_to_now_list = []
                 batch_assembly_start_time = time.perf_counter()
                 insert_triples = set()
@@ -261,7 +262,7 @@ class UpdateWikidataCommand(QleverCommand):
 
                 # Delete operations are not supported yet.
                 if operation == "delete":
-                    delete_entity_id = entity_id
+                    delete_entity_ids.add(entity_id)
 
                 # Process the to-be-deleted triples.
                 for rdf_to_be_deleted in (
@@ -312,6 +313,23 @@ class UpdateWikidataCommand(QleverCommand):
                             )
                             for s, p, o in graph:
                                 triple = f"{s.n3()} {p.n3()} {o.n3()}"
+                                # If s starts with http://www.wikidata.org/entity/,
+                                # extract the QID and check whether it occurs
+                                # in `delete_entity_ids`.
+                                match = re.match(
+                                    r"^http://www\.wikidata\.org/entity/(Q[0-9]+)$",
+                                    str(s),
+                                )
+                                # This is not correct, but for now we just log
+                                # a warning.
+                                if match and match[1] in delete_entity_ids:
+                                    log.warn(
+                                        f"Delete operation for entity "
+                                        f"{match[1]} followed by an insert of "
+                                        f" triple with that entity as subject: "
+                                        f"{triple}"
+                                    )
+                                    delete_entity_id_followed_by_insert = True
                                 # NOTE: In case there was a previous `delete` of that
                                 # triple, it is safe to remove that `delete`, but not
                                 # the `insert` (in case the triple is not contained in
@@ -359,10 +377,11 @@ class UpdateWikidataCommand(QleverCommand):
                         f"second{'s' if args.lag_seconds > 1 else ''} "
                         f"of the current time, finishing the current batch"
                     )
-                elif delete_entity_id:
+                elif delete_entity_id_followed_by_insert:
                     log.warn(
-                        f"Encountered delete operation (for entity "
-                        f"{delete_entity_id}), finishing the current batch"
+                        "Encountered delete operation followed by insert of "
+                        "triple with deleted entity as subject, finishing "
+                        "current batch"
                     )
                 else:
                     continue
@@ -392,7 +411,7 @@ class UpdateWikidataCommand(QleverCommand):
                 args.wait_between_batches is not None
                 and args.wait_between_batches > 0
                 and current_batch_size < args.batch_size
-                and not delete_entity_id
+                and not delete_entity_id_followed_by_insert
             )
             current_batch_size = 0
 
@@ -430,10 +449,13 @@ class UpdateWikidataCommand(QleverCommand):
                 f"WHERE {{ }}\n"
             )
 
-            # If we have an entity delete (at most one, and it ends the batch),
-            # add a `DELETE WHERE` operation that deletes all triples
-            # associated with only that entity.
-            if delete_entity_id:
+            # If `delete_entity_ids` is non-empty, add a `DELETE WHERE`
+            # operation that deletes all triples that are associated with only
+            # those entities.
+            delete_entity_ids_as_values = " ".join(
+                [f"wd:{qid}" for qid in delete_entity_ids]
+            )
+            if len(delete_entity_ids) > 0:
                 delete_where_operation = (
                     f"PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n"
                     f"PREFIX wikibase: <http://wikiba.se/ontology#>\n"
@@ -442,10 +464,11 @@ class UpdateWikidataCommand(QleverCommand):
                     f"  ?s ?p ?o .\n"
                     f"}} WHERE {{\n"
                     f"  {{\n"
-                    f"    VALUES ?s {{ wd:{delete_entity_id} }}\n"
+                    f"    VALUES ?s {{ {delete_entity_ids_as_values} }}\n"
                     f"    ?s ?p ?o .\n"
                     f"  }} UNION {{\n"
-                    f"    wd:{delete_entity_id} ?_ ?s .\n"
+                    f"    VALUES ?_1 {{ {delete_entity_ids_as_values} }}\n"
+                    f"    ?_1 ?_2 ?s .\n"
                     f"    ?s ?p ?o .\n"
                     f"    ?s rdf:type wikibase:Statement .\n"
                     f"  }}\n"
@@ -540,17 +563,13 @@ class UpdateWikidataCommand(QleverCommand):
                     num_ops = int(stats["delta-triples"]["operation"]["total"])
                     time_ms = get_time_ms(stats, "total")
                     time_us_per_op = int(1000 * time_ms / num_ops)
-                    time_us_per_op_str = (
-                        f"TIME/OP: {time_us_per_op:,} µs"
-                        if i == 0
-                        else "single DELETE WHERE"
-                    )
                     log.info(
                         colored(
                             f"TRIPLES: {num_ops:+8,} -> {ops_after:8,}, "
                             f"INS: {num_ins:+8,} -> {ins_after:8,}, "
                             f"DEL: {num_del:+8,} -> {del_after:8,}, "
-                            f"TIME: {time_ms:7,} ms, {time_us_per_op_str}",
+                            f"TIME: {time_ms:7,} ms, "
+                            f"TIME/TRIPLE: {time_us_per_op:6,} µs",
                             attrs=["bold"],
                         )
                     )
@@ -621,7 +640,7 @@ class UpdateWikidataCommand(QleverCommand):
                     f"TOTAL TRIPLES SO FAR: {total_num_ops:8,}, "
                     f"TOTAL UPDATE TIME SO FAR: {total_time_s:4.0f} s, "
                     f"ELAPSED TIME SO FAR: {elapsed_time_s:4.0f} s, "
-                    f"AVG TIME/OP SO FAR: {time_us_per_op:,} µs",
+                    f"AVG TIME/TRIPLE SO FAR: {time_us_per_op:,} µs",
                     attrs=["bold"],
                 )
             )
@@ -640,7 +659,7 @@ class UpdateWikidataCommand(QleverCommand):
                 f"TOTAL TRIPLES: {total_num_ops:8,}, "
                 f"TOTAL TIME: {total_time_s:4.0f} s, "
                 f"ELAPSED TIME: {elapsed_time_s:4.0f} s, "
-                f"AVG TIME/OP: {time_us_per_op:,} µs",
+                f"AVG TIME/TRIPLE: {time_us_per_op:,} µs",
                 attrs=["bold"],
             )
         )
