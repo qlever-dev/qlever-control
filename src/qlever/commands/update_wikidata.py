@@ -51,6 +51,8 @@ class UpdateWikidataCommand(QleverCommand):
         )
         # Remember if Ctrl+C was pressed, so we can handle it gracefully.
         self.ctrl_c_pressed = False
+        # Set to `True` when finished.
+        self.finished = False
 
     def description(self) -> str:
         return "Update from given SSE stream"
@@ -94,6 +96,12 @@ class UpdateWikidataCommand(QleverCommand):
             "(default: determine automatically from the SPARQL endpoint)",
         )
         subparser.add_argument(
+            "--until",
+            type=str,
+            help="Stop consuming stream messages when reaching this date "
+            "(default: continue indefinitely)",
+        )
+        subparser.add_argument(
             "--topics",
             type=str,
             default="eqiad.rdf-streaming-updater.mutation",
@@ -121,7 +129,7 @@ class UpdateWikidataCommand(QleverCommand):
         if self.ctrl_c_pressed:
             log.warn(
                 "\rPressing Ctrl+C again does not speed things up"
-                ", you have to learn to be patient!"
+                ", watch your blood pressure"
             )
         else:
             self.ctrl_c_pressed = True
@@ -141,9 +149,6 @@ class UpdateWikidataCommand(QleverCommand):
         )
 
         # Construct the command and show it.
-        lag_seconds_str = (
-            f"{args.lag_seconds} second{'s' if args.lag_seconds > 1 else ''}"
-        )
         cmd_description = []
         if args.since:
             cmd_description.append(f"SINCE={args.since}")
@@ -151,20 +156,22 @@ class UpdateWikidataCommand(QleverCommand):
             cmd_description.append(
                 f"SINCE=$({curl_cmd_updates_complete_until} | sed 1d)"
             )
+        if args.until:
+            cmd_description.append(f"UNTIL={args.until}")
         cmd_description.append(
-            f"Process SSE stream from {args.sse_stream_url}?since=$SINCE "
-            f"in batches of {args.batch_size:,} messages "
-            f"(less if a message is encountered that is within "
-            f"{lag_seconds_str} of the current time)"
+            f"Process SSE stream from {args.sse_stream_url} "
+            f"in batches of at most {args.batch_size:,} messages "
         )
         self.show("\n".join(cmd_description), only_show=args.show)
         if args.show:
             return True
 
         # Compute the `since` date if not given.
-        if not args.since:
+        if args.since:
+            since = args.since
+        else:
             try:
-                args.since = run_command(
+                since = run_command(
                     f"{curl_cmd_updates_complete_until} | sed 1d",
                     return_output=True,
                 ).strip()
@@ -176,215 +183,272 @@ class UpdateWikidataCommand(QleverCommand):
 
         # Special handling of Ctrl+C, see `handle_ctrl_c` above.
         signal.signal(signal.SIGINT, self.handle_ctrl_c)
-        log.warn("Press Ctrl+C to finish the current batch and end gracefully")
+        log.info(f"SINCE={since}")
+        if args.until:
+            log.info(f"UNTIL={args.until}")
         log.info("")
-        log.info(f"SINCE={args.since}")
+        log.info("Press Ctrl+C to finish the current batch and end gracefully")
         log.info("")
-        args.sse_stream_url = f"{args.sse_stream_url}?since={args.since}"
 
-        # Initialize the SSE stream and all the statistics variables.
-        source = requests_sse.EventSource(
-            args.sse_stream_url,
-            headers={
-                "Accept": "text/event-stream",
-                "User-Agent": "qlever update-wikidata",
-            },
-        )
-        source.connect()
-        current_batch_size = 0
+        # Initialize all the statistics variables.
         batch_count = 0
         total_num_ops = 0
         total_time_s = 0
         start_time = time.perf_counter()
         topics_to_consider = set(args.topics.split(","))
         wait_before_next_batch = False
+        event_id_for_next_batch = None
 
-        # Iterating over all messages in the stream.
-        for event in source:
-            # Beginning of a new batch of messages.
-            if current_batch_size == 0:
-                date_list = []
-                delete_entity_ids = set()
-                delete_entity_id_followed_by_insert = False
-                delta_to_now_list = []
-                batch_assembly_start_time = time.perf_counter()
-                insert_triples = set()
-                delete_triples = set()
-                if wait_before_next_batch:
-                    log.info(
-                        f"Waiting {args.wait_between_batches} "
-                        f"second{'s' if args.wait_between_batches > 1 else ''} "
-                        f"before processing the next batch"
+        # Main event loop: Either resume from `event_id_for_next_batch` (if set),
+        # or start a new connection to `args.sse_stream_url` (with URL
+        # parameter `?since=`).
+        while True:
+            if event_id_for_next_batch:
+                log.info(
+                    colored(
+                        f"Consuming stream from event ID: "
+                        f"{event_id_for_next_batch}",
+                        attrs=["dark"],
                     )
-                    log.info("")
-                    wait_before_next_batch = False
-                    for _ in range(args.wait_between_batches):
-                        if self.ctrl_c_pressed:
-                            break
-                        time.sleep(1)
-
-            # Check if the `args.batch_size` is reached (note that we come here
-            # after a `continue` due to an error).
-            if self.ctrl_c_pressed:
-                break
-
-            # Process the message. Skip messages that are not of type `message`
-            # (should not happen), have no field `data` (should not happen
-            # either), or where the topic is not in `args.topics`.
-            if event.type != "message" or not event.data:
-                continue
-            event_data = json.loads(event.data)
-            topic = event_data.get("meta").get("topic")
-            if topic not in topics_to_consider:
-                continue
-
-            try:
-                # event_id = json.loads(event.last_event_id)
-                # date_ms_since_epoch = event_id[0].get("timestamp")
-                # date = time.strftime(
-                #     "%Y-%m-%dT%H:%M:%SZ",
-                #     time.gmtime(date_ms_since_epoch / 1000.0),
-                # )
-                date = event_data.get("meta").get("dt")
-                # date = event_data.get("dt")
-                date = re.sub(r"\.\d*Z$", "Z", date)
-                # entity_id = event_data.get("entity_id")
-                entity_id = event_data.get("entity_id")
-                operation = event_data.get("operation")
-                rdf_added_data = event_data.get("rdf_added_data")
-                rdf_deleted_data = event_data.get("rdf_deleted_data")
-                rdf_linked_shared_data = event_data.get(
-                    "rdf_linked_shared_data"
                 )
-                rdf_unlinked_shared_data = event_data.get(
-                    "rdf_unlinked_shared_data"
+                source = requests_sse.EventSource(
+                    args.sse_stream_url,
+                    headers={
+                        "Accept": "text/event-stream",
+                        "User-Agent": "qlever update-wikidata",
+                        "Last-Event-ID": event_id_for_next_batch,
+                    },
                 )
-
-                # Delete operations are not supported yet.
-                if operation == "delete":
-                    delete_entity_ids.add(entity_id)
-
-                # Process the to-be-deleted triples.
-                for rdf_to_be_deleted in (
-                    rdf_deleted_data,
-                    rdf_unlinked_shared_data,
-                ):
-                    if rdf_to_be_deleted is not None:
-                        try:
-                            rdf_to_be_deleted_data = rdf_to_be_deleted.get(
-                                "data"
-                            )
-                            graph = Graph()
-                            log.debug(
-                                f"RDF to_be_deleted data: {rdf_to_be_deleted_data}"
-                            )
-                            graph.parse(
-                                data=rdf_to_be_deleted_data, format="turtle"
-                            )
-                            for s, p, o in graph:
-                                triple = f"{s.n3()} {p.n3()} {o.n3()}"
-                                # NOTE: In case there was a previous `insert` of that
-                                # triple, it is safe to remove that `insert`, but not
-                                # the `delete` (in case the triple is contained in the
-                                # original data).
-                                if triple in insert_triples:
-                                    insert_triples.remove(triple)
-                                delete_triples.add(triple)
-                        except Exception as e:
-                            log.error(
-                                f"Error reading `rdf_to_be_deleted_data`: {e}"
-                            )
-                            return False
-
-                # Process the to-be-added triples.
-                for rdf_to_be_added in (
-                    rdf_added_data,
-                    rdf_linked_shared_data,
-                ):
-                    if rdf_to_be_added is not None:
-                        try:
-                            rdf_to_be_added_data = rdf_to_be_added.get("data")
-                            graph = Graph()
-                            log.debug(
-                                "RDF to be added data: {rdf_to_be_added_data}"
-                            )
-                            graph.parse(
-                                data=rdf_to_be_added_data, format="turtle"
-                            )
-                            for s, p, o in graph:
-                                triple = f"{s.n3()} {p.n3()} {o.n3()}"
-                                # If s starts with http://www.wikidata.org/entity/,
-                                # extract the QID and check whether it occurs
-                                # in `delete_entity_ids`.
-                                match = re.match(
-                                    r"^http://www\.wikidata\.org/entity/(Q[0-9]+)$",
-                                    str(s),
-                                )
-                                # This is not correct, but for now we just log
-                                # a warning.
-                                if match and match[1] in delete_entity_ids:
-                                    log.warn(
-                                        f"Delete operation for entity "
-                                        f"{match[1]} followed by an insert of "
-                                        f" triple with that entity as subject: "
-                                        f"{triple}"
-                                    )
-                                    delete_entity_id_followed_by_insert = True
-                                # NOTE: In case there was a previous `delete` of that
-                                # triple, it is safe to remove that `delete`, but not
-                                # the `insert` (in case the triple is not contained in
-                                # the original data).
-                                if triple in delete_triples:
-                                    delete_triples.remove(triple)
-                                insert_triples.add(triple)
-                        except Exception as e:
-                            log.error(
-                                f"Error reading `rdf_to_be_added_data`: {e}"
-                            )
-                            return False
-
-            except Exception as e:
-                log.error(f"Error reading data from message: {e}")
-                log.info(event)
-                continue
-
-            # Continue assembling until either the batch size is reached, or
-            # we encounter a message that is within `args.lag_seconds` of the
-            # current time.
-            current_batch_size += 1
-            date_as_epoch_s = (
-                datetime.strptime(date, "%Y-%m-%dT%H:%M:%SZ")
-                .replace(tzinfo=timezone.utc)
-                .timestamp()
-            )
-            now_as_epoch_s = time.time()
-            delta_to_now_s = now_as_epoch_s - date_as_epoch_s
-            log.debug(
-                f"DATE: {date_as_epoch_s:.0f} [{date}], "
-                f"NOW: {now_as_epoch_s:.0f}, "
-                f"DELTA: {now_as_epoch_s - date_as_epoch_s:.0f}"
-            )
-            date_list.append(date)
-            delta_to_now_list.append(delta_to_now_s)
-            if (
-                current_batch_size < args.batch_size
-                and not self.ctrl_c_pressed
-            ):
-                if delta_to_now_s < args.lag_seconds:
-                    log.warn(
-                        f"Encountered message with date {date}, which is within "
-                        f"{args.lag_seconds} "
-                        f"second{'s' if args.lag_seconds > 1 else ''} "
-                        f"of the current time, finishing the current batch"
+                event_id_for_next_batch = None
+            else:
+                log.info(
+                    colored(
+                        f"Consuming stream from date: {since}", attrs=["dark"]
                     )
-                elif delete_entity_id_followed_by_insert:
-                    log.warn(
-                        "Encountered delete operation followed by insert of "
-                        "triple with deleted entity as subject, finishing "
-                        "current batch"
-                    )
-                else:
+                )
+                source = requests_sse.EventSource(
+                    args.sse_stream_url,
+                    params={"since": since},
+                    headers={
+                        "Accept": "text/event-stream",
+                        "User-Agent": "qlever update-wikidata",
+                    },
+                )
+            source.connect()
+
+            # Next comes the inner loop, which processes exactly one "batch" of
+            # messages. The batch is completed (simply using `break`) when either
+            # `args.batch_size` messages have been processed, or when one of a
+            # variety of conditions occur (Ctrl+C pressed, message within
+            # `args.lag_seconds` of current time, delete operation followed by
+            # insert of triple with that entity as subject).
+
+            # Initialize all the batch variables.
+            current_batch_size = 0
+            date_list = []
+            delete_entity_ids = set()
+            delta_to_now_list = []
+            batch_assembly_start_time = time.perf_counter()
+            insert_triples = set()
+            delete_triples = set()
+
+            # Optionally wait before processing the next batch (make sure that
+            # the wait is interruptible by Ctrl+C).
+            if wait_before_next_batch:
+                log.info(
+                    f"Waiting {args.wait_between_batches} "
+                    f"second{'s' if args.wait_between_batches > 1 else ''} "
+                    f"before processing the next batch"
+                )
+                log.info("")
+                wait_before_next_batch = False
+                for _ in range(args.wait_between_batches):
+                    if self.ctrl_c_pressed:
+                        break
+                    time.sleep(1)
+
+            # Process one event at a time.
+            for event in source:
+                # Ctrl+C finishes the current batch.
+                if self.ctrl_c_pressed:
+                    break
+
+                # Skip events that are not of type `message` (should not
+                # happen), have no field `data` (should not happen either), or
+                # where the topic is not in `args.topics` (one topic by itself
+                # should provide all relevant updates).
+                if event.type != "message" or not event.data:
                     continue
+                event_data = json.loads(event.data)
+                topic = event_data.get("meta").get("topic")
+                if topic not in topics_to_consider:
+                    continue
+
+                try:
+                    # The event ID of the update (precise) and its date
+                    # (rounded *down* to seconds so that when we resume from
+                    # this date, we do not miss any updates).
+                    current_event_id = event.last_event_id
+                    date = event_data.get("meta").get("dt")
+                    date = re.sub(r"\.\d*Z$", "Z", date)
+
+                    # Get the other relevant fields from the message.
+                    entity_id = event_data.get("entity_id")
+                    operation = event_data.get("operation")
+                    rdf_added_data = event_data.get("rdf_added_data")
+                    rdf_deleted_data = event_data.get("rdf_deleted_data")
+                    rdf_linked_shared_data = event_data.get(
+                        "rdf_linked_shared_data"
+                    )
+                    rdf_unlinked_shared_data = event_data.get(
+                        "rdf_unlinked_shared_data"
+                    )
+
+                    # Check batch completion conditions BEFORE processing the
+                    # data of this message. If any of the conditions is met,
+                    # we finish the batch and resume from this message in the
+                    # next batch.
+                    #
+                    # NOTE: In the current implementation, every batch after
+                    # the first resumes from an event ID. In the future, we
+                    # might have other conditions that make us want to resume
+                    # from a date instead.
+                    event_id_for_next_batch = current_event_id
+                    since = None
+
+                    # Condition 1: Delete followed by insert for same entity.
+                    operation_adds_data = (
+                        rdf_added_data is not None
+                        or rdf_linked_shared_data is not None
+                    )
+                    if operation_adds_data and entity_id in delete_entity_ids:
+                        log.warn(
+                            f"Encountered operation that adds data for "
+                            f"an entity ID ({entity_id}) that was deleted "
+                            f"earlier in this batch; finishing batch and "
+                            f"resuming from this message in the next batch"
+                        )
+                        break
+
+                    # Condition 2: Batch size reached.
+                    if current_batch_size >= args.batch_size:
+                        break
+
+                    # Condition 3: Message close to current time.
+                    date_as_epoch_s = (
+                        datetime.strptime(date, "%Y-%m-%dT%H:%M:%SZ")
+                        .replace(tzinfo=timezone.utc)
+                        .timestamp()
+                    )
+                    now_as_epoch_s = time.time()
+                    delta_to_now_s = now_as_epoch_s - date_as_epoch_s
+                    if delta_to_now_s < args.lag_seconds:
+                        log.warn(
+                            f"Encountered message with date {date}, which is within "
+                            f"{args.lag_seconds} "
+                            f"second{'s' if args.lag_seconds > 1 else ''} "
+                            f"of the current time, finishing the current batch"
+                        )
+                        break
+
+                    # Condition 4: Reached `--until` date and at least one
+                    # message was processed.
+                    if (
+                        args.until
+                        and date >= args.until
+                        and current_batch_size > 0
+                    ):
+                        log.warn(
+                            f"Reached --until date {args.until} "
+                            f"(message date: {date}), that's it folks"
+                        )
+                        self.finished = True
+                        break
+
+                    # Delete operations are postponed until the end of the
+                    # batch, so remember the entity ID here.
+                    if operation == "delete":
+                        delete_entity_ids.add(entity_id)
+
+                    # Process the to-be-deleted triples.
+                    for rdf_to_be_deleted in (
+                        rdf_deleted_data,
+                        rdf_unlinked_shared_data,
+                    ):
+                        if rdf_to_be_deleted is not None:
+                            try:
+                                rdf_to_be_deleted_data = rdf_to_be_deleted.get(
+                                    "data"
+                                )
+                                graph = Graph()
+                                log.debug(
+                                    f"RDF to_be_deleted data: {rdf_to_be_deleted_data}"
+                                )
+                                graph.parse(
+                                    data=rdf_to_be_deleted_data,
+                                    format="turtle",
+                                )
+                                for s, p, o in graph:
+                                    triple = f"{s.n3()} {p.n3()} {o.n3()}"
+                                    # NOTE: In case there was a previous `insert` of that
+                                    # triple, it is safe to remove that `insert`, but not
+                                    # the `delete` (in case the triple is contained in the
+                                    # original data).
+                                    if triple in insert_triples:
+                                        insert_triples.remove(triple)
+                                    delete_triples.add(triple)
+                            except Exception as e:
+                                log.error(
+                                    f"Error reading `rdf_to_be_deleted_data`: {e}"
+                                )
+                                return False
+
+                    # Process the to-be-added triples.
+                    for rdf_to_be_added in (
+                        rdf_added_data,
+                        rdf_linked_shared_data,
+                    ):
+                        if rdf_to_be_added is not None:
+                            try:
+                                rdf_to_be_added_data = rdf_to_be_added.get(
+                                    "data"
+                                )
+                                graph = Graph()
+                                log.debug(
+                                    "RDF to be added data: {rdf_to_be_added_data}"
+                                )
+                                graph.parse(
+                                    data=rdf_to_be_added_data, format="turtle"
+                                )
+                                for s, p, o in graph:
+                                    triple = f"{s.n3()} {p.n3()} {o.n3()}"
+                                    # NOTE: In case there was a previous `delete` of that
+                                    # triple, it is safe to remove that `delete`, but not
+                                    # the `insert` (in case the triple is not contained in
+                                    # the original data).
+                                    if triple in delete_triples:
+                                        delete_triples.remove(triple)
+                                    insert_triples.add(triple)
+                            except Exception as e:
+                                log.error(
+                                    f"Error reading `rdf_to_be_added_data`: {e}"
+                                )
+                                return False
+
+                except Exception as e:
+                    log.error(f"Error reading data from message: {e}")
+                    log.info(event)
+                    continue
+
+                # Message was successfully processed, update batch tracking
+                current_batch_size += 1
+                log.debug(
+                    f"DATE: {date_as_epoch_s:.0f} [{date}], "
+                    f"NOW: {now_as_epoch_s:.0f}, "
+                    f"DELTA: {now_as_epoch_s - date_as_epoch_s:.0f}"
+                )
+                date_list.append(date)
+                delta_to_now_list.append(delta_to_now_s)
 
             # Process the current batch of messages.
             batch_assembly_end_time = time.perf_counter()
@@ -400,20 +464,19 @@ class UpdateWikidataCommand(QleverCommand):
             else:
                 min_delta_to_now_s = f"{int(min_delta_to_now_s):,}"
             log.info(
-                f"Processing batch #{batch_count} "
+                f"Assembled batch #{batch_count} "
                 f"with {current_batch_size:,} "
                 f"message{'s' if current_batch_size > 1 else ''}, "
                 f"date range: {date_list[0]} - {date_list[-1]}  "
-                f"[assembly time: {batch_assembly_time_ms:,} ms, "
-                f"min delta to NOW: {min_delta_to_now_s} s]"
+                f"[assembly time: {batch_assembly_time_ms:,}ms, "
+                f"min delta to NOW: {min_delta_to_now_s}s]"
             )
             wait_before_next_batch = (
                 args.wait_between_batches is not None
                 and args.wait_between_batches > 0
                 and current_batch_size < args.batch_size
-                and not delete_entity_id_followed_by_insert
+                and not event_id_for_next_batch
             )
-            current_batch_size = 0
 
             # Add the min and max date of the batch to `insert_triples`.
             #
@@ -568,15 +631,18 @@ class UpdateWikidataCommand(QleverCommand):
                             f"TRIPLES: {num_ops:+10,} -> {ops_after:10,}, "
                             f"INS: {num_ins:+10,} -> {ins_after:10,}, "
                             f"DEL: {num_del:+10,} -> {del_after:10,}, "
-                            f"TIME: {time_ms:7,} ms, "
-                            f"TIME/TRIPLE: {time_us_per_op:6,} µs",
+                            f"TIME: {time_ms:7,}ms, "
+                            f"TIME/TRIPLE: {time_us_per_op:6,}µs",
                             attrs=["bold"],
                         )
                     )
 
                     # Also show a detailed breakdown of the total time.
                     time_preparation = get_time_ms(
-                        stats, "execution", "processUpdateImpl", "preparation"
+                        stats,
+                        "execution",
+                        "processUpdateImpl",
+                        "preparation",
                     )
                     time_insert = get_time_ms(
                         stats,
@@ -634,21 +700,31 @@ class UpdateWikidataCommand(QleverCommand):
                     log.info("")
                     continue
 
-            # After each batch, show total statistics so far.
+            # Show statistics for the completed batch.
             log.info(
                 colored(
                     f"TOTAL TRIPLES SO FAR: {total_num_ops:10,}, "
-                    f"TOTAL UPDATE TIME SO FAR: {total_time_s:4.0f} s, "
-                    f"ELAPSED TIME SO FAR: {elapsed_time_s:4.0f} s, "
-                    f"AVG TIME/TRIPLE SO FAR: {time_us_per_op:,} µs",
+                    f"TOTAL UPDATE TIME SO FAR: {total_time_s:4.0f}s, "
+                    f"ELAPSED TIME SO FAR: {elapsed_time_s:4.0f}s, "
+                    f"AVG TIME/TRIPLE SO FAR: {time_us_per_op:,}µs",
                     attrs=["bold"],
                 )
             )
             log.info("")
 
+            # Close the source connection (for each batch, we open a new one,
+            # either from `event_id_for_next_batch` or from `since`).
+            source.close()
+
+            # If Ctrl+C was pressed or we reached `--until`, finish.
+            if self.ctrl_c_pressed or self.finished:
+                break
+
         # Final statistics after all batches have been processed.
         elapsed_time_s = time.perf_counter() - start_time
-        time_us_per_op = int(1e6 * total_time_s / total_num_ops)
+        time_us_per_op = (
+            int(1e6 * total_time_s / total_num_ops) if total_num_ops > 0 else 0
+        )
         log.info(
             f"Processed {batch_count} "
             f"{'batches' if batch_count > 1 else 'batch'} "
@@ -657,9 +733,9 @@ class UpdateWikidataCommand(QleverCommand):
         log.info(
             colored(
                 f"TOTAL TRIPLES: {total_num_ops:10,}, "
-                f"TOTAL TIME: {total_time_s:4.0f} s, "
-                f"ELAPSED TIME: {elapsed_time_s:4.0f} s, "
-                f"AVG TIME/TRIPLE: {time_us_per_op:,} µs",
+                f"TOTAL TIME: {total_time_s:4.0f}s, "
+                f"ELAPSED TIME: {elapsed_time_s:4.0f}s, "
+                f"AVG TIME/TRIPLE: {time_us_per_op:,}µs",
                 attrs=["bold"],
             )
         )
