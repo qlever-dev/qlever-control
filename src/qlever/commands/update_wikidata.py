@@ -118,10 +118,10 @@ class UpdateWikidataCommand(QleverCommand):
         subparser.add_argument(
             "--wait-between-batches",
             type=int,
-            default=3600,
+            default=300,
             help="Wait this many seconds between batches that were "
             "finished due to a message that is within `lag_seconds` of "
-            "the current time (default: 3600s)",
+            "the current time (default: 300s)",
         )
 
     # Handle Ctrl+C gracefully by finishing the current batch and then exiting.
@@ -160,7 +160,7 @@ class UpdateWikidataCommand(QleverCommand):
             cmd_description.append(f"UNTIL={args.until}")
         cmd_description.append(
             f"Process SSE stream from {args.sse_stream_url} "
-            f"in batches of at most {args.batch_size:,} messages "
+            f"in batches of up to {args.batch_size:,} messages "
         )
         self.show("\n".join(cmd_description), only_show=args.show)
         if args.show:
@@ -183,11 +183,7 @@ class UpdateWikidataCommand(QleverCommand):
 
         # Special handling of Ctrl+C, see `handle_ctrl_c` above.
         signal.signal(signal.SIGINT, self.handle_ctrl_c)
-        log.info(f"SINCE={since}")
-        if args.until:
-            log.info(f"UNTIL={args.until}")
-        log.info("")
-        log.info("Press Ctrl+C to finish the current batch and end gracefully")
+        log.warn("Press Ctrl+C to finish the current batch and end gracefully")
         log.info("")
 
         # Initialize all the statistics variables.
@@ -234,7 +230,27 @@ class UpdateWikidataCommand(QleverCommand):
                         "User-Agent": "qlever update-wikidata",
                     },
                 )
-            source.connect()
+            # Try 10 times to connect to the source, with exponential backoff.
+            # If we cannot connect after that, give up.
+            wait_between_connect_attempts_s = 1
+            source_connected = False
+            while True:
+                try:
+                    source.connect()
+                    source_connected = True
+                    break
+                except Exception:
+                    log.error(
+                        f"Error connecting to stream, waiting "
+                        f"{wait_between_connect_attempts_s}s before retrying"
+                    )
+                    time.sleep(wait_between_connect_attempts_s)
+                    wait_between_connect_attempts_s *= 2
+                    if wait_between_connect_attempts_s > 512:
+                        log.error("Giving up connecting to SSE source, exit")
+                        break
+            if not source_connected:
+                break
 
             # Next comes the inner loop, which processes exactly one "batch" of
             # messages. The batch is completed (simply using `break`) when either
