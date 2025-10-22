@@ -127,10 +127,7 @@ class UpdateWikidataCommand(QleverCommand):
     # Handle Ctrl+C gracefully by finishing the current batch and then exiting.
     def handle_ctrl_c(self, signal_received, frame):
         if self.ctrl_c_pressed:
-            log.warn(
-                "\rPressing Ctrl+C again does not speed things up"
-                ", watch your blood pressure"
-            )
+            log.warn("\rCtrl+C pressed again, watch your blood pressure")
         else:
             self.ctrl_c_pressed = True
             log.warn(
@@ -199,6 +196,22 @@ class UpdateWikidataCommand(QleverCommand):
         # or start a new connection to `args.sse_stream_url` (with URL
         # parameter `?since=`).
         while True:
+            # Optionally wait before processing the next batch (make sure that
+            # the wait is interruptible by Ctrl+C).
+            if wait_before_next_batch:
+                log.info(
+                    f"Waiting {args.wait_between_batches} "
+                    f"second{'s' if args.wait_between_batches > 1 else ''} "
+                    f"before processing the next batch"
+                )
+                log.info("")
+                wait_before_next_batch = False
+                for _ in range(args.wait_between_batches):
+                    if self.ctrl_c_pressed:
+                        break
+                    time.sleep(1)
+
+            # Start stream from either `event_id_for_next_batch` or `since`.
             if event_id_for_next_batch:
                 log.info(
                     colored(
@@ -267,21 +280,6 @@ class UpdateWikidataCommand(QleverCommand):
             batch_assembly_start_time = time.perf_counter()
             insert_triples = set()
             delete_triples = set()
-
-            # Optionally wait before processing the next batch (make sure that
-            # the wait is interruptible by Ctrl+C).
-            if wait_before_next_batch:
-                log.info(
-                    f"Waiting {args.wait_between_batches} "
-                    f"second{'s' if args.wait_between_batches > 1 else ''} "
-                    f"before processing the next batch"
-                )
-                log.info("")
-                wait_before_next_batch = False
-                for _ in range(args.wait_between_batches):
-                    if self.ctrl_c_pressed:
-                        break
-                    time.sleep(1)
 
             # Process one event at a time.
             for event in source:
@@ -491,7 +489,6 @@ class UpdateWikidataCommand(QleverCommand):
                 args.wait_between_batches is not None
                 and args.wait_between_batches > 0
                 and current_batch_size < args.batch_size
-                and not event_id_for_next_batch
             )
 
             # Add the min and max date of the batch to `insert_triples`.
