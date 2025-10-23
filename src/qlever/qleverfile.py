@@ -199,6 +199,18 @@ class Qleverfile:
             help="File with the documents for the text index (one line "
             "per document, format: `id\tdocument text`)",
         )
+        java_heap_arg = arg(
+            "--java-heap-gb",
+            type=int,
+            default=6,
+            help=(
+                "Specify Java heap size to match data size. In most cases, "
+                "6 will be enough. Also beware of setting heap more than 8 "
+                "due to garbage collector pressure."
+            )
+        )
+        index_args["java_heap_gb"] = java_heap_arg
+        server_args["java_heap_gb"] = java_heap_arg
 
         server_args["server_binary"] = arg(
             "--server-binary",
