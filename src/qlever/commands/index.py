@@ -178,7 +178,7 @@ class IndexCommand(QleverCommand):
         # Return the concatenated command-line options.
         return " ".join(input_options)
 
-    def execute(self, args) -> bool:
+    def execute(self, args, called_from_conformance_test = False) -> bool:
         # The mandatory part of the command line (specifying the input, the
         # basename of the index, and the settings file). There are two ways
         # to specify the input: via a single stream or via multiple streams.
@@ -278,15 +278,16 @@ class IndexCommand(QleverCommand):
                 return False
 
         # Check if all of the input files exist.
-        for pattern in shlex.split(args.input_files):
-            if len(glob.glob(pattern)) == 0:
-                log.error(f'No file matching "{pattern}" found')
-                log.info("")
-                log.info(
-                    "Did you call `qlever get-data`? If you did, check "
-                    "GET_DATA_CMD and INPUT_FILES in the QLeverfile"
-                )
-                return False
+        if not called_from_conformance_test:
+            for pattern in shlex.split(args.input_files):
+                if len(glob.glob(pattern)) == 0:
+                    log.error(f'No file matching "{pattern}" found')
+                    log.info("")
+                    log.info(
+                        "Did you call `qlever get-data`? If you did, check "
+                        "GET_DATA_CMD and INPUT_FILES in the QLeverfile"
+                    )
+                    return False
 
         # Check if index files (name.index.*) already exist.
         existing_index_files = get_existing_index_files(args.name)
@@ -325,7 +326,7 @@ class IndexCommand(QleverCommand):
 
         # Run the index command.
         try:
-            run_command(index_cmd, show_output=True)
+            run_command(index_cmd, show_output=not called_from_conformance_test)
         except Exception as e:
             log.error(f"Building the index failed: {e}")
             return False

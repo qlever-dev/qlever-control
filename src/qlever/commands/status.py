@@ -3,6 +3,7 @@ from __future__ import annotations
 import psutil
 
 from qlever.command import QleverCommand
+from qlever.log import log
 from qlever.util import show_process_info
 
 
@@ -46,5 +47,5 @@ class StatusCommand(QleverCommand):
             if process_shown:
                 num_processes_found += 1
         if num_processes_found == 0:
-            print("No processes found")
+            log.error("No processes found")
         return True
