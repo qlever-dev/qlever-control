@@ -607,7 +607,7 @@ class UpdateWikidataCommand(QleverCommand):
             # Helper function for getting the value of `stats["time"][...]`
             # without the "ms" suffix. If the extraction fails, return 0
             # (and optionally log the failure).
-            def get_time_ms(stats, *keys: str, log_fail: bool = False) -> int:
+            def get_time_ms(stats, *keys: str, log_fail: bool = True) -> int:
                 try:
                     value = stats["time"]
                     for key in keys:
@@ -651,11 +651,29 @@ class UpdateWikidataCommand(QleverCommand):
                     )
 
                     # Also show a detailed breakdown of the total time.
+                    time_parsing = (
+                        get_time_ms(stats, "parsing", log_fail=False)
+                        if i == 0
+                        else 0
+                    )
+                    time_planning = get_time_ms(stats, "planning")
                     time_preparation = get_time_ms(
                         stats,
                         "execution",
                         "processUpdateImpl",
                         "preparation",
+                    )
+                    time_where = get_time_ms(
+                        stats,
+                        "execution",
+                        "processUpdateImpl",
+                        "materializeResult",
+                    )
+                    time_metadata = get_time_ms(
+                        stats,
+                        "execution",
+                        "processUpdateImpl",
+                        "updateMetadata",
                     )
                     time_insert = get_time_ms(
                         stats,
@@ -680,16 +698,24 @@ class UpdateWikidataCommand(QleverCommand):
                         stats, "execution", "diskWriteback"
                     )
                     time_unaccounted = time_ms - (
-                        time_delete
-                        + time_insert
+                        time_parsing
+                        + time_planning
                         + time_preparation
+                        + time_where
+                        + time_metadata
+                        + time_delete
+                        + time_insert
                         + time_snapshot
                         + time_writeback
                     )
                     log.info(
+                        f"PARSING: {100 * time_parsing / time_ms:2.0f}%, "
+                        f"PLANNING: {100 * time_planning / time_ms:2.0f}%, "
                         f"PREPARATION: {100 * time_preparation / time_ms:2.0f}%, "
-                        f"INSERT: {100 * time_insert / time_ms:2.0f}%, "
+                        f"WHERE: {100 * time_where / time_ms:2.0f}%, "
                         f"DELETE: {100 * time_delete / time_ms:2.0f}%, "
+                        f"INSERT: {100 * time_insert / time_ms:2.0f}%, "
+                        f"METADATA: {100 * time_metadata / time_ms:2.0f}%, "
                         f"SNAPSHOT: {100 * time_snapshot / time_ms:2.0f}%, "
                         f"WRITEBACK: {100 * time_writeback / time_ms:2.0f}%, "
                         f"UNACCOUNTED: {100 * time_unaccounted / time_ms:2.0f}%",
