@@ -167,10 +167,10 @@ class Qleverfile:
         )
         index_args["use_patterns"] = arg(
             "--use-patterns",
-            action="store_true",
-            default=True,
-            help="Precompute so-called patterns needed for fast processing"
-            " of queries like SELECT ?p (COUNT(DISTINCT ?s) AS ?c) "
+            choices=["yes", "no"],
+            default="yes",
+            help="Whether to precompute the so-called patterns used for fast "
+            "processing of queries like SELECT ?p (COUNT(DISTINCT ?s) AS ?c) "
             "WHERE { ?s ?p [] ... } GROUP BY ?p",
         )
         index_args["text_index"] = arg(
@@ -283,10 +283,10 @@ class Qleverfile:
         )
         server_args["use_patterns"] = arg(
             "--use-patterns",
-            action="store_true",
-            default=True,
-            help="Use the patterns precomputed during the index build"
-            " (see `qlever index --help` for their utility)",
+            choices=["yes", "no"],
+            default="yes",
+            help="Whether to use the patterns precomputed during the index "
+            "build (see `qlever index --help` for their utility)",
         )
         server_args["use_text_index"] = arg(
             "--use-text-index",

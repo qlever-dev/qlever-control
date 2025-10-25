@@ -220,7 +220,7 @@ class IndexCommand(QleverCommand):
             index_cmd += f" --encode-as-id {args.encode_as_id}"
         if args.only_pso_and_pos_permutations:
             index_cmd += " --only-pso-and-pos-permutations --no-patterns"
-        if not args.use_patterns:
+        if args.use_patterns == "no":
             index_cmd += " --no-patterns"
         if args.text_index in [
             "from_text_records",
