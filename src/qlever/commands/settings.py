@@ -55,10 +55,10 @@ class SettingsCommand(QleverCommand):
             "use-binsearch-transitive-path",
         ]
         subparser.add_argument(
-            "runtime_parameter",
-            nargs="?",
-            help="Set the given runtime parameter (key=value)"
-            "; if no argument is given, show all settings",
+            "key_value_pairs",
+            nargs="*",
+            help="Space-separated list of key=value pairs to set; "
+            "afterwards shows all settings, with the changed ones highlighted",
         ).completer = lambda **kwargs: [f"{key}=" for key in all_keys]
         subparser.add_argument(
             "--endpoint_url",
@@ -74,48 +74,59 @@ class SettingsCommand(QleverCommand):
         else:
             endpoint_url = f"http://{args.host_name}:{args.port}"
 
-        # Construct the `curl` command for getting or setting.
-        if args.runtime_parameter:
-            try:
-                parameter_key, parameter_value = args.runtime_parameter.split(
-                    "="
-                )
-            except ValueError:
-                log.error("Runtime parameter must be given as `key=value`")
-                return False
+        # Construct the `curl` commands for setting and getting.
+        curl_cmds_setting = []
+        keys_set = set()
+        if args.key_value_pairs:
+            for key_value_pair in args.key_value_pairs:
+                try:
+                    key, value = key_value_pair.split("=")
+                except ValueError:
+                    log.error("Runtime parameter must be given as `key=value`")
+                    return False
 
-            curl_cmd = (
-                f"curl -s {endpoint_url}"
-                f' --data-urlencode "{parameter_key}={parameter_value}"'
-                f' --data-urlencode "access-token={args.access_token}"'
-            )
-        else:
-            curl_cmd = (
-                f"curl -s {endpoint_url}" f" --data-urlencode cmd=get-settings"
-            )
-            parameter_key, parameter_value = None, None
-        self.show(curl_cmd, only_show=args.show)
+                curl_cmds_setting.append(
+                    f"curl -s {endpoint_url}"
+                    f' --data-urlencode "{key}={value}"'
+                    f' --data-urlencode "access-token={args.access_token}"'
+                )
+                keys_set.add(key)
+        curl_cmd_getting = (
+            f"curl -s {endpoint_url} --data-urlencode cmd=get-settings"
+        )
+        self.show(
+            "\n".join(curl_cmds_setting + [curl_cmd_getting]),
+            only_show=args.show,
+        )
         if args.show:
             return True
 
-        # Execute the `curl` command. Note that the `get-settings` command
-        # returns all settings in both scencarios (that is, also when setting a
-        # parameter).
+        # Execute the `curl` commands for setting the key-value pairs if any.
+        for curl_cmd in curl_cmds_setting:
+            try:
+                run_command(curl_cmd, return_output=False)
+            except Exception as e:
+                log.error(
+                    f"curl command for setting key-value pair failed: {e}"
+                )
+                return False
+
+        # Execute the `curl` commands for getting the settings.
         try:
             settings_json = run_command(curl_cmd, return_output=True)
             settings_dict = json.loads(settings_json)
             if isinstance(settings_dict, list):
                 settings_dict = settings_dict[0]
         except Exception as e:
-            log.error(f"setting command failed: {e}")
+            log.error(f"curl command for getting settings failed: {e}")
             return False
         for key, value in settings_dict.items():
             print(
                 colored(
                     f"{key:<45}: {value}",
-                    "blue"
-                    if parameter_key and key == parameter_key
-                    else None,
+                    "blue" if key in keys_set else None,
                 )
             )
+
+        # That's it.
         return True

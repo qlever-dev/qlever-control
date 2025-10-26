@@ -5,6 +5,7 @@ import time
 
 from qlever.command import QleverCommand
 from qlever.commands.cache_stats import CacheStatsCommand
+from qlever.commands.settings import SettingsCommand
 from qlever.commands.status import StatusCommand
 from qlever.commands.stop import StopCommand
 from qlever.commands.warmup import WarmupCommand
@@ -151,6 +152,12 @@ class StartCommand(QleverCommand):
             help="If a QLever server is already running "
             "on the same port, kill it before "
             "starting a new server",
+        )
+        subparser.add_argument(
+            "--runtime-parameters",
+            help="Space-separated list of settings to apply right after "
+            "the server is up; see `qlever settings --help` for the "
+            "available choices",
         )
         subparser.add_argument(
             "--no-warmup",
@@ -304,6 +311,13 @@ class StartCommand(QleverCommand):
             args.detailed = False
             args.server_url = None
             CacheStatsCommand().execute(args)
+
+        # Apply settings if any.
+        if args.runtime_parameters:
+            args.key_value_pairs = args.runtime_parameters.split(" ")
+            args.endpoint_url = endpoint_url
+            log.info("")
+            SettingsCommand().execute(args)
 
         # With `--run-in-foreground`, wait until the server is stopped.
         if args.run_in_foreground:
