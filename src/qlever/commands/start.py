@@ -34,7 +34,7 @@ def construct_command(args) -> str:
         start_cmd += " --persist-updates"
     if args.only_pso_and_pos_permutations:
         start_cmd += " --only-pso-and-pos-permutations"
-    if not args.use_patterns:
+    if args.use_patterns == "no":
         start_cmd += " --no-patterns"
     if args.use_text_index == "yes":
         start_cmd += " -t"

@@ -22,7 +22,7 @@ def test_construct_command_with_if():
     args.persist_updates = False
     args.access_token = True
     args.only_pso_and_pos_permutations = True
-    args.use_patterns = False
+    args.use_patterns = "no"
     args.use_text_index = "yes"
 
     # Execute the function
@@ -331,7 +331,7 @@ class TestStartCommand(unittest.TestCase):
         args.persist_updates = False
         args.access_token = True
         args.only_pso_and_pos_permutations = True
-        args.use_patterns = False
+        args.use_patterns = "no"
         args.use_text_index = "yes"
 
         # Mock CacheStatsCommand
