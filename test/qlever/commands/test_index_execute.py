@@ -374,7 +374,7 @@ class TestIndexCommand(unittest.TestCase):
             f" -i {args.name} -s {args.name}.settings.json"
             f" --vocabulary-type {args.vocabulary_type}"
             f" {mock_input_json.return_value}"
-            f" --only-pso-and-pos-permutations --no-patterns"
+            f" --only-pso-and-pos-permutations"
             f" --no-patterns -w {args.name}.wordsfile.tsv"
             f" -d {args.name}.docsfile.tsv"
             f" --text-words-from-literals"
