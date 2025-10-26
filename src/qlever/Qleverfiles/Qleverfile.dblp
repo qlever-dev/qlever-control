@@ -18,7 +18,8 @@ FORMAT       = ttl
 [index]
 INPUT_FILES      = *.gz
 MULTI_INPUT_JSON = { "cmd": "zcat {}", "for-each": "*.gz" }
-SETTINGS_JSON    = { "ascii-prefixes-only": false, "num-triples-per-batch": 5000000, "prefixes-external": [""] }
+SETTINGS_JSON    = { "num-triples-per-batch": 5000000 }
+STXXL_MEMORY     = 5G
 
 [server]
 PORT               = 7015

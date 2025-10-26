@@ -21,6 +21,35 @@ class Qleverfile:
     Qleverfile + functions for parsing.
     """
 
+    # Runtime parameters (for `settings` and `start` commands).
+    SERVER_RUNTIME_PARAMETERS = [
+        "always-multiply-unions",
+        "cache-max-num-entries",
+        "cache-max-size",
+        "cache-max-size-single-entry",
+        "cache-service-results",
+        "default-query-timeout",
+        "division-by-zero-is-undef",
+        "enable-prefilter-on-index-scans",
+        "group-by-disable-index-scan-optimizations",
+        "group-by-hash-map-enabled",
+        "lazy-index-scan-max-size-materialization",
+        "lazy-index-scan-num-threads",
+        "lazy-index-scan-queue-size",
+        "lazy-result-max-cache-size",
+        "query-planning-budget",
+        "request-body-limit",
+        "service-max-redirects",
+        "service-max-value-rows",
+        "sort-estimate-cancellation-factor",
+        "spatial-join-prefilter-max-size",
+        "spatial-join-max-num-threads",
+        "syntax-test-mode",
+        "throw-on-unbound-variables",
+        "treat-default-graph-as-named-graph",
+        "use-binsearch-transitive-path",
+    ]
+
     @staticmethod
     def all_arguments():
         """
@@ -61,7 +90,7 @@ class Qleverfile:
             "--text-description",
             type=str,
             default=None,
-            help="A concise description of the additional text data" " if any",
+            help="A concise description of the additional text data if any",
         )
         data_args["format"] = arg(
             "--format",
@@ -167,10 +196,10 @@ class Qleverfile:
         )
         index_args["use_patterns"] = arg(
             "--use-patterns",
-            action="store_true",
-            default=True,
-            help="Precompute so-called patterns needed for fast processing"
-            " of queries like SELECT ?p (COUNT(DISTINCT ?s) AS ?c) "
+            choices=["yes", "no"],
+            default="yes",
+            help="Whether to precompute the so-called patterns used for fast "
+            "processing of queries like SELECT ?p (COUNT(DISTINCT ?s) AS ?c) "
             "WHERE { ?s ?p [] ... } GROUP BY ?p",
         )
         index_args["text_index"] = arg(
@@ -283,10 +312,10 @@ class Qleverfile:
         )
         server_args["use_patterns"] = arg(
             "--use-patterns",
-            action="store_true",
-            default=True,
-            help="Use the patterns precomputed during the index build"
-            " (see `qlever index --help` for their utility)",
+            choices=["yes", "no"],
+            default="yes",
+            help="Whether to use the patterns precomputed during the index "
+            "build (see `qlever index --help` for their utility)",
         )
         server_args["use_text_index"] = arg(
             "--use-text-index",
@@ -438,6 +467,10 @@ class Qleverfile:
             server = config["server"]
         if index.get("text_index", "none") != "none":
             server["use_text_index"] = "yes"
+        if index.get("only_pso_and_pos_permutations", "false") == "true":
+            index["use_patterns"] = "no"
+        if index.get("use_patterns", None) == "no":
+            server["use_patterns"] = "no"
 
         # Add other non-trivial default values.
         try:
