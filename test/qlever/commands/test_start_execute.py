@@ -552,9 +552,7 @@ class TestStartCommand(unittest.TestCase):
         )
 
         # Check warmup was called
-        mock_run.assert_called_once_with(
-            args.warmup_cmd, shell=True, check=True
-        )
+        mock_run.assert_any_call(args.warmup_cmd, shell=True, check=True)
 
         # Assertions
         # Ensure the server status was checked

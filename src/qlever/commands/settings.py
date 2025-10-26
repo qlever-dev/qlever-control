@@ -93,7 +93,7 @@ class SettingsCommand(QleverCommand):
 
         # Execute the `curl` commands for getting the settings.
         try:
-            curl_result = run_command(curl_cmd, return_output=True)
+            curl_result = run_command(curl_cmd_getting, return_output=True)
             body, http_code = curl_result[:-3], curl_result[-3:]
             if http_code != "200":
                 raise Exception(body)
