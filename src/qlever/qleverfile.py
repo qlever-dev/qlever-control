@@ -21,6 +21,35 @@ class Qleverfile:
     Qleverfile + functions for parsing.
     """
 
+    # Runtime parameters (for `settings` and `start` commands).
+    SERVER_RUNTIME_PARAMETERS = [
+        "always-multiply-unions",
+        "cache-max-num-entries",
+        "cache-max-size",
+        "cache-max-size-single-entry",
+        "cache-service-results",
+        "default-query-timeout",
+        "division-by-zero-is-undef",
+        "enable-prefilter-on-index-scans",
+        "group-by-disable-index-scan-optimizations",
+        "group-by-hash-map-enabled",
+        "lazy-index-scan-max-size-materialization",
+        "lazy-index-scan-num-threads",
+        "lazy-index-scan-queue-size",
+        "lazy-result-max-cache-size",
+        "query-planning-budget",
+        "request-body-limit",
+        "service-max-redirects",
+        "service-max-value-rows",
+        "sort-estimate-cancellation-factor",
+        "spatial-join-prefilter-max-size",
+        "spatial-join-max-num-threads",
+        "syntax-test-mode",
+        "throw-on-unbound-variables",
+        "treat-default-graph-as-named-graph",
+        "use-binsearch-transitive-path",
+    ]
+
     @staticmethod
     def all_arguments():
         """

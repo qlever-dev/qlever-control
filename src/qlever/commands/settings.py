@@ -6,6 +6,7 @@ from termcolor import colored
 
 from qlever.command import QleverCommand
 from qlever.log import log
+from qlever.qleverfile import Qleverfile
 from qlever.util import run_command
 
 
@@ -27,39 +28,15 @@ class SettingsCommand(QleverCommand):
         return {"server": ["port", "host_name", "access_token"]}
 
     def additional_arguments(self, subparser) -> None:
-        all_keys = [
-            "always-multiply-unions",
-            "cache-max-num-entries",
-            "cache-max-size",
-            "cache-max-size-single-entry",
-            "cache-service-results",
-            "default-query-timeout",
-            "division-by-zero-is-undef",
-            "enable-prefilter-on-index-scans",
-            "group-by-disable-index-scan-optimizations",
-            "group-by-hash-map-enabled",
-            "lazy-index-scan-max-size-materialization",
-            "lazy-index-scan-num-threads",
-            "lazy-index-scan-queue-size",
-            "lazy-result-max-cache-size",
-            "query-planning-budget",
-            "request-body-limit",
-            "service-max-redirects",
-            "service-max-value-rows",
-            "sort-estimate-cancellation-factor",
-            "spatial-join-prefilter-max-size",
-            "spatial-join-max-num-threads",
-            "syntax-test-mode",
-            "throw-on-unbound-variables",
-            "treat-default-graph-as-named-graph",
-            "use-binsearch-transitive-path",
-        ]
         subparser.add_argument(
-            "key_value_pairs",
+            "runtime_parameters",
             nargs="*",
-            help="Space-separated list of key=value pairs to set; "
-            "afterwards shows all settings, with the changed ones highlighted",
-        ).completer = lambda **kwargs: [f"{key}=" for key in all_keys]
+            help="Space-separated list of runtime parameters to set "
+            "in the form `key=value`; afterwards shows all settings, "
+            "with the changed ones highlighted",
+        ).completer = lambda **kwargs: [
+            f"{key}=" for key in Qleverfile.SERVER_RUNTIME_PARAMETERS
+        ]
         subparser.add_argument(
             "--endpoint_url",
             type=str,
@@ -77,22 +54,22 @@ class SettingsCommand(QleverCommand):
         # Construct the `curl` commands for setting and getting.
         curl_cmds_setting = []
         keys_set = set()
-        if args.key_value_pairs:
-            for key_value_pair in args.key_value_pairs:
+        if args.runtime_parameters:
+            for key_value_pair in args.runtime_parameters:
                 try:
                     key, value = key_value_pair.split("=")
                 except ValueError:
                     log.error("Runtime parameter must be given as `key=value`")
                     return False
-
                 curl_cmds_setting.append(
-                    f"curl -s {endpoint_url}"
+                    f"curl -s {endpoint_url} -w %{{http_code}}"
                     f' --data-urlencode "{key}={value}"'
                     f' --data-urlencode "access-token={args.access_token}"'
                 )
                 keys_set.add(key)
         curl_cmd_getting = (
-            f"curl -s {endpoint_url} --data-urlencode cmd=get-settings"
+            f"curl -s {endpoint_url} -w %{{http_code}}"
+            f" --data-urlencode cmd=get-settings"
         )
         self.show(
             "\n".join(curl_cmds_setting + [curl_cmd_getting]),
@@ -104,7 +81,10 @@ class SettingsCommand(QleverCommand):
         # Execute the `curl` commands for setting the key-value pairs if any.
         for curl_cmd in curl_cmds_setting:
             try:
-                run_command(curl_cmd, return_output=False)
+                curl_result = run_command(curl_cmd, return_output=True)
+                body, http_code = curl_result[:-3], curl_result[-3:]
+                if http_code != "200":
+                    raise Exception(body)
             except Exception as e:
                 log.error(
                     f"curl command for setting key-value pair failed: {e}"
@@ -113,8 +93,11 @@ class SettingsCommand(QleverCommand):
 
         # Execute the `curl` commands for getting the settings.
         try:
-            settings_json = run_command(curl_cmd, return_output=True)
-            settings_dict = json.loads(settings_json)
+            curl_result = run_command(curl_cmd, return_output=True)
+            body, http_code = curl_result[:-3], curl_result[-3:]
+            if http_code != "200":
+                raise Exception(body)
+            settings_dict = json.loads(body)
             if isinstance(settings_dict, list):
                 settings_dict = settings_dict[0]
         except Exception as e:

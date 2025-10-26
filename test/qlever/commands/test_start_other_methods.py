@@ -77,5 +77,5 @@ class TestStartCommand(unittest.TestCase):
         self.assertEqual(args.no_warmup, False)
 
         # Test that the help text for --no-warmup is correctly set
-        argument_help = subparser._group_actions[-2].help
+        argument_help = subparser._group_actions[-3].help
         self.assertEqual(argument_help, "Do not execute the warmup command")
