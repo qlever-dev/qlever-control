@@ -130,9 +130,6 @@ class UpdateWikidataCommand(QleverCommand):
             log.warn("\rCtrl+C pressed again, watch your blood pressure")
         else:
             self.ctrl_c_pressed = True
-            log.warn(
-                "\rCtrl+C pressed, will finish the current batch and then exit"
-            )
 
     def execute(self, args) -> bool:
         # cURL command to get the date until which the updates of the
@@ -180,7 +177,7 @@ class UpdateWikidataCommand(QleverCommand):
 
         # Special handling of Ctrl+C, see `handle_ctrl_c` above.
         signal.signal(signal.SIGINT, self.handle_ctrl_c)
-        log.warn("Press Ctrl+C to finish the current batch and end gracefully")
+        log.warn("Press Ctrl+C to finish and exit gracefully")
         log.info("")
 
         # Initialize all the statistics variables.
@@ -210,6 +207,12 @@ class UpdateWikidataCommand(QleverCommand):
                     if self.ctrl_c_pressed:
                         break
                     time.sleep(1)
+            if self.ctrl_c_pressed:
+                log.warn(
+                    "\rCtrl+C pressed while waiting in between batches, "
+                    "exiting"
+                )
+                break
 
             # Start stream from either `event_id_for_next_batch` or `since`.
             if event_id_for_next_batch:
@@ -352,7 +355,10 @@ class UpdateWikidataCommand(QleverCommand):
                     )
                     now_as_epoch_s = time.time()
                     delta_to_now_s = now_as_epoch_s - date_as_epoch_s
-                    if delta_to_now_s < args.lag_seconds:
+                    if (
+                        delta_to_now_s < args.lag_seconds
+                        and current_batch_size > 0
+                    ):
                         log.warn(
                             f"Encountered message with date {date}, which is within "
                             f"{args.lag_seconds} "
@@ -464,6 +470,10 @@ class UpdateWikidataCommand(QleverCommand):
                 # end of the inner event loop so that always at least one
                 # message is processed).
                 if self.ctrl_c_pressed:
+                    log.warn(
+                        "\rCtrl+C pressed while processing a batch, "
+                        "finishing it and exiting"
+                    )
                     break
 
             # Process the current batch of messages.
