@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import errno
+import glob
 import re
 import secrets
 import shlex
@@ -87,7 +89,8 @@ def run_curl_command(
     url: str,
     headers: dict[str, str] = {},
     params: dict[str, str] = {},
-    result_file: Optional[str] = None,
+    result_file: str | None = None,
+    max_time: int | None = None,
 ) -> str:
     """
     Run `curl` with the given `url`, `headers`, and `params`. If `result_file`
@@ -109,6 +112,8 @@ def run_curl_command(
             ]
         )
     )
+    if max_time is not None:
+        curl_cmd += f" --max-time {int(max_time)}"
     result = subprocess.run(
         curl_cmd,
         shell=True,
@@ -285,7 +290,11 @@ def stop_process_with_regex(cmdline_regex: str) -> list[bool] | None:
                     "cmdline",
                 ]
             )
-            cmdline = " ".join(pinfo["cmdline"])
+            cmdline = (
+                " ".join(pinfo["cmdline"])
+                if isinstance(pinfo["cmdline"], list)
+                else ""
+            )
         except Exception as e:
             log.debug(f"Error getting process info: {e}")
             return None
@@ -327,3 +336,100 @@ def is_server_alive(url: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def input_files_exist(input_files: str, script_name: str) -> bool:
+    """
+    Check if all of the input files exist in current working directory.
+    """
+    for pattern in shlex.split(input_files):
+        if len(glob.glob(pattern)) == 0:
+            log.error(f'No file matching "{pattern}" found')
+            log.info("")
+            log.info(
+                f"Did you call `{script_name} get-data`? If you did, "
+                "check GET_DATA_CMD and INPUT_FILES in the Qleverfile"
+            )
+            return False
+    return True
+
+
+def build_image(build_cmd: str, system: str, image: str) -> bool:
+    """
+    Build a container image using the build command, container system and
+    image name. This method is supposed to be used before executing the index
+    command and the logs show that.
+    """
+    log.info(f"Building {system} image {image}...")
+    try:
+        run_command(build_cmd, show_output=True)
+        log.info(
+            f"Finished building {system} image {image}! "
+            "Continuing with index operation...\n"
+        )
+        return True
+    except Exception as e:
+        log.error(f"Building the {system} image {image} failed: {e}")
+        return False
+
+
+def get_container_image_id(system: str, image: str) -> str:
+    """
+    Get the container image ID to check if the image exists on the system.
+    """
+    try:
+        image_id = run_command(
+            f"{system} images -q {image}", return_output=True
+        )
+    except Exception as e:
+        log.info(
+            f"Couldn't identify if {system} image {image} "
+            f"exists on the system : {e}"
+        )
+        log.info(
+            "Assuming that the image doesn't exist and the image would "
+            "be built.\n"
+        )
+        image_id = ""
+    return image_id
+
+
+def parse_memory(value: str) -> str:
+    """
+    Validate memory size string like '4G'.
+    Returns the string unchanged if valid, raises argparse.ArgumentTypeError otherwise.
+    """
+    if not re.match(r"^\d+[G]$", value, re.IGNORECASE):
+        raise argparse.ArgumentTypeError(
+            f"Invalid memory size '{value}'. Use format like 4G, 32G."
+        )
+    return value.upper()
+
+
+def add_memory_options(subparser, index=True, server=True):
+    """
+    Add total memory-related options to a subparser for setup-config command.
+    """
+    if index:
+        subparser.add_argument(
+            "--total-index-memory",
+            type=parse_memory,
+            default="4G",
+            help=(
+                "Maximum memory budget for indexing. All relevant [index] "
+                "options in the Qleverfile will be auto-generated with sensible "
+                "defaults that together stay within this limit. "
+            ),
+        )
+
+    if server:
+        subparser.add_argument(
+            "--total-server-memory",
+            type=parse_memory,
+            default="4G",
+            help=(
+                "Maximum memory budget for the server. All relevant [server] "
+                "options in the Qleverfile will be auto-generated with sensible "
+                "defaults that together stay within this limit. "
+            ),
+        )
