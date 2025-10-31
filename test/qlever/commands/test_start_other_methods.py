@@ -65,7 +65,7 @@ class TestStartCommand(unittest.TestCase):
 
         # Test that the help text for
         # --kill-existing-with-same-port is correctly set
-        argument_help = subparser._group_actions[-3].help
+        argument_help = subparser._group_actions[-4].help
         self.assertEqual(
             argument_help,
             "If a QLever server is already running "
@@ -77,5 +77,5 @@ class TestStartCommand(unittest.TestCase):
         self.assertEqual(args.no_warmup, False)
 
         # Test that the help text for --no-warmup is correctly set
-        argument_help = subparser._group_actions[-2].help
+        argument_help = subparser._group_actions[-3].help
         self.assertEqual(argument_help, "Do not execute the warmup command")

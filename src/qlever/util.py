@@ -296,8 +296,9 @@ def stop_process_with_regex(cmdline_regex: str) -> list[bool] | None:
             )
             cmdline = " ".join(pinfo["cmdline"])
         except Exception as e:
+            # For some processes (e.g., zombies), getting info may fail.
             log.debug(f"Error getting process info: {e}")
-            return None
+            continue
         if re.search(cmdline_regex, cmdline):
             log.info(
                 f"Found process {pinfo['pid']} from user "
