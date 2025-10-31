@@ -102,6 +102,12 @@ class UpdateOsmCommand(QleverCommand):
             help="The name of the file containing the polygon for an OSM "
                  "extract",
         )
+        subparser.add_argument(
+            "--tmp",
+            type=str,
+            default="olu_tmp",
+            help="The directory to use for temporary files created by olu",
+        )
 
     # Handle Ctrl+C gracefully by finishing the current update and then
     # exiting.
@@ -204,6 +210,10 @@ class UpdateOsmCommand(QleverCommand):
             )
             return False
 
+        # Create the temporary directory for olu if it does not exist yet.
+        if not os.path.exists(args.tmp):
+            os.makedirs(args.tmp)
+
         # Pull the latest image for osm-live-updates if remote image is used.
         if pull_cmd:
             run_command(pull_cmd)
@@ -269,6 +279,7 @@ class UpdateOsmCommand(QleverCommand):
         olu_cmd += f" --access-token {args.access_token}"
         olu_cmd += f" --replication-server {replication_server_url}"
         olu_cmd += f" --qlever"
+        olu_cmd += f" --tmp {args.tmp}"
 
         # If the user has specified a boundary, we add it to the command.
         if args.bbox and args.polygon:
