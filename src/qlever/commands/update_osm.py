@@ -288,7 +288,7 @@ class UpdateOsmCommand(QleverCommand):
         olu_cmd += f" --qlever"
         olu_cmd += f" --tmp {args.tmp}"
 
-        if args.olu-statistics:
+        if args.olu_statistics:
             olu_cmd += f" --statistics"
 
         # If the user has specified a boundary, we add it to the command.
