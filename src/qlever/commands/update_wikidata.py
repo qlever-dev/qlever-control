@@ -11,6 +11,7 @@ import requests
 import requests_sse
 from rdflib import Graph
 from termcolor import colored
+from tqdm import tqdm
 
 from qlever.command import QleverCommand
 from qlever.log import log
@@ -282,6 +283,7 @@ class UpdateWikidataCommand(QleverCommand):
             delete_triples = set()
 
             # Process one event at a time.
+            pbar = tqdm(desc="Batch", total=args.batch_size, leave=False)
             for event in source:
                 # Ctrl+C finishes the current batch.
                 if self.ctrl_c_pressed:
@@ -456,6 +458,7 @@ class UpdateWikidataCommand(QleverCommand):
 
                 # Message was successfully processed, update batch tracking
                 current_batch_size += 1
+                pbar.update(1)
                 log.debug(
                     f"DATE: {date_as_epoch_s:.0f} [{date}], "
                     f"NOW: {now_as_epoch_s:.0f}, "
@@ -463,6 +466,8 @@ class UpdateWikidataCommand(QleverCommand):
                 )
                 date_list.append(date)
                 delta_to_now_list.append(delta_to_now_s)
+
+            pbar.close()
 
             # Process the current batch of messages.
             batch_assembly_end_time = time.perf_counter()
