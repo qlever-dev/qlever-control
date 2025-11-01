@@ -108,6 +108,13 @@ class UpdateOsmCommand(QleverCommand):
             default="olu_tmp",
             help="The directory to use for temporary files created by olu",
         )
+        subparser.add_argument(
+            "--olu-statistics",
+            action='store_true',
+            default=False,
+            help="If set, olu will print extensive statistics about the update"
+                 " process",
+        )
 
     # Handle Ctrl+C gracefully by finishing the current update and then
     # exiting.
@@ -280,6 +287,9 @@ class UpdateOsmCommand(QleverCommand):
         olu_cmd += f" --replication-server {replication_server_url}"
         olu_cmd += f" --qlever"
         olu_cmd += f" --tmp {args.tmp}"
+
+        if args.olu-statistics:
+            olu_cmd += f" --statistics"
 
         # If the user has specified a boundary, we add it to the command.
         if args.bbox and args.polygon:
