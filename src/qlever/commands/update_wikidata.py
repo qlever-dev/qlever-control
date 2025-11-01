@@ -285,10 +285,6 @@ class UpdateWikidataCommand(QleverCommand):
             # Process one event at a time.
             pbar = tqdm(desc="Batch", total=args.batch_size, leave=False)
             for event in source:
-                # Ctrl+C finishes the current batch.
-                if self.ctrl_c_pressed:
-                    break
-
                 # Skip events that are not of type `message` (should not
                 # happen), have no field `data` (should not happen either), or
                 # where the topic is not in `args.topics` (one topic by itself
@@ -466,6 +462,12 @@ class UpdateWikidataCommand(QleverCommand):
                 )
                 date_list.append(date)
                 delta_to_now_list.append(delta_to_now_s)
+
+                # Ctrl+C finishes the current batch (this should come at the
+                # end of the inner event loop so that always at least one
+                # message is processed).
+                if self.ctrl_c_pressed:
+                    break
 
             pbar.close()
 
@@ -679,6 +681,7 @@ class UpdateWikidataCommand(QleverCommand):
                         "execution",
                         "processUpdateImpl",
                         "updateMetadata",
+                        log_fail=False,
                     )
                     time_insert = get_time_ms(
                         stats,

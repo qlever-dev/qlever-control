@@ -5,11 +5,13 @@ import time
 
 from qlever.command import QleverCommand
 from qlever.commands.cache_stats import CacheStatsCommand
+from qlever.commands.settings import SettingsCommand
 from qlever.commands.status import StatusCommand
 from qlever.commands.stop import StopCommand
 from qlever.commands.warmup import WarmupCommand
 from qlever.containerize import Containerize
 from qlever.log import log
+from qlever.qleverfile import Qleverfile
 from qlever.util import binary_exists, is_qlever_server_alive, run_command
 
 
@@ -34,7 +36,7 @@ def construct_command(args) -> str:
         start_cmd += " --persist-updates"
     if args.only_pso_and_pos_permutations:
         start_cmd += " --only-pso-and-pos-permutations"
-    if not args.use_patterns:
+    if args.use_patterns == "no":
         start_cmd += " --no-patterns"
     if args.use_text_index == "yes":
         start_cmd += " -t"
@@ -165,8 +167,19 @@ class StartCommand(QleverCommand):
             help="Run the server in the foreground "
             "(default: run in the background with `nohup`)",
         )
+        subparser.add_argument(
+            "runtime_parameters",
+            nargs="*",
+            help="Space-separated list of runtime parameters to set "
+            "(in the form `key=value`) once the server is running",
+        ).completer = lambda **kwargs: [
+            f"{key}=" for key in Qleverfile.SERVER_RUNTIME_PARAMETERS
+        ]
 
     def execute(self, args) -> bool:
+        # Set the endpoint URL.
+        args.endpoint_url = f"http://{args.host_name}:{args.port}"
+
         # Kill existing server with the same name if so desired.
         #
         # TODO: This is currently disabled because I never used it once over
@@ -200,6 +213,9 @@ class StartCommand(QleverCommand):
         # Show the command line.
         self.show(start_cmd, only_show=args.show)
         if args.show:
+            if args.runtime_parameters:
+                log.info("")
+                SettingsCommand().execute(args)
             return True
 
         # When running natively, check if the binary exists and works.
@@ -208,9 +224,8 @@ class StartCommand(QleverCommand):
                 return False
 
         # Check if a QLever server is already running on this port.
-        endpoint_url = f"http://{args.host_name}:{args.port}"
-        if is_qlever_server_alive(endpoint_url):
-            log.error(f"QLever server already running on {endpoint_url}")
+        if is_qlever_server_alive(args.endpoint_url):
+            log.error(f"QLever server already running on {args.endpoint_url}")
             log.info("")
             log.info(
                 "To kill the existing server, use `qlever stop` "
@@ -269,7 +284,7 @@ class StartCommand(QleverCommand):
         log.info("")
         tail_cmd = f"exec tail -f {args.name}.server-log.txt"
         tail_proc = subprocess.Popen(tail_cmd, shell=True)
-        while not is_qlever_server_alive(endpoint_url):
+        while not is_qlever_server_alive(args.endpoint_url):
             time.sleep(1)
 
         # Set the description for the index and text.
@@ -304,6 +319,11 @@ class StartCommand(QleverCommand):
             args.detailed = False
             args.server_url = None
             CacheStatsCommand().execute(args)
+
+        # Apply settings if any.
+        if args.runtime_parameters:
+            log.info("")
+            SettingsCommand().execute(args)
 
         # With `--run-in-foreground`, wait until the server is stopped.
         if args.run_in_foreground:
