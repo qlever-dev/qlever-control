@@ -5,6 +5,7 @@ import re
 import signal
 import time
 from datetime import datetime, timezone
+from enum import Enum, auto
 
 import rdflib.term
 import requests
@@ -123,6 +124,12 @@ class UpdateWikidataCommand(QleverCommand):
             "finished due to a message that is within `lag_seconds` of "
             "the current time (default: 300s)",
         )
+        subparser.add_argument(
+            "--verbose",
+            choices=["no", "yes"],
+            default="yes",
+            help='Verbose logging, "yes" or "no" (default: "yes")',
+        )
 
     # Handle Ctrl+C gracefully by finishing the current batch and then exiting.
     def handle_ctrl_c(self, signal_received, frame):
@@ -216,13 +223,14 @@ class UpdateWikidataCommand(QleverCommand):
 
             # Start stream from either `event_id_for_next_batch` or `since`.
             if event_id_for_next_batch:
-                log.info(
-                    colored(
-                        f"Consuming stream from event ID: "
-                        f"{event_id_for_next_batch}",
-                        attrs=["dark"],
+                if args.verbose == "yes":
+                    log.info(
+                        colored(
+                            f"Consuming stream from event ID: "
+                            f"{event_id_for_next_batch}",
+                            attrs=["dark"],
+                        )
                     )
-                )
                 source = requests_sse.EventSource(
                     args.sse_stream_url,
                     headers={
@@ -233,11 +241,13 @@ class UpdateWikidataCommand(QleverCommand):
                 )
                 event_id_for_next_batch = None
             else:
-                log.info(
-                    colored(
-                        f"Consuming stream from date: {since}", attrs=["dark"]
+                if args.verbose == "yes":
+                    log.info(
+                        colored(
+                            f"Consuming stream from date: {since}",
+                            attrs=["dark"],
+                        )
                     )
-                )
                 source = requests_sse.EventSource(
                     args.sse_stream_url,
                     params={"since": since},
@@ -335,12 +345,13 @@ class UpdateWikidataCommand(QleverCommand):
                         or rdf_linked_shared_data is not None
                     )
                     if operation_adds_data and entity_id in delete_entity_ids:
-                        log.warn(
-                            f"Encountered operation that adds data for "
-                            f"an entity ID ({entity_id}) that was deleted "
-                            f"earlier in this batch; finishing batch and "
-                            f"resuming from this message in the next batch"
-                        )
+                        if args.verbose == "yes":
+                            log.warn(
+                                f"Encountered operation that adds data for "
+                                f"an entity ID ({entity_id}) that was deleted "
+                                f"earlier in this batch; finishing batch and "
+                                f"resuming from this message in the next batch"
+                            )
                         break
 
                     # Condition 2: Batch size reached.
@@ -359,12 +370,13 @@ class UpdateWikidataCommand(QleverCommand):
                         delta_to_now_s < args.lag_seconds
                         and current_batch_size > 0
                     ):
-                        log.warn(
-                            f"Encountered message with date {date}, which is within "
-                            f"{args.lag_seconds} "
-                            f"second{'s' if args.lag_seconds > 1 else ''} "
-                            f"of the current time, finishing the current batch"
-                        )
+                        if args.verbose == "yes":
+                            log.warn(
+                                f"Encountered message with date {date}, which is within "
+                                f"{args.lag_seconds} "
+                                f"second{'s' if args.lag_seconds > 1 else ''} "
+                                f"of the current time, finishing the current batch"
+                            )
                         break
 
                     # Condition 4: Reached `--until` date and at least one
@@ -491,7 +503,7 @@ class UpdateWikidataCommand(QleverCommand):
                 min_delta_to_now_s = f"{int(min_delta_to_now_s):,}"
             log.info(
                 f"Assembled batch #{batch_count} "
-                f"with {current_batch_size:,} "
+                f"with {current_batch_size:3,} "
                 f"message{'s' if current_batch_size > 1 else ''}, "
                 f"date range: {date_list[0]} - {date_list[-1]}  "
                 f"[assembly time: {batch_assembly_time_ms:,}ms, "
@@ -575,7 +587,8 @@ class UpdateWikidataCommand(QleverCommand):
             with open(update_arg_file_name, "w") as f:
                 f.write(delete_insert_operation)
             curl_cmd += f" --data-binary @{update_arg_file_name}"
-            log.info(colored(curl_cmd, "blue"))
+            if args.verbose == "yes":
+                log.info(colored(curl_cmd, "blue"))
 
             # Run it (using `curl` for batch size up to 1000, otherwise
             # `requests`).
@@ -618,15 +631,25 @@ class UpdateWikidataCommand(QleverCommand):
 
             # Helper function for getting the value of `stats["time"][...]`
             # without the "ms" suffix. If the extraction fails, return 0
+
             # (and optionally log the failure).
-            def get_time_ms(stats, *keys: str, log_fail: bool = True) -> int:
+            class FailureMode(Enum):
+                LOG_ERROR = auto()
+                SILENTLY_RETURN_ZERO = auto()
+                THROW_EXCEPTION = auto()
+
+            def get_time_ms(
+                stats, *keys: str, failure_mode=FailureMode.LOG_ERROR
+            ) -> int:
                 try:
                     value = stats["time"]
                     for key in keys:
                         value = value[key]
                     value = int(value)
                 except Exception:
-                    if log_fail:
+                    if failure_mode == FailureMode.THROW_EXCEPTION:
+                        raise
+                    elif failure_mode == FailureMode.LOG_ERROR:
                         log.error(
                             f"Error extracting time from JSON statistics, "
                             f"keys: {keys}"
@@ -650,31 +673,45 @@ class UpdateWikidataCommand(QleverCommand):
                     )
                     num_ops = int(stats["delta-triples"]["operation"]["total"])
                     time_ms = get_time_ms(stats, "total")
-                    time_us_per_op = int(1000 * time_ms / num_ops)
-                    log.info(
-                        colored(
-                            f"TRIPLES: {num_ops:+10,} -> {ops_after:10,}, "
-                            f"INS: {num_ins:+10,} -> {ins_after:10,}, "
-                            f"DEL: {num_del:+10,} -> {del_after:10,}, "
-                            f"TIME: {time_ms:7,}ms, "
-                            f"TIME/TRIPLE: {time_us_per_op:6,}µs",
-                            attrs=["bold"],
-                        )
+                    time_us_per_op = (
+                        int(1000 * time_ms / num_ops) if num_ops > 0 else 0
                     )
+                    if args.verbose == "yes":
+                        log.info(
+                            colored(
+                                f"TRIPLES: {num_ops:+10,} -> {ops_after:10,}, "
+                                f"INS: {num_ins:+10,} -> {ins_after:10,}, "
+                                f"DEL: {num_del:+10,} -> {del_after:10,}, "
+                                f"TIME: {time_ms:7,}ms, "
+                                f"TIME/TRIPLE: {time_us_per_op:6,}µs",
+                                attrs=["bold"],
+                            )
+                        )
 
                     # Also show a detailed breakdown of the total time.
                     time_parsing = (
-                        get_time_ms(stats, "parsing", log_fail=False)
+                        get_time_ms(stats, "parsing",
+                                    failure_mode=FailureMode.SILENTLY_RETURN_ZERO)
                         if i == 0
                         else 0
                     )
                     time_planning = get_time_ms(stats, "planning")
-                    time_preparation = get_time_ms(
-                        stats,
-                        "execution",
-                        "processUpdateImpl",
-                        "preparation",
-                    )
+                    try:
+                        time_preparation = get_time_ms(
+                            stats,
+                            "execution",
+                            "processUpdateImpl",
+                            "preparation",
+                            "total",
+                            failure_mode=FailureMode.THROW_EXCEPTION
+                        )
+                    except Exception:
+                        time_preparation = get_time_ms(
+                            stats,
+                            "execution",
+                            "processUpdateImpl",
+                            "preparation",
+                        )
                     time_where = get_time_ms(
                         stats,
                         "execution",
@@ -684,9 +721,8 @@ class UpdateWikidataCommand(QleverCommand):
                     time_metadata = get_time_ms(
                         stats,
                         "execution",
-                        "processUpdateImpl",
                         "updateMetadata",
-                        log_fail=False,
+                        failure_mode=FailureMode.SILENTLY_RETURN_ZERO
                     )
                     time_insert = get_time_ms(
                         stats,
@@ -694,7 +730,7 @@ class UpdateWikidataCommand(QleverCommand):
                         "processUpdateImpl",
                         "insertTriples",
                         "total",
-                        log_fail=False,
+                        failure_mode=FailureMode.SILENTLY_RETURN_ZERO
                     )
                     time_delete = get_time_ms(
                         stats,
@@ -702,7 +738,7 @@ class UpdateWikidataCommand(QleverCommand):
                         "processUpdateImpl",
                         "deleteTriples",
                         "total",
-                        log_fail=False,
+                        failure_mode=FailureMode.SILENTLY_RETURN_ZERO
                     )
                     time_snapshot = get_time_ms(
                         stats, "execution", "snapshotCreation"
@@ -721,18 +757,19 @@ class UpdateWikidataCommand(QleverCommand):
                         + time_snapshot
                         + time_writeback
                     )
-                    log.info(
-                        f"PARSING: {100 * time_parsing / time_ms:2.0f}%, "
-                        f"PLANNING: {100 * time_planning / time_ms:2.0f}%, "
-                        f"PREPARATION: {100 * time_preparation / time_ms:2.0f}%, "
-                        f"WHERE: {100 * time_where / time_ms:2.0f}%, "
-                        f"DELETE: {100 * time_delete / time_ms:2.0f}%, "
-                        f"INSERT: {100 * time_insert / time_ms:2.0f}%, "
-                        f"METADATA: {100 * time_metadata / time_ms:2.0f}%, "
-                        f"SNAPSHOT: {100 * time_snapshot / time_ms:2.0f}%, "
-                        f"WRITEBACK: {100 * time_writeback / time_ms:2.0f}%, "
-                        f"UNACCOUNTED: {100 * time_unaccounted / time_ms:2.0f}%",
-                    )
+                    if args.verbose == "yes":
+                        log.info(
+                            f"PARSING: {100 * time_parsing / time_ms:2.0f}%, "
+                            f"PLANNING: {100 * time_planning / time_ms:2.0f}%, "
+                            f"PREPARATION: {100 * time_preparation / time_ms:2.0f}%, "
+                            f"WHERE: {100 * time_where / time_ms:2.0f}%, "
+                            f"DELETE: {100 * time_delete / time_ms:2.0f}%, "
+                            f"INSERT: {100 * time_insert / time_ms:2.0f}%, "
+                            f"METADATA: {100 * time_metadata / time_ms:2.0f}%, "
+                            f"SNAPSHOT: {100 * time_snapshot / time_ms:2.0f}%, "
+                            f"WRITEBACK: {100 * time_writeback / time_ms:2.0f}%, "
+                            f"UNACCOUNTED: {100 * time_unaccounted / time_ms:2.0f}%",
+                        )
 
                     # Update the totals.
                     total_num_ops += num_ops
@@ -753,16 +790,17 @@ class UpdateWikidataCommand(QleverCommand):
                     continue
 
             # Show statistics for the completed batch.
-            log.info(
-                colored(
-                    f"TOTAL TRIPLES SO FAR: {total_num_ops:10,}, "
-                    f"TOTAL UPDATE TIME SO FAR: {total_time_s:4.0f}s, "
-                    f"ELAPSED TIME SO FAR: {elapsed_time_s:4.0f}s, "
-                    f"AVG TIME/TRIPLE SO FAR: {time_us_per_op:,}µs",
-                    attrs=["bold"],
+            if args.verbose == "yes":
+                log.info(
+                    colored(
+                        f"TOTAL TRIPLES SO FAR: {total_num_ops:10,}, "
+                        f"TOTAL UPDATE TIME SO FAR: {total_time_s:4.0f}s, "
+                        f"ELAPSED TIME SO FAR: {elapsed_time_s:4.0f}s, "
+                        f"AVG TIME/TRIPLE SO FAR: {time_us_per_op:,}µs",
+                        attrs=["bold"],
+                    )
                 )
-            )
-            log.info("")
+                log.info("")
 
             # Close the source connection (for each batch, we open a new one,
             # either from `event_id_for_next_batch` or from `since`).
