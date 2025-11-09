@@ -22,7 +22,7 @@ GET_EXAMPLES_CMD = mkdir -p ${TTL_DIR} && git clone ${EXAMPLES_URL} && (cd sparq
 GET_RDFXML_CMD   = mkdir -p ${RDFXML_DIR} && (echo "${RHEA_URL}/chebi.owl.gz"; echo "${RHEA_URL}/rhea.rdf.gz"; curl -s ${UNIPROT_URL}/RELEASE.meta4 | sed "s/<metalink.*/<metalink>/" | xmllint --xpath "/metalink/files/file/url[@location=\"ch\"]/text()" -) | while read URL; do wget --no-verbose -P ${RDFXML_DIR} $$URL 2>&1 | tee -a uniprot.download-log; done
 RDFXML2TTL_CMD   = mkdir -p ${TTL_DIR} && for RDFXML in ${RDFXML_DIR}/*.{owl,owl.xz,rdf,rdf.xz}; do echo "xzcat -f $$RDFXML | rdfxml --output=ttl -q 2> ${TTL_DIR}/$$(basename $$RDFXML).stderr | gzip -c > ${TTL_DIR}/$$(basename $$RDFXML | sed 's/\(rdf\|rdf.xz\|owl\|owl.xz\)$$/ttl.gz/') && echo 'DONE converting $$RDFXML'"; done | parallel
 GET_DATA_CMD     = date > ${NAME}.get-data.begin-date && ${GET_EXAMPLES_CMD} && ${GET_RDFXML_CMD} && ${RDFXML2TTL_CMD} && date > ${NAME}.get-data.end-date
-DESCRIPTION      = Complete UniProt data from ${UNIPROT_URL}, with additional data from ${RHEA_URL} and ${EXAMPLES_URL}
+DESCRIPTION      = UniProt, RDF XML from ${UNIPROT_URL} + additional data from ${RHEA_URL} and ${EXAMPLES_URL}, version ${DATE}
 
 [index]
 INPUT_FILES      = ${data:TTL_DIR}/*.ttl.gz

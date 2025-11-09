@@ -14,7 +14,7 @@ GET_PBF_CMD  = unbuffer wget -O ${PLANET_PBF} ${GET_DATA_URL}
 OSM2RDF_CMD  = unbuffer osm2rdf ${PLANET_PBF} -o ${NAME}.ttl --num-threads 20 --output-compression gz --cache . --store-locations disk-dense --iri-prefix-for-untagged-nodes http://www.openstreetmap.org/node/ --split-tag-key-by-semicolon ref --split-tag-key-by-semicolon service
 GET_DATA_CMD = ${GET_PBF_CMD} && ${OSM2RDF_CMD} 2>&1 | tee ${NAME}.osm2rdf-log.txt
 VERSION      = $$(date -r ${PLANET_PBF} +%d.%m.%Y || echo "NO_DATE")
-DESCRIPTION  = OSM from ${GET_DATA_URL}, converted to RDF using osm2rdf, enhanced by GeoSPARQL triples ogc:sfContains, ogc:sfCovers, ogc:sfIntersects, ogc:sfEquals, ogc:sfTouches, ogc:sfCrosses, ogc:sfOverlaps
+DESCRIPTION  = OpenStreetMap, PBF from ${GET_DATA_URL}, converted to RDF TTL and enhanced by DE-9IM triples using osm2rdf
 
 [index]
 INPUT_FILES        = ${data:NAME}.ttl.gz

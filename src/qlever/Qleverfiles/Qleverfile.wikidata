@@ -16,7 +16,7 @@ GET_DATA_URL      = https://dumps.wikimedia.org/wikidatawiki/entities
 GET_DATA_CMD      = curl -LRC - -O ${GET_DATA_URL}/latest-all.ttl.bz2 -O ${GET_DATA_URL}/latest-lexemes.ttl.bz2 2>&1 | tee wikidata.download-log.txt && curl -sL ${GET_DATA_URL}/dcatap.rdf | docker run -i --rm -v $$(pwd):/data stain/jena riot --syntax=RDF/XML --output=NT /dev/stdin > dcatap.nt
 DATE_WIKIDATA     = $$(date -r latest-all.ttl.bz2 +%d.%m.%Y || echo "NO_DATE")
 DATE_WIKIPEDIA    = $$(date -r wikipedia-abstracts.nt +%d.%m.%Y || echo "NO_DATE")
-DESCRIPTION       = Full Wikidata dump from ${GET_DATA_URL} (latest-all.ttl.bz2 and latest-lexemes.ttl.bz2, version ${DATE_WIKIDATA})
+DESCRIPTION       = Complete Wikidata, from ${GET_DATA_URL} (latest-all.ttl.bz2 and latest-lexemes.ttl.bz2), version ${DATE_WIKIDATA}
 
 [index]
 INPUT_FILES      = latest-all.ttl.bz2 latest-lexemes.ttl.bz2 dcatap.nt
