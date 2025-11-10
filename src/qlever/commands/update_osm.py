@@ -4,6 +4,7 @@ import os
 import signal
 import subprocess
 import shlex
+from sys import platform
 import time
 from typing import Optional
 
@@ -279,7 +280,13 @@ class UpdateOsmCommand(QleverCommand):
             return False
 
     def construct_olu_cmd(self, replication_server_url: str, args) -> str:
-        sparql_endpoint = f"http://{args.host_name}:{args.port}"
+        if args.system == "docker" and platform == "darwin":
+            # When using Docker on macOS, we need to use 'host.docker.internal'
+            # to access the host machine from within a Docker container.
+            sparql_endpoint = f"http://host.docker.internal:{args.port}"
+        else:
+            sparql_endpoint = f"http://{args.host_name}:{args.port}"
+
         container_name = f"olu-{args.name}"
 
         olu_cmd = f"{sparql_endpoint}"
