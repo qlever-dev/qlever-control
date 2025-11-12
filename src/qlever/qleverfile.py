@@ -23,13 +23,13 @@ class Qleverfile:
 
     # Runtime parameters (for `settings` and `start` commands).
     SERVER_RUNTIME_PARAMETERS = [
-        "always-multiply-unions",
         "cache-max-num-entries",
         "cache-max-size",
         "cache-max-size-single-entry",
         "cache-service-results",
         "default-query-timeout",
         "division-by-zero-is-undef",
+        "enable-distributive-union",
         "enable-prefilter-on-index-scans",
         "group-by-disable-index-scan-optimizations",
         "group-by-hash-map-enabled",

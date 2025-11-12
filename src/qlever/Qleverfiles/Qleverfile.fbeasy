@@ -8,13 +8,13 @@
 NAME              = fbeasy
 DATA_URL          = https://freebase-easy.cs.uni-freiburg.de
 GET_DATA_CMD      = wget -nc ${DATA_URL}/dump/fbeasy.nt
-DESCRIPTION       = RDF data from ${DATA_URL}, latest version from 18.07.2019
-TEXT_DESCRIPTION  = Sentences from Wikipedia that mention at least one Freebase entity
+DESCRIPTION       = Freebase Easy, RDF NT from ${DATA_URL}, latest version from 18.07.2019
+TEXT_DESCRIPTION  = Sentences from the English Wikipedia that mention at least one Freebase entity
 
 [index]
 INPUT_FILES     = fbeasy.nt
 CAT_INPUT_FILES = cat ${INPUT_FILES}
-SETTINGS_JSON   = { "ascii-prefixes-only": true, "num-triples-per-batch": 10000000 }
+SETTINGS_JSON   = { "num-triples-per-batch": 10000000 }
 
 [server]
 PORT               = 7003
