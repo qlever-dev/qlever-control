@@ -19,6 +19,12 @@ using it for the first time, you will see a warning at the top with
 instructions on how to enable autocompletion. Do it, it makes using `qlever`
 so much easier (`pip` cannot do that for you automatically, sorry).
 
+## NOTE: "error: externally-managed-environment"
+
+You may get this error when trying to install on some newer versions of Linux.
+When this happens make sure you have pipx installed with `python3 -m pip
+install pipx --user`, then do `pipx install qlever`.
+
 # Usage
 
 Create an empty directory, with a name corresponding to the dataset you want to
