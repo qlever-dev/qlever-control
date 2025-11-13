@@ -474,7 +474,8 @@ class Qleverfile:
 
         # Add other non-trivial default values.
         try:
-            config["server"]["host_name"] = socket.gethostname()
+            if config["server"].get("host_name") == "localhost":
+                config["server"]["host_name"] = socket.gethostname()
         except Exception:
             log.warning(
                 "Could not get the hostname, using `localhost` as default"
