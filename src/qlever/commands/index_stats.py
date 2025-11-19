@@ -58,9 +58,12 @@ class IndexStatsCommand(QleverCommand):
             help="The size unit",
         )
 
-    def execute_time(self, args, log_file_name) -> bool:
+    def execute_time(
+        self, args, log_file_name: str
+    ) -> dict[str, tuple[float | None, str]]:
         """
-        Part of `execute` that shows the time used.
+        Part of `execute` that returns the time used for each part of indexing
+        along with the unit.
         """
 
         # Read the content of `log_file_name` into a list of lines.
@@ -69,7 +72,7 @@ class IndexStatsCommand(QleverCommand):
                 lines = log_file.readlines()
         except Exception as e:
             log.error(f"Problem reading index log file {log_file_name}: {e}")
-            return False
+            return {}
         # If there is a separate `add-text-index-log.txt` file, append those
         # lines.
         try:
@@ -79,9 +82,10 @@ class IndexStatsCommand(QleverCommand):
                     lines.extend(text_log_file.readlines())
         except Exception as e:
             log.error(
-                f"Problem reading text index log file " f"{text_log_file_name}: {e}"
+                f"Problem reading text index log file "
+                f"{text_log_file_name}: {e}"
             )
-            return False
+            return {}
 
         # Helper function that finds the next line matching the given `regex`,
         # starting from `current_line`, and extracts the time. Returns a tuple
@@ -95,7 +99,7 @@ class IndexStatsCommand(QleverCommand):
         # line if no match is found.
         current_line = 0
 
-        def find_next_line(regex, update_current_line=True):
+        def find_next_line(regex: str, update_current_line: bool = True):
             nonlocal lines
             nonlocal current_line
             current_line_backup = current_line
@@ -109,7 +113,8 @@ class IndexStatsCommand(QleverCommand):
                 if regex_match:
                     try:
                         return datetime.strptime(
-                            re.match(timestamp_regex, line).group(), timestamp_format
+                            re.match(timestamp_regex, line).group(),
+                            timestamp_format,
                         ), regex_match
                     except Exception as e:
                         log.error(
@@ -167,18 +172,20 @@ class IndexStatsCommand(QleverCommand):
         # Check whether at least the first phase is done.
         if overall_begin is None:
             log.error("Missing line that index build has started")
-            return False
+            return {}
         if overall_begin and not merge_begin:
             log.error(
                 "According to the log file, the index build "
                 "has started, but is still in its first "
                 "phase (parsing the input)"
             )
-            return False
+            return {}
 
-        # Helper function that shows the duration for a phase (if the start and
+        # Helper function that computes the duration for a phase (if the start and
         # end timestamps are available).
-        def show_duration(heading, start_end_pairs):
+        def duration(
+            start_end_pairs: list[tuple[datetime | None, datetime | None]],
+        ) -> float | None:
             nonlocal time_unit
             num_start_end_pairs = 0
             diff_seconds = 0
@@ -193,7 +200,9 @@ class IndexStatsCommand(QleverCommand):
                     diff = diff_seconds / 60
                 else:
                     diff = diff_seconds
-                log.info(f"{heading:<21} : {diff:>6.1f} {time_unit}")
+                return diff
+            return None
+            # log.info(f"{heading:<21} : {diff:>6.1f} {time_unit}")
 
         # Get the times of the various phases (hours or minutes, depending on
         # how long the first phase took).
@@ -206,9 +215,21 @@ class IndexStatsCommand(QleverCommand):
                     time_unit = "s"
                 elif parse_duration < 3600:
                     time_unit = "min"
-        show_duration("Parse input", [(overall_begin, merge_begin)])
-        show_duration("Build vocabularies", [(merge_begin, convert_begin)])
-        show_duration("Convert to global IDs", [(convert_begin, convert_end)])
+
+        durations = {}
+
+        durations["Parse input"] = (
+            duration([(overall_begin, merge_begin)]),
+            time_unit,
+        )
+        durations["Build vocabularies"] = (
+            duration([(merge_begin, convert_begin)]),
+            time_unit,
+        )
+        durations["Convert to global IDs"] = (
+            duration([(convert_begin, convert_end)]),
+            time_unit,
+        )
         for i in range(len(perm_begin_and_info)):
             perm_begin, perm_info = perm_begin_and_info[i]
             perm_end = (
@@ -217,65 +238,77 @@ class IndexStatsCommand(QleverCommand):
                 else normal_end
             )
             perm_info_text = (
-                perm_info.group(1).replace(" and ", " & ") if perm_info else f"#{i + 1}"
+                perm_info.group(1).replace(" and ", " & ")
+                if perm_info
+                else f"#{i + 1}"
             )
-            show_duration(f"Permutation {perm_info_text}", [(perm_begin, perm_end)])
-        show_duration("Text index", [(text_begin, text_end)])
+            durations[f"Permutation {perm_info_text}"] = (
+                duration([(perm_begin, perm_end)]),
+                time_unit,
+            )
+        durations["Text index"] = (
+            duration([(text_begin, text_end)]),
+            time_unit,
+        )
         if text_begin and text_end:
             log.info("")
-            show_duration(
-                "TOTAL time", [(overall_begin, normal_end), (text_begin, text_end)]
+            durations["TOTAL time"] = (
+                duration(
+                    [(overall_begin, normal_end), (text_begin, text_end)]
+                ),
+                time_unit,
             )
         elif normal_end:
             log.info("")
-            show_duration("TOTAL time", [(overall_begin, normal_end)])
-        return True
+            durations["TOTAL time"] = (
+                duration([(overall_begin, normal_end)]),
+                time_unit,
+            )
+        return durations
 
-    def execute_space(self, args) -> bool:
+    def execute_space(self, args) -> dict[str, tuple[int, str]]:
         """
-        Part of `execute` that shows the space used.
+        Part of `execute` that returns the space used by different types of
+        index along with the unit.
         """
-
-        # Get the sizes for the various groups of index files.
-        index_size = get_total_file_size([f"{args.name}.index.*"])
-        vocab_size = get_total_file_size([f"{args.name}.vocabulary.*"])
-        text_size = get_total_file_size([f"{args.name}.text.*"])
+        sizes = {}
+        for size_type in ["index", "vocabulary", "text"]:
+            sizes[size_type] = get_total_file_size(
+                [f"{args.name}.{size_type}.*"]
+            )
         if args.ignore_text_index:
-            text_size = 0
-        total_size = index_size + vocab_size + text_size
+            sizes["text"] = 0
+        sizes["total"] = sum(sizes.values())
 
         # Determing the proper unit for the size.
         size_unit = args.size_unit
         if size_unit == "auto":
             size_unit = "TB"
-            if total_size < 1e6:
+            if sizes["total"] < 1e6:
                 size_unit = "B"
-            elif total_size < 1e9:
+            elif sizes["total"] < 1e9:
                 size_unit = "MB"
-            elif total_size < 1e12:
+            elif sizes["total"] < 1e12:
                 size_unit = "GB"
 
-        # Helper function for showing the size in a uniform way.
-        def show_size(heading, size):
-            nonlocal size_unit
-            if size_unit == "GB":
-                size /= 1e9
-            elif size_unit == "MB":
-                size /= 1e6
-            elif size_unit == "TB":
-                size /= 1e12
-            if size_unit == "B":
-                log.info(f"{heading:<21} :  {size:,} {size_unit}")
-            else:
-                log.info(f"{heading:<21} : {size:>6.1f} {size_unit}")
+        unit_factor = {
+            "B": 1,
+            "MB": 1e6,
+            "GB": 1e9,
+            "TB": 1e12,
+        }[size_unit]
 
-        show_size("Files index.*", index_size)
-        show_size("Files vocabulary.*", vocab_size)
-        if text_size > 0:
-            show_size("Files text.*", text_size)
-        log.info("")
-        show_size("TOTAL size", total_size)
-        return True
+        for size_type in sizes:
+            sizes[size_type] /= unit_factor
+
+        sizes_to_show = {}
+
+        sizes_to_show["Files index.*"] = (sizes["index"], size_unit)
+        sizes_to_show["Files vocabulary.*"] = (sizes["vocabulary"], size_unit)
+        if sizes["text"] > 0:
+            sizes_to_show["Files text.*"] = (sizes["text"], size_unit)
+        sizes_to_show["TOTAL size"] = (sizes["total"], size_unit)
+        return sizes_to_show
 
     def execute(self, args) -> bool:
         return_value = True
@@ -290,7 +323,15 @@ class IndexStatsCommand(QleverCommand):
                 only_show=args.show,
             )
             if not args.show:
-                return_value &= self.execute_time(args, log_file_name)
+                durations = self.execute_time(args, log_file_name)
+                for heading, (duration, time_unit) in durations.items():
+                    if duration is not None:
+                        if heading == "TOTAL time":
+                            log.info("")
+                        log.info(
+                            f"{heading:<21} : {duration:>6.1f} {time_unit}"
+                        )
+                return_value &= len(durations) != 0
             if not args.only_time:
                 log.info("")
 
@@ -301,6 +342,14 @@ class IndexStatsCommand(QleverCommand):
                 only_show=args.show,
             )
             if not args.show:
-                return_value &= self.execute_space(args)
+                sizes = self.execute_space(args)
+                for heading, (size, size_unit) in sizes.items():
+                    if heading == "TOTAL size":
+                        log.info("")
+                    if size_unit == "B":
+                        log.info(f"{heading:<21} :  {size:,} {size_unit}")
+                    else:
+                        log.info(f"{heading:<21} : {size:>6.1f} {size_unit}")
+                return_value &= len(sizes) != 0
 
         return return_value
