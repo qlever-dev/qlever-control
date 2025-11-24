@@ -13,7 +13,6 @@ import requests
 import requests_sse
 from rdflib import Graph
 from termcolor import colored
-from tqdm import tqdm
 from tqdm.contrib.logging import tqdm_logging_redirect
 
 from qlever.command import QleverCommand
@@ -298,7 +297,12 @@ class UpdateWikidataCommand(QleverCommand):
             delete_triples = set()
 
             # Process one event at a time.
-            with tqdm_logging_redirect(loggers=[logging.getLogger("qlever")], desc="Batch", total=args.batch_size, leave=False) as pbar:
+            with tqdm_logging_redirect(
+                loggers=[logging.getLogger("qlever")],
+                desc="Batch",
+                total=args.batch_size,
+                leave=False,
+            ) as pbar:
                 for event in source:
                     # Skip events that are not of type `message` (should not
                     # happen), have no field `data` (should not happen either), or
@@ -348,7 +352,10 @@ class UpdateWikidataCommand(QleverCommand):
                             rdf_added_data is not None
                             or rdf_linked_shared_data is not None
                         )
-                        if operation_adds_data and entity_id in delete_entity_ids:
+                        if (
+                            operation_adds_data
+                            and entity_id in delete_entity_ids
+                        ):
                             if args.verbose == "yes":
                                 log.warn(
                                     f"Encountered operation that adds data for "
@@ -381,6 +388,10 @@ class UpdateWikidataCommand(QleverCommand):
                                     f"second{'s' if args.lag_seconds > 1 else ''} "
                                     f"of the current time, finishing the current batch"
                                 )
+                            wait_before_next_batch = (
+                                args.wait_between_batches is not None
+                                and args.wait_between_batches > 0
+                            )
                             break
 
                         # Condition 4: Reached `--until` date and at least one
@@ -409,8 +420,8 @@ class UpdateWikidataCommand(QleverCommand):
                         ):
                             if rdf_to_be_deleted is not None:
                                 try:
-                                    rdf_to_be_deleted_data = rdf_to_be_deleted.get(
-                                        "data"
+                                    rdf_to_be_deleted_data = (
+                                        rdf_to_be_deleted.get("data")
                                     )
                                     graph = Graph()
                                     log.debug(
@@ -450,7 +461,8 @@ class UpdateWikidataCommand(QleverCommand):
                                         "RDF to be added data: {rdf_to_be_added_data}"
                                     )
                                     graph.parse(
-                                        data=rdf_to_be_added_data, format="turtle"
+                                        data=rdf_to_be_added_data,
+                                        format="turtle",
                                     )
                                     for s, p, o in graph:
                                         triple = f"{s.n3()} {p.n3()} {o.n3()}"
@@ -507,17 +519,11 @@ class UpdateWikidataCommand(QleverCommand):
             else:
                 min_delta_to_now_s = f"{int(min_delta_to_now_s):,}"
             log.info(
-                f"Assembled batch #{batch_count} "
-                f"with {current_batch_size:3,} "
-                f"message{'s' if current_batch_size > 1 else ''}, "
+                f"Assembled batch #{batch_count}, "
+                f"#messages: {current_batch_size:2,}, "
                 f"date range: {date_list[0]} - {date_list[-1]}  "
-                f"[assembly time: {batch_assembly_time_ms:,}ms, "
+                f"[assembly time: {batch_assembly_time_ms:3,}ms, "
                 f"min delta to NOW: {min_delta_to_now_s}s]"
-            )
-            wait_before_next_batch = (
-                args.wait_between_batches is not None
-                and args.wait_between_batches > 0
-                and current_batch_size < args.batch_size
             )
 
             # Add the min and max date of the batch to `insert_triples`.
@@ -695,8 +701,11 @@ class UpdateWikidataCommand(QleverCommand):
 
                     # Also show a detailed breakdown of the total time.
                     time_parsing = (
-                        get_time_ms(stats, "parsing",
-                                    failure_mode=FailureMode.SILENTLY_RETURN_ZERO)
+                        get_time_ms(
+                            stats,
+                            "parsing",
+                            failure_mode=FailureMode.SILENTLY_RETURN_ZERO,
+                        )
                         if i == 0
                         else 0
                     )
@@ -708,7 +717,7 @@ class UpdateWikidataCommand(QleverCommand):
                             "processUpdateImpl",
                             "preparation",
                             "total",
-                            failure_mode=FailureMode.THROW_EXCEPTION
+                            failure_mode=FailureMode.THROW_EXCEPTION,
                         )
                     except Exception:
                         time_preparation = get_time_ms(
@@ -727,7 +736,7 @@ class UpdateWikidataCommand(QleverCommand):
                         stats,
                         "execution",
                         "updateMetadata",
-                        failure_mode=FailureMode.SILENTLY_RETURN_ZERO
+                        failure_mode=FailureMode.SILENTLY_RETURN_ZERO,
                     )
                     time_insert = get_time_ms(
                         stats,
@@ -735,7 +744,7 @@ class UpdateWikidataCommand(QleverCommand):
                         "processUpdateImpl",
                         "insertTriples",
                         "total",
-                        failure_mode=FailureMode.SILENTLY_RETURN_ZERO
+                        failure_mode=FailureMode.SILENTLY_RETURN_ZERO,
                     )
                     time_delete = get_time_ms(
                         stats,
@@ -743,7 +752,7 @@ class UpdateWikidataCommand(QleverCommand):
                         "processUpdateImpl",
                         "deleteTriples",
                         "total",
-                        failure_mode=FailureMode.SILENTLY_RETURN_ZERO
+                        failure_mode=FailureMode.SILENTLY_RETURN_ZERO,
                     )
                     time_snapshot = get_time_ms(
                         stats, "execution", "snapshotCreation"
