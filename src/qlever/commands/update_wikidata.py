@@ -298,7 +298,7 @@ class UpdateWikidataCommand(QleverCommand):
             delete_triples = set()
 
             # Process one event at a time.
-            with tqdm_logging_redirect(loggers=[logging.getLogger("qlever")], desc="Batch", total=args.batch_size, leave=False) as pbar:
+            with tqdm_logging_redirect(loggers=[logging.getLogger("qlever")], desc="Batch", total=args.batch_size, leave=False, bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}{postfix}") as pbar:
                 for event in source:
                     # Skip events that are not of type `message` (should not
                     # happen), have no field `data` (should not happen either), or
@@ -363,11 +363,13 @@ class UpdateWikidataCommand(QleverCommand):
                             break
 
                         # Condition 3: Message close to current time.
-                        date_as_epoch_s = (
+                        date_obj = (
                             datetime.strptime(date, "%Y-%m-%dT%H:%M:%SZ")
                             .replace(tzinfo=timezone.utc)
-                            .timestamp()
                         )
+                        pbar.set_postfix({"Time": date_obj.strftime("%Y-%m-%d %H:%M:%S")})
+                        date_as_epoch_s = date_obj.timestamp()
+
                         now_as_epoch_s = time.time()
                         delta_to_now_s = now_as_epoch_s - date_as_epoch_s
                         if (
