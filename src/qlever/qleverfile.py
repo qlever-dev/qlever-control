@@ -239,7 +239,6 @@ class Qleverfile:
         server_args["host_name"] = arg(
             "--host-name",
             type=str,
-            default="localhost",
             help="The name of the host on which the server listens for "
             "requests",
         )
@@ -474,7 +473,7 @@ class Qleverfile:
 
         # Add other non-trivial default values.
         try:
-            if config["server"].get("host_name") == "localhost":
+            if config["server"].get("host_name") is None:
                 config["server"]["host_name"] = socket.gethostname()
         except Exception:
             log.warning(
