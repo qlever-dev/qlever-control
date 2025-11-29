@@ -14,7 +14,7 @@ GET_DATA_CMD_1 = unbuffer wget -O ${NAME}.pbf $$(curl -s ${GET_DATA_URL}/state.t
 GET_DATA_CMD_2 = osm2rdf ${NAME}.pbf -o ${NAME}.ttl --source-dataset OHM --output-compression gz --store-locations=disk-dense --cache . --num-threads 12 --iri-prefix-for-untagged-nodes http://www.openhistoricalmap.org/node/ 2>&1 | tee ${NAME}.osm2rdf-log.txt
 GET_DATA_CMD   = ${CHECK_BINARIES} && ${GET_DATA_CMD_1} && echo && ${GET_DATA_CMD_2}
 VERSION        = $$(date -r ${NAME}.pbf +%d.%m.%Y || echo "NO_DATE")
-DESCRIPTION    = OHM Planet, data from ${GET_DATA_URL} version ${VERSION} (with GeoSPARQL predicates ogc:sfContains and ogc:sfIntersects)
+DESCRIPTION    = OHM from ${GET_DATA_URL} (with GeoSPARQL predicates ogc:sfContains and ogc:sfIntersects), version ${VERSION} 
 
 [index]
 INPUT_FILES        = ${data:NAME}.ttl.gz
@@ -22,7 +22,7 @@ MULTI_INPUT_JSON   = { "cmd": "zcat ${INPUT_FILES}", "parallel": "true" }
 STXXL_MEMORY       = 5G
 PARSER_BUFFER_SIZE = 50M
 SETTINGS_JSON      = { "num-triples-per-batch": 5000000 }
-ENCODE_AS_IDS      = https://www.openhistoricalmap.org/node/ http://www.openhistoricalmap.org/node/ https://www.openhistoricalmap.org/way/ https://www.openhistoricalmap.org/relation/ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osm_node_tagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osm_node_untagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osm_way_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osm_relation_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osm_wayarea_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osm_relationarea_ https://www.openstreetmap.org/changeset/
+ENCODE_AS_ID       = https://www.openhistoricalmap.org/node/ http://www.openhistoricalmap.org/node/ https://www.openhistoricalmap.org/way/ https://www.openhistoricalmap.org/relation/ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#ohmnode_tagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#ohmnode_untagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#ohmway_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#ohmrel_ https://www.openstreetmap.org/changeset/
 
 [server]
 PORT                        = 7037

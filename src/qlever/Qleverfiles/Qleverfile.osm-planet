@@ -11,17 +11,17 @@ NAME         = osm-planet
 GET_DATA_URL = https://osm2rdf.cs.uni-freiburg.de/ttl/planet.osm.ttl.bz2
 GET_DATA_CMD = unbuffer wget -O ${NAME}.ttl.bz2 ${GET_DATA_URL} | tee ${NAME}.download-log.txt
 VERSION      = $$(date -r ${NAME}.ttl.bz2 +"%d.%m.%Y" || echo "NO_DATE")
-DESCRIPTION  = OSM from ${GET_DATA_URL} (converted to RDF using osm2rdf, enhanced by GeoSPARQL triples ogc:sfContains, ogc:sfCovers, ogc:sfIntersects, ogc:sfEquals, ogc:sfTouches, ogc:sfCrosses, ogc:sfOverlaps)
+DESCRIPTION  = OpenStreetMap, RDF TTL from ${GET_DATA_URL} including DE-9IM triples, version ${VERSION}
 
 [index]
 INPUT_FILES        = ${data:NAME}.ttl.bz2
-CAT_INPUT_FILES    = lbzcat -n 2 ${INPUT_FILES}
-PARALLEL_PARSING   = true
+MULTI_INPUT_JSON   = { "cmd": "lbzcat -n 2 ${INPUT_FILES}", "parallel": "true" }
+VOCABULARY_TYPE    = on-disk-compressed-geo-split
 PARSER_BUFFER_SIZE = 100M
-STXXL_MEMORY       = 40G
+STXXL_MEMORY       = 60G
 SETTINGS_JSON      = { "num-triples-per-batch": 10000000 }
-ULIMIT             = 10000
-ENCODE_AS_IDS      = https://www.openstreetmap.org/node/ http://www.openstreetmap.org/node/ https://www.openstreetmap.org/way/ https://www.openstreetmap.org/relation/ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osm_node_tagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osm_node_untagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osm_way_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osm_relation_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osm_wayarea_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osm_relationarea_ https://www.openstreetmap.org/changeset/
+ULIMIT             = 50000
+ENCODE_AS_ID       = https://www.openstreetmap.org/node/ http://www.openstreetmap.org/node/ https://www.openstreetmap.org/way/ https://www.openstreetmap.org/relation/ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmnode_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmway_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmrel_ https://www.openstreetmap.org/changeset/
 
 [server]
 PORT                        = 7007

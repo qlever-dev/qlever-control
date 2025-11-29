@@ -12,13 +12,14 @@ DATA_TARFILE = dblp_KG_with_associated_data.tar
 GET_DATA_URL = https://sparql.dblp.org/download/${DATA_TARFILE}
 GET_DATA_CMD = (curl -LROC - ${GET_DATA_URL} && tar -xf ${DATA_TARFILE}) 2>&1 | tee ${NAME}.download-log.txt && rm -f ${DATA_TARFILE}
 VERSION      = $$(date -r dblp.ttl.gz +"%d.%m.%Y %H:%M" || echo "NO_DATE")
-DESCRIPTION  = DBLP computer science bibliography + citations from OpenCitations, data from ${GET_DATA_URL} (version ${VERSION})
+DESCRIPTION  = DBLP computer science bibliography + citations from OpenCitations, data from ${GET_DATA_URL}, version ${VERSION}
 FORMAT       = ttl
 
 [index]
 INPUT_FILES      = *.gz
 MULTI_INPUT_JSON = { "cmd": "zcat {}", "for-each": "*.gz" }
-SETTINGS_JSON    = { "ascii-prefixes-only": false, "num-triples-per-batch": 5000000, "prefixes-external": [""] }
+SETTINGS_JSON    = { "num-triples-per-batch": 5000000 }
+STXXL_MEMORY     = 5G
 
 [server]
 PORT               = 7015

@@ -350,7 +350,7 @@ class TestIndexCommand(unittest.TestCase):
         args.multi_input_json = True
         args.cat_input_files = False
         args.only_pso_and_pos_permutations = True
-        args.use_patterns = False
+        args.use_patterns = "no"
         args.text_index = "from_text_records_and_literals"
         args.stxxl_memory = True
         args.input_files = "*.nt"
@@ -374,7 +374,7 @@ class TestIndexCommand(unittest.TestCase):
             f" -i {args.name} -s {args.name}.settings.json"
             f" --vocabulary-type {args.vocabulary_type}"
             f" {mock_input_json.return_value}"
-            f" --only-pso-and-pos-permutations --no-patterns"
+            f" --only-pso-and-pos-permutations"
             f" --no-patterns -w {args.name}.wordsfile.tsv"
             f" -d {args.name}.docsfile.tsv"
             f" --text-words-from-literals"
