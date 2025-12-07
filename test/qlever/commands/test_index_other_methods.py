@@ -42,6 +42,7 @@ class TestIndexCommand(unittest.TestCase):
                     "only_pso_and_pos_permutations",
                     "ulimit",
                     "use_patterns",
+                    "add_has_word_triples",
                     "text_index",
                     "stxxl_memory",
                     "parser_buffer_size",

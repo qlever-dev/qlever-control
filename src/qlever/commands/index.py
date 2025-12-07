@@ -45,6 +45,7 @@ class IndexCommand(QleverCommand):
                 "only_pso_and_pos_permutations",
                 "ulimit",
                 "use_patterns",
+                "add_has_word_triples",
                 "text_index",
                 "stxxl_memory",
                 "parser_buffer_size",
@@ -100,8 +101,7 @@ class IndexCommand(QleverCommand):
             # Check that `input_spec` is a dictionary.
             if not isinstance(input_spec, dict):
                 raise self.InvalidInputJson(
-                    f"Element {i} in `MULTI_INPUT_JSON` must be a JSON "
-                    "object",
+                    f"Element {i} in `MULTI_INPUT_JSON` must be a JSON object",
                     input_spec,
                 )
             # For each `input_spec`, we must have a command.
@@ -222,13 +222,14 @@ class IndexCommand(QleverCommand):
             index_cmd += " --only-pso-and-pos-permutations"
         if args.use_patterns == "no":
             index_cmd += " --no-patterns"
+        if args.add_has_word_triples:
+            index_cmd += " --add-has-word-triples"
         if args.text_index in [
             "from_text_records",
             "from_text_records_and_literals",
         ]:
             index_cmd += (
-                f" -w {args.name}.wordsfile.tsv"
-                f" -d {args.name}.docsfile.tsv"
+                f" -w {args.name}.wordsfile.tsv -d {args.name}.docsfile.tsv"
             )
         if args.text_index in [
             "from_literals",
@@ -306,8 +307,7 @@ class IndexCommand(QleverCommand):
         ):
             if Containerize.is_running(args.system, args.index_container):
                 log.info(
-                    "Another index process is running, trying to stop "
-                    "it ..."
+                    "Another index process is running, trying to stop it ..."
                 )
                 log.info("")
                 try:

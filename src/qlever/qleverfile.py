@@ -203,6 +203,13 @@ class Qleverfile:
             "processing of queries like SELECT ?p (COUNT(DISTINCT ?s) AS ?c) "
             "WHERE { ?s ?p [] ... } GROUP BY ?p",
         )
+        index_args["add_has_word_triples"] = arg(
+            "--add-has-word-triples",
+            action="store_true",
+            default=False,
+            help="Whether to add `ql:has-word` triples for text literals "
+            "(which can then be used for custom text search queries)",
+        )
         index_args["text_index"] = arg(
             "--text-index",
             choices=[
