@@ -614,7 +614,7 @@ class UpdateWikidataCommand(QleverCommand):
                 response = requests.post(
                     url=sparql_endpoint,
                     headers=headers,
-                    data=delete_insert_operation,
+                    data=delete_insert_operation.encode("utf-8"),
                 )
                 result = response.text
                 with open(f"update.result.{batch_count}", "w") as f:
