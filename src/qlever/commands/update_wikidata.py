@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 from enum import Enum, auto
 
 import rdflib.term
-import requests
 import requests_sse
 from rdflib import Graph
 from termcolor import colored
@@ -371,11 +370,12 @@ class UpdateWikidataCommand(QleverCommand):
                             break
 
                         # Condition 3: Message close to current time.
-                        date_obj = (
-                            datetime.strptime(date, "%Y-%m-%dT%H:%M:%SZ")
-                            .replace(tzinfo=timezone.utc)
+                        date_obj = datetime.strptime(
+                            date, "%Y-%m-%dT%H:%M:%SZ"
+                        ).replace(tzinfo=timezone.utc)
+                        pbar.set_postfix(
+                            {"Time": date_obj.strftime("%Y-%m-%d %H:%M:%S")}
                         )
-                        pbar.set_postfix({"Time": date_obj.strftime("%Y-%m-%d %H:%M:%S")})
                         date_as_epoch_s = date_obj.timestamp()
 
                         now_as_epoch_s = time.time()
@@ -607,16 +607,7 @@ class UpdateWikidataCommand(QleverCommand):
             # Run it (using `curl` for batch size up to 1000, otherwise
             # `requests`).
             try:
-                headers = {
-                    "Authorization": f"Bearer {args.access_token}",
-                    "Content-Type": "application/sparql-update",
-                }
-                response = requests.post(
-                    url=sparql_endpoint,
-                    headers=headers,
-                    data=delete_insert_operation,
-                )
-                result = response.text
+                result = run_command(curl_cmd, return_output=True)
                 with open(f"update.result.{batch_count}", "w") as f:
                     f.write(result)
             except Exception as e:
