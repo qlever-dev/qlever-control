@@ -42,6 +42,7 @@ class Qleverfile:
         "service-max-redirects",
         "service-max-value-rows",
         "sort-estimate-cancellation-factor",
+        "sparql-results-json-with-time",
         "spatial-join-prefilter-max-size",
         "spatial-join-max-num-threads",
         "syntax-test-mode",

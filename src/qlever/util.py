@@ -76,7 +76,7 @@ def run_command(
         else:
             raise Exception(
                 f"Command failed with exit code {result.returncode}, "
-                f" nothing written to stderr"
+                f" nothing written to stderr (stdout: {result.stdout})"
             )
     # Optionally, return what was written to `stdout`.
     if return_output:
