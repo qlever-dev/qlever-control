@@ -607,20 +607,11 @@ class UpdateWikidataCommand(QleverCommand):
             # Run it (using `curl` for batch size up to 1000, otherwise
             # `requests`).
             try:
-                headers = {
-                    "Authorization": f"Bearer {args.access_token}",
-                    "Content-Type": "application/sparql-update",
-                }
-                response = requests.post(
-                    url=sparql_endpoint,
-                    headers=headers,
-                    data=delete_insert_operation.encode("utf-8"),
-                )
-                result = response.text
+                result = run_command(curl_cmd, return_output=True)
                 with open(f"update.result.{batch_count}", "w") as f:
                     f.write(result)
             except Exception as e:
-                log.warn(f"Error running `requests.post`: {e}")
+                log.warn(f"Error running `{curl_cmd}`: {e}")
                 log.info("")
                 continue
 
