@@ -375,6 +375,8 @@ class UpdateWikidataCommand(QleverCommand):
             # Check if we can use a cached SPARQL query file
             use_cached_file = False
             cached_file_name = None
+            cached_meta_file_name = None
+            cached_date_range = None
             if (
                 args.use_cached_sparql_queries
                 and first_offset_in_batch is not None
@@ -382,15 +384,24 @@ class UpdateWikidataCommand(QleverCommand):
                 cached_file_name = (
                     f"update.{first_offset_in_batch}.{args.batch_size}.sparql"
                 )
+                cached_meta_file_name = (
+                    f"update.{first_offset_in_batch}.{args.batch_size}.meta"
+                )
                 if os.path.exists(cached_file_name):
                     use_cached_file = True
+                    # Try to read metadata file for date range
+                    if os.path.exists(cached_meta_file_name):
+                        try:
+                            with open(cached_meta_file_name, "r") as f:
+                                cached_date_range = f.read().strip()
+                        except Exception:
+                            cached_date_range = None
+
                     if args.verbose == "yes":
-                        log.info(
-                            colored(
-                                f"Using cached SPARQL query file: {cached_file_name}",
-                                "cyan",
-                            )
-                        )
+                        log_msg = f"Using cached SPARQL query file: {cached_file_name}"
+                        if cached_date_range:
+                            log_msg += f" [date range: {cached_date_range}]"
+                        log.info(colored(log_msg, "cyan"))
 
             # Process one event at a time (unless using cached file).
             if not use_cached_file:
@@ -749,6 +760,12 @@ class UpdateWikidataCommand(QleverCommand):
                 update_arg_file_name = f"update.{first_offset_in_batch}.{current_batch_size}.sparql"
                 with open(update_arg_file_name, "w") as f:
                     f.write(delete_insert_operation)
+                # Write metadata file with date range
+                meta_file_name = (
+                    f"update.{first_offset_in_batch}.{current_batch_size}.meta"
+                )
+                with open(meta_file_name, "w") as f:
+                    f.write(f"{date_list[0]} - {date_list[-1]}")
             curl_cmd += f" --data-binary @{update_arg_file_name}"
             if args.verbose == "yes":
                 log.info(colored(curl_cmd, "blue"))
@@ -761,7 +778,7 @@ class UpdateWikidataCommand(QleverCommand):
                 with open(result_file_name, "w") as f:
                     f.write(result)
             except Exception as e:
-                log.warn(f"Error running `requests.post`: {e}")
+                log.warn(f"Error running `curl` command: {e}")
                 log.info("")
                 continue
 

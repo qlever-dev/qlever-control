@@ -45,6 +45,7 @@ class Qleverfile:
         "sparql-results-json-with-time",
         "spatial-join-prefilter-max-size",
         "spatial-join-max-num-threads",
+        "strip-columns",
         "syntax-test-mode",
         "throw-on-unbound-variables",
         "treat-default-graph-as-named-graph",
