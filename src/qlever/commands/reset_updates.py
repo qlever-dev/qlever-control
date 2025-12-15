@@ -12,6 +12,8 @@ class ResetUpdatesCommand(QleverCommand):
     Class for executing the `reset-updates` command.
     """
 
+    def __init__(self):
+        pass
 
     def description(self) -> str:
         return "Reset the updates on the server"
