@@ -12,8 +12,6 @@ class ResetUpdatesCommand(QleverCommand):
     Class for executing the `reset-updates` command.
     """
 
-    def __init__(self):
-        pass
 
     def description(self) -> str:
         return "Reset the updates on the server"
@@ -21,7 +19,7 @@ class ResetUpdatesCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return True
 
-    def relevant_qleverfile_arguments(self) -> dict[str: list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {"server": ["host_name", "port", "access_token"]}
 
     def additional_arguments(self, subparser) -> None:
@@ -36,7 +34,7 @@ class ResetUpdatesCommand(QleverCommand):
             reset_cmd += f" {args.server_url}"
         else:
             reset_cmd += f" {args.host_name}:{args.port}"
-        reset_cmd += f' --data-urlencode "cmd=clear-delta-triples" --data-urlencode access-token="{args.access_token}"'
+        reset_cmd += f' --data-urlencode "cmd=clear-delta-triples" --data-urlencode "access-token={args.access_token}"'
         self.show(reset_cmd, only_show=args.show)
         if args.show:
             return True
