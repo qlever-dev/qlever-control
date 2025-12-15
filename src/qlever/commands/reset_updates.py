@@ -16,7 +16,7 @@ class ResetUpdatesCommand(QleverCommand):
         pass
 
     def description(self) -> str:
-        return "Reset the updates state on the server"
+        return "Reset the updates on the server"
 
     def should_have_qleverfile(self) -> bool:
         return True
