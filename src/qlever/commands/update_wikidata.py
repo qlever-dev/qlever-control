@@ -549,13 +549,6 @@ class UpdateWikidataCommand(QleverCommand):
                             date_obj = datetime.strptime(
                                 date, "%Y-%m-%dT%H:%M:%SZ"
                             ).replace(tzinfo=timezone.utc)
-                            pbar.set_postfix(
-                                {
-                                    "Time": date_obj.strftime(
-                                        "%Y-%m-%d %H:%M:%S"
-                                    )
-                                }
-                            )
                             date_as_epoch_s = date_obj.timestamp()
 
                             now_as_epoch_s = time.time()
@@ -674,7 +667,16 @@ class UpdateWikidataCommand(QleverCommand):
                         # Message was successfully processed, update batch tracking
                         current_batch_size += 1
                         total_num_messages += 1
-                        pbar.update(1)
+                        pbar_update_frequency = 100
+                        if (current_batch_size % pbar_update_frequency) == 0:
+                            pbar.set_postfix(
+                                {
+                                    "Time": date_obj.strftime(
+                                        "%Y-%m-%d %H:%M:%S"
+                                    )
+                                }
+                            )
+                            pbar.update(pbar_update_frequency)
                         log.debug(
                             f"DATE: {date_as_epoch_s:.0f} [{date}], "
                             f"NOW: {now_as_epoch_s:.0f}, "
