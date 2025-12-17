@@ -9,7 +9,6 @@ from datetime import datetime, timezone
 from enum import Enum, auto
 
 import rdflib.term
-import requests
 import requests_sse
 from rdflib import Graph
 from termcolor import colored
@@ -604,8 +603,7 @@ class UpdateWikidataCommand(QleverCommand):
             if args.verbose == "yes":
                 log.info(colored(curl_cmd, "blue"))
 
-            # Run it (using `curl` for batch size up to 1000, otherwise
-            # `requests`).
+            # Run the update using `curl`.
             try:
                 result = run_command(curl_cmd, return_output=True)
                 with open(f"update.result.{batch_count}", "w") as f:
