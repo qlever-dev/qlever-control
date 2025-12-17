@@ -160,6 +160,13 @@ class UpdateWikidataCommand(QleverCommand):
             help="Use cached SPARQL query files if they exist with matching "
             "offset and target batch size (default: off)",
         )
+        subparser.add_argument(
+            "--check-offset-before-each-batch",
+            choices=["yes", "no"],
+            default="yes",
+            help="Before each batch, verify that the stream offset matches the "
+            "stored offset in the knowledge base (default: yes)",
+        )
 
     # Handle Ctrl+C gracefully by finishing the current batch and then exiting.
     def handle_ctrl_c(self, signal_received, frame):
@@ -265,6 +272,9 @@ class UpdateWikidataCommand(QleverCommand):
             else None
         )
 
+        # Track whether this is the first batch (to skip offset check)
+        first_batch = True
+
         # Main event loop: Either resume from `event_id_for_next_batch` (if set),
         # or start a new connection to `args.sse_stream_url` (with URL
         # parameter `?since=`).
@@ -365,6 +375,55 @@ class UpdateWikidataCommand(QleverCommand):
                 # This should not happen since we now always determine the offset
                 # before starting, but keep as fallback
                 first_offset_in_batch = None
+
+            # Check that the stream offset matches the stored offset in the KB
+            # Skip this check on the first batch (when using --offset to resume)
+            if (
+                args.check_offset_before_each_batch == "yes"
+                and not first_batch
+                and first_offset_in_batch is not None
+            ):
+                sparql_query_offset = (
+                    "PREFIX wikibase: <http://wikiba.se/ontology#> "
+                    "SELECT (MAX(?offset) AS ?maxOffset) WHERE { "
+                    "<http://wikiba.se/ontology#Dump> "
+                    "wikibase:updateStreamNextOffset ?offset "
+                    "}"
+                )
+                curl_cmd_check_offset = (
+                    f"curl -s {sparql_endpoint}"
+                    f' -H "Accept: text/csv"'
+                    f' -H "Content-type: application/sparql-query"'
+                    f' --data "{sparql_query_offset}"'
+                )
+                try:
+                    result = run_command(
+                        f"{curl_cmd_check_offset} | sed 1d",
+                        return_output=True,
+                    ).strip()
+                    if not result:
+                        log.error(
+                            "Failed to retrieve stored offset from knowledge base: "
+                            "query returned no results. This might be the first update, "
+                            "or the offset triple is missing."
+                        )
+                        return False
+                    stored_offset = int(result.strip('"'))
+                    if stored_offset != first_offset_in_batch:
+                        log.error(
+                            f"Offset mismatch: stream offset is {first_offset_in_batch}, "
+                            f"but stored offset in knowledge base is {stored_offset}. "
+                            f"This indicates that updates may have been applied "
+                            f"out of order or some updates are missing."
+                        )
+                        return False
+                except Exception as e:
+                    log.error(
+                        f"Failed to retrieve or verify stored offset from knowledge base: {e}. "
+                        f"Cannot safely proceed with updates."
+                    )
+                    return False
+
             date_list = []
             delete_entity_ids = set()
             delta_to_now_list = []
@@ -980,6 +1039,10 @@ class UpdateWikidataCommand(QleverCommand):
             # Close the source connection (for each batch, we open a new one,
             # either from `event_id_for_next_batch` or from `since`).
             source.close()
+
+            # After the first batch is processed, enable offset checking for
+            # subsequent batches.
+            first_batch = False
 
             # If Ctrl+C was pressed, we reached `--until`, or we processed
             # exactly `--num-messages`, finish.
