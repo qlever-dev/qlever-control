@@ -375,7 +375,6 @@ class UpdateWikidataCommand(QleverCommand):
                             datetime.strptime(date, "%Y-%m-%dT%H:%M:%SZ")
                             .replace(tzinfo=timezone.utc)
                         )
-                        pbar.set_postfix({"Time": date_obj.strftime("%Y-%m-%d %H:%M:%S")})
                         date_as_epoch_s = date_obj.timestamp()
 
                         now_as_epoch_s = time.time()
@@ -489,12 +488,14 @@ class UpdateWikidataCommand(QleverCommand):
 
                     # Message was successfully processed, update batch tracking
                     current_batch_size += 1
-                    pbar.update(1)
-                    log.debug(
-                        f"DATE: {date_as_epoch_s:.0f} [{date}], "
-                        f"NOW: {now_as_epoch_s:.0f}, "
-                        f"DELTA: {now_as_epoch_s - date_as_epoch_s:.0f}"
-                    )
+                    if ( current_batch_size % 1000 == 0 ):
+                        pbar.set_postfix({"Time": date_obj.strftime("%Y-%m-%d %H:%M:%S")})
+                        pbar.update(1000)
+                        log.debug(
+                            f"DATE: {date_as_epoch_s:.0f} [{date}], "
+                            f"NOW: {now_as_epoch_s:.0f}, "
+                            f"DELTA: {now_as_epoch_s - date_as_epoch_s:.0f}"
+                        )
                     date_list.append(date)
                     delta_to_now_list.append(delta_to_now_s)
 
