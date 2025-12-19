@@ -589,6 +589,25 @@ class UpdateWikidataCommand(QleverCommand):
                             if operation == "delete":
                                 delete_entity_ids.add(entity_id)
 
+                            # Replace each occurrence of `\\` by `\u005C\u005C`
+                            # (which is twice the Unicode for backslash).
+                            #
+                            # NOTE: Strictly speaking, it would be enough to do
+                            # this for two backslashes followed by a `u`, but
+                            # doing it for all double backslashes does not
+                            # harm. When parsing a SPARQL query, then according
+                            # to the standar, first all occurrences of `\uxxxx`
+                            # (where `xxxx` are four hex digits) are replaced
+                            # by the corresponding Unicode character. That is a
+                            # problem when `\\uxxxx` occurs in a literal,
+                            # because then it would be replaced by `\` followed
+                            # by the Unicode character, which is invalied
+                            # SPARQL. The subsitution avoids that problem.
+                            def node_to_sparql(node: rdflib.term.Node) -> str:
+                                return node.n3().replace(
+                                    "\\\\", "\\u005C\\u005C"
+                                )
+
                             # Process the to-be-deleted triples.
                             for rdf_to_be_deleted in (
                                 rdf_deleted_data,
@@ -608,9 +627,7 @@ class UpdateWikidataCommand(QleverCommand):
                                             format="turtle",
                                         )
                                         for s, p, o in graph:
-                                            triple = (
-                                                f"{s.n3()} {p.n3()} {o.n3()}"
-                                            )
+                                            triple = f"{s.n3()} {p.n3()} {node_to_sparql(o)}"
                                             # NOTE: In case there was a previous `insert` of that
                                             # triple, it is safe to remove that `insert`, but not
                                             # the `delete` (in case the triple is contained in the
@@ -643,9 +660,7 @@ class UpdateWikidataCommand(QleverCommand):
                                             format="turtle",
                                         )
                                         for s, p, o in graph:
-                                            triple = (
-                                                f"{s.n3()} {p.n3()} {o.n3()}"
-                                            )
+                                            triple = f"{s.n3()} {p.n3()} {node_to_sparql(o)}"
                                             # NOTE: In case there was a previous `delete` of that
                                             # triple, it is safe to remove that `delete`, but not
                                             # the `insert` (in case the triple is not contained in
