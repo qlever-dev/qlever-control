@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import signal
 import time
@@ -9,7 +10,6 @@ from datetime import datetime, timezone
 from enum import Enum, auto
 
 import rdflib.term
-import requests
 import requests_sse
 from rdflib import Graph
 from termcolor import colored
@@ -105,11 +105,27 @@ class UpdateWikidataCommand(QleverCommand):
             "(default: continue indefinitely)",
         )
         subparser.add_argument(
-            "--topics",
+            "--offset",
+            type=int,
+            help="Consume stream messages starting from this offset "
+            "(default: not set)",
+        )
+        subparser.add_argument(
+            "--topic",
             type=str,
+            choices=[
+                "eqiad.rdf-streaming-updater.mutation",
+                "codfw.rdf-streaming-updater.mutation",
+            ],
             default="eqiad.rdf-streaming-updater.mutation",
-            help="Comma-separated list of topics to consume from the SSE stream"
-            " (default: only eqiad.rdf-streaming-updater.mutation)",
+            help="The topic to consume from the SSE stream (default: "
+            "eqiad.rdf-streaming-updater.mutation)",
+        )
+        subparser.add_argument(
+            "--partition",
+            type=int,
+            default=0,
+            help="The partition to consume from the SSE stream (default: 0)",
         )
         subparser.add_argument(
             "--min-or-max-date",
@@ -127,10 +143,29 @@ class UpdateWikidataCommand(QleverCommand):
             "the current time (default: 300s)",
         )
         subparser.add_argument(
+            "--num-messages",
+            type=int,
+            help="Process exactly this many messages and then exit "
+            "(default: no bound on the number of messages)",
+        )
+        subparser.add_argument(
             "--verbose",
             choices=["no", "yes"],
             default="yes",
             help='Verbose logging, "yes" or "no" (default: "yes")',
+        )
+        subparser.add_argument(
+            "--use-cached-sparql-queries",
+            action="store_true",
+            help="Use cached SPARQL query files if they exist with matching "
+            "offset and target batch size (default: off)",
+        )
+        subparser.add_argument(
+            "--check-offset-before-each-batch",
+            choices=["yes", "no"],
+            default="yes",
+            help="Before each batch, verify that the stream offset matches the "
+            "stored offset in the knowledge base (default: yes)",
         )
 
     # Handle Ctrl+C gracefully by finishing the current batch and then exiting.
@@ -189,14 +224,56 @@ class UpdateWikidataCommand(QleverCommand):
         log.warn("Press Ctrl+C to finish and exit gracefully")
         log.info("")
 
+        # If --offset is not provided, determine the offset by reading a single
+        # message from the SSE stream using the `since` date.
+        if not args.offset:
+            try:
+                source = requests_sse.EventSource(
+                    args.sse_stream_url,
+                    params={"since": since},
+                    headers={
+                        "Accept": "text/event-stream",
+                        "User-Agent": "qlever update-wikidata",
+                    },
+                )
+                source.connect()
+                for event in source:
+                    if event.type == "message" and event.data:
+                        event_data = json.loads(event.data)
+                        topic = event_data.get("meta").get("topic")
+                        if topic == args.topic:
+                            args.offset = event_data.get("meta").get("offset")
+                            log.debug(
+                                f"Determined offset from date: "
+                                f"{since} -> {args.offset}"
+                            )
+                            break
+                source.close()
+            except Exception as e:
+                log.error(f"Error determining offset from stream: {e}")
+                return False
+
         # Initialize all the statistics variables.
         batch_count = 0
+        total_num_messages = 0
         total_num_ops = 0
         total_time_s = 0
         start_time = time.perf_counter()
-        topics_to_consider = set(args.topics.split(","))
         wait_before_next_batch = False
-        event_id_for_next_batch = None
+        event_id_for_next_batch = (
+            [
+                {
+                    "topic": args.topic,
+                    "partition": args.partition,
+                    "offset": args.offset,
+                }
+            ]
+            if args.offset
+            else None
+        )
+
+        # Track whether this is the first batch (to skip offset check)
+        first_batch = True
 
         # Main event loop: Either resume from `event_id_for_next_batch` (if set),
         # or start a new connection to `args.sse_stream_url` (with URL
@@ -224,12 +301,13 @@ class UpdateWikidataCommand(QleverCommand):
                 break
 
             # Start stream from either `event_id_for_next_batch` or `since`.
+            # We'll extract the offset for first_offset_in_batch later.
             if event_id_for_next_batch:
+                event_id_json = json.dumps(event_id_for_next_batch)
                 if args.verbose == "yes":
                     log.info(
                         colored(
-                            f"Consuming stream from event ID: "
-                            f"{event_id_for_next_batch}",
+                            f"Consuming stream from event ID: {event_id_json}",
                             attrs=["dark"],
                         )
                     )
@@ -238,10 +316,9 @@ class UpdateWikidataCommand(QleverCommand):
                     headers={
                         "Accept": "text/event-stream",
                         "User-Agent": "qlever update-wikidata",
-                        "Last-Event-ID": event_id_for_next_batch,
+                        "Last-Event-ID": event_id_json,
                     },
                 )
-                event_id_for_next_batch = None
             else:
                 if args.verbose == "yes":
                     log.info(
@@ -289,6 +366,64 @@ class UpdateWikidataCommand(QleverCommand):
 
             # Initialize all the batch variables.
             current_batch_size = 0
+            # Extract the offset from the event ID to use as the starting offset
+            # for this batch. This is set before processing any messages.
+            if event_id_for_next_batch:
+                first_offset_in_batch = event_id_for_next_batch[0]["offset"]
+                event_id_for_next_batch = None
+            else:
+                # This should not happen since we now always determine the offset
+                # before starting, but keep as fallback
+                first_offset_in_batch = None
+
+            # Check that the stream offset matches the stored offset in the KB
+            # Skip this check on the first batch (when using --offset to resume)
+            if (
+                args.check_offset_before_each_batch == "yes"
+                and not first_batch
+                and first_offset_in_batch is not None
+            ):
+                sparql_query_offset = (
+                    "PREFIX wikibase: <http://wikiba.se/ontology#> "
+                    "SELECT (MAX(?offset) AS ?maxOffset) WHERE { "
+                    "<http://wikiba.se/ontology#Dump> "
+                    "wikibase:updateStreamNextOffset ?offset "
+                    "}"
+                )
+                curl_cmd_check_offset = (
+                    f"curl -s {sparql_endpoint}"
+                    f' -H "Accept: text/csv"'
+                    f' -H "Content-type: application/sparql-query"'
+                    f' --data "{sparql_query_offset}"'
+                )
+                try:
+                    result = run_command(
+                        f"{curl_cmd_check_offset} | sed 1d",
+                        return_output=True,
+                    ).strip()
+                    if not result:
+                        log.error(
+                            "Failed to retrieve stored offset from knowledge base: "
+                            "query returned no results. This might be the first update, "
+                            "or the offset triple is missing."
+                        )
+                        return False
+                    stored_offset = int(result.strip('"'))
+                    if stored_offset != first_offset_in_batch:
+                        log.error(
+                            f"Offset mismatch: stream offset is {first_offset_in_batch}, "
+                            f"but stored offset in knowledge base is {stored_offset}. "
+                            f"This indicates that updates may have been applied "
+                            f"out of order or some updates are missing."
+                        )
+                        return False
+                except Exception as e:
+                    log.error(
+                        f"Failed to retrieve or verify stored offset from knowledge base: {e}. "
+                        f"Cannot safely proceed with updates."
+                    )
+                    return False
+
             date_list = []
             delete_entity_ids = set()
             delta_to_now_list = []
@@ -296,310 +431,417 @@ class UpdateWikidataCommand(QleverCommand):
             insert_triples = set()
             delete_triples = set()
 
-            # Process one event at a time.
-            with tqdm_logging_redirect(
-                loggers=[logging.getLogger("qlever")],
-                desc="Batch",
-                total=args.batch_size,
-                leave=False,
-                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}{postfix}",
-            ) as pbar:
-                for event in source:
-                    # Skip events that are not of type `message` (should not
-                    # happen), have no field `data` (should not happen either), or
-                    # where the topic is not in `args.topics` (one topic by itself
-                    # should provide all relevant updates).
-                    if event.type != "message" or not event.data:
-                        continue
-                    event_data = json.loads(event.data)
-                    topic = event_data.get("meta").get("topic")
-                    if topic not in topics_to_consider:
-                        continue
-
-                    try:
-                        # The event ID of the update (precise) and its date
-                        # (rounded *down* to seconds so that when we resume from
-                        # this date, we do not miss any updates).
-                        current_event_id = event.last_event_id
-                        date = event_data.get("meta").get("dt")
-                        date = re.sub(r"\.\d*Z$", "Z", date)
-
-                        # Get the other relevant fields from the message.
-                        entity_id = event_data.get("entity_id")
-                        operation = event_data.get("operation")
-                        rdf_added_data = event_data.get("rdf_added_data")
-                        rdf_deleted_data = event_data.get("rdf_deleted_data")
-                        rdf_linked_shared_data = event_data.get(
-                            "rdf_linked_shared_data"
-                        )
-                        rdf_unlinked_shared_data = event_data.get(
-                            "rdf_unlinked_shared_data"
-                        )
-
-                        # Check batch completion conditions BEFORE processing the
-                        # data of this message. If any of the conditions is met,
-                        # we finish the batch and resume from this message in the
-                        # next batch.
-                        #
-                        # NOTE: In the current implementation, every batch after
-                        # the first resumes from an event ID. In the future, we
-                        # might have other conditions that make us want to resume
-                        # from a date instead.
-                        event_id_for_next_batch = current_event_id
-                        since = None
-
-                        # Condition 1: Delete followed by insert for same entity.
-                        operation_adds_data = (
-                            rdf_added_data is not None
-                            or rdf_linked_shared_data is not None
-                        )
-                        if (
-                            operation_adds_data
-                            and entity_id in delete_entity_ids
-                        ):
-                            if args.verbose == "yes":
-                                log.warn(
-                                    f"Encountered operation that adds data for "
-                                    f"an entity ID ({entity_id}) that was deleted "
-                                    f"earlier in this batch; finishing batch and "
-                                    f"resuming from this message in the next batch"
-                                )
-                            break
-
-                        # Condition 2: Batch size reached.
-                        if current_batch_size >= args.batch_size:
-                            break
-
-                        # Condition 3: Message close to current time.
-                        date_obj = (
-                            datetime.strptime(date, "%Y-%m-%dT%H:%M:%SZ")
-                            .replace(tzinfo=timezone.utc)
-                        )
-                        pbar.set_postfix({"Time": date_obj.strftime("%Y-%m-%d %H:%M:%S")})
-                        date_as_epoch_s = date_obj.timestamp()
-
-                        now_as_epoch_s = time.time()
-                        delta_to_now_s = now_as_epoch_s - date_as_epoch_s
-                        if (
-                            delta_to_now_s < args.lag_seconds
-                            and current_batch_size > 0
-                        ):
-                            if args.verbose == "yes":
-                                log.warn(
-                                    f"Encountered message with date {date}, which is within "
-                                    f"{args.lag_seconds} "
-                                    f"second{'s' if args.lag_seconds > 1 else ''} "
-                                    f"of the current time, finishing the current batch"
-                                )
-                            wait_before_next_batch = (
-                                args.wait_between_batches is not None
-                                and args.wait_between_batches > 0
-                            )
-                            break
-
-                        # Condition 4: Reached `--until` date and at least one
-                        # message was processed.
-                        if (
-                            args.until
-                            and date >= args.until
-                            and current_batch_size > 0
-                        ):
-                            log.warn(
-                                f"Reached --until date {args.until} "
-                                f"(message date: {date}), that's it folks"
-                            )
-                            self.finished = True
-                            break
-
-                        # Delete operations are postponed until the end of the
-                        # batch, so remember the entity ID here.
-                        if operation == "delete":
-                            delete_entity_ids.add(entity_id)
-
-                        # Process the to-be-deleted triples.
-                        for rdf_to_be_deleted in (
-                            rdf_deleted_data,
-                            rdf_unlinked_shared_data,
-                        ):
-                            if rdf_to_be_deleted is not None:
-                                try:
-                                    rdf_to_be_deleted_data = (
-                                        rdf_to_be_deleted.get("data")
-                                    )
-                                    graph = Graph()
-                                    log.debug(
-                                        f"RDF to_be_deleted data: {rdf_to_be_deleted_data}"
-                                    )
-                                    graph.parse(
-                                        data=rdf_to_be_deleted_data,
-                                        format="turtle",
-                                    )
-                                    for s, p, o in graph:
-                                        triple = f"{s.n3()} {p.n3()} {o.n3()}"
-                                        # NOTE: In case there was a previous `insert` of that
-                                        # triple, it is safe to remove that `insert`, but not
-                                        # the `delete` (in case the triple is contained in the
-                                        # original data).
-                                        if triple in insert_triples:
-                                            insert_triples.remove(triple)
-                                        delete_triples.add(triple)
-                                except Exception as e:
-                                    log.error(
-                                        f"Error reading `rdf_to_be_deleted_data`: {e}"
-                                    )
-                                    return False
-
-                        # Process the to-be-added triples.
-                        for rdf_to_be_added in (
-                            rdf_added_data,
-                            rdf_linked_shared_data,
-                        ):
-                            if rdf_to_be_added is not None:
-                                try:
-                                    rdf_to_be_added_data = rdf_to_be_added.get(
-                                        "data"
-                                    )
-                                    graph = Graph()
-                                    log.debug(
-                                        "RDF to be added data: {rdf_to_be_added_data}"
-                                    )
-                                    graph.parse(
-                                        data=rdf_to_be_added_data,
-                                        format="turtle",
-                                    )
-                                    for s, p, o in graph:
-                                        triple = f"{s.n3()} {p.n3()} {o.n3()}"
-                                        # NOTE: In case there was a previous `delete` of that
-                                        # triple, it is safe to remove that `delete`, but not
-                                        # the `insert` (in case the triple is not contained in
-                                        # the original data).
-                                        if triple in delete_triples:
-                                            delete_triples.remove(triple)
-                                        insert_triples.add(triple)
-                                except Exception as e:
-                                    log.error(
-                                        f"Error reading `rdf_to_be_added_data`: {e}"
-                                    )
-                                    return False
-
-                    except Exception as e:
-                        log.error(f"Error reading data from message: {e}")
-                        log.info(event)
-                        continue
-
-                    # Message was successfully processed, update batch tracking
-                    current_batch_size += 1
-                    pbar.update(1)
-                    log.debug(
-                        f"DATE: {date_as_epoch_s:.0f} [{date}], "
-                        f"NOW: {now_as_epoch_s:.0f}, "
-                        f"DELTA: {now_as_epoch_s - date_as_epoch_s:.0f}"
-                    )
-                    date_list.append(date)
-                    delta_to_now_list.append(delta_to_now_s)
-
-                    # Ctrl+C finishes the current batch (this should come at the
-                    # end of the inner event loop so that always at least one
-                    # message is processed).
-                    if self.ctrl_c_pressed:
-                        log.warn(
-                            "\rCtrl+C pressed while processing a batch, "
-                            "finishing it and exiting"
-                        )
-                        break
-
-            # Process the current batch of messages.
-            batch_assembly_end_time = time.perf_counter()
-            batch_assembly_time_ms = int(
-                1000 * (batch_assembly_end_time - batch_assembly_start_time)
-            )
-            batch_count += 1
-            date_list.sort()
-            delta_to_now_list.sort()
-            min_delta_to_now_s = delta_to_now_list[0]
-            if min_delta_to_now_s < 10:
-                min_delta_to_now_s = f"{min_delta_to_now_s:.1f}"
-            else:
-                min_delta_to_now_s = f"{int(min_delta_to_now_s):,}"
-            log.info(
-                f"Assembled batch #{batch_count}, "
-                f"#messages: {current_batch_size:2,}, "
-                f"date range: {date_list[0]} - {date_list[-1]}  "
-                f"[assembly time: {batch_assembly_time_ms:3,}ms, "
-                f"min delta to NOW: {min_delta_to_now_s}s]"
-            )
-
-            # Add the min and max date of the batch to `insert_triples`.
-            #
-            # NOTE: The min date means that we have *all* updates until that
-            # date. The max date is the date of the latest update we have seen.
-            # However, there may still be earlier updates that we have not seen
-            # yet. Wikidata uses `schema:dateModified` for the latter semantics,
-            # so we use it here as well. For the other semantics, we invent
-            # a new property `wikibase:updatesCompleteUntil`.
-            insert_triples.add(
-                f"<http://wikiba.se/ontology#Dump> "
-                f"<http://schema.org/dateModified> "
-                f'"{date_list[-1]}"^^<http://www.w3.org/2001/XMLSchema#dateTime>'
-            )
-            updates_complete_until = (
-                date_list[-1]
-                if args.min_or_max_date == "max"
-                else date_list[0]
-            )
-            insert_triples.add(
-                f"<http://wikiba.se/ontology#Dump> "
-                f"<http://wikiba.se/ontology#updatesCompleteUntil> "
-                f'"{updates_complete_until}"'
-                f"^^<http://www.w3.org/2001/XMLSchema#dateTime>"
-            )
-
-            # Construct UPDATE operation.
-            delete_block = " . \n  ".join(delete_triples)
-            insert_block = " . \n  ".join(insert_triples)
-            delete_insert_operation = (
-                f"DELETE {{\n  {delete_block} \n}} "
-                f"INSERT {{\n  {insert_block} \n}} "
-                f"WHERE {{ }}\n"
-            )
-
-            # If `delete_entity_ids` is non-empty, add a `DELETE WHERE`
-            # operation that deletes all triples that are associated with only
-            # those entities.
-            delete_entity_ids_as_values = " ".join(
-                [f"wd:{qid}" for qid in delete_entity_ids]
-            )
-            if len(delete_entity_ids) > 0:
-                delete_where_operation = (
-                    f"PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n"
-                    f"PREFIX wikibase: <http://wikiba.se/ontology#>\n"
-                    f"PREFIX wd: <http://www.wikidata.org/entity/>\n"
-                    f"DELETE {{\n"
-                    f"  ?s ?p ?o .\n"
-                    f"}} WHERE {{\n"
-                    f"  {{\n"
-                    f"    VALUES ?s {{ {delete_entity_ids_as_values} }}\n"
-                    f"    ?s ?p ?o .\n"
-                    f"  }} UNION {{\n"
-                    f"    VALUES ?_1 {{ {delete_entity_ids_as_values} }}\n"
-                    f"    ?_1 ?_2 ?s .\n"
-                    f"    ?s ?p ?o .\n"
-                    f"    ?s rdf:type wikibase:Statement .\n"
-                    f"  }}\n"
-                    f"}}\n"
+            # Check if we can use a cached SPARQL query file
+            use_cached_file = False
+            cached_file_name = None
+            cached_meta_file_name = None
+            cached_date_range = None
+            if (
+                args.use_cached_sparql_queries
+                and first_offset_in_batch is not None
+            ):
+                cached_file_name = (
+                    f"update.{first_offset_in_batch}.{args.batch_size}.sparql"
                 )
-                delete_insert_operation += ";\n" + delete_where_operation
+                cached_meta_file_name = (
+                    f"update.{first_offset_in_batch}.{args.batch_size}.meta"
+                )
+                if os.path.exists(cached_file_name):
+                    use_cached_file = True
+                    # Try to read metadata file for date range
+                    if os.path.exists(cached_meta_file_name):
+                        try:
+                            with open(cached_meta_file_name, "r") as f:
+                                cached_date_range = f.read().strip()
+                        except Exception:
+                            cached_date_range = None
+
+                    if args.verbose == "yes":
+                        log_msg = f"Using cached SPARQL query file: {cached_file_name}"
+                        if cached_date_range:
+                            log_msg += f" [date range: {cached_date_range}]"
+                        log.info(colored(log_msg, "cyan"))
+
+            # Process one event at a time (unless using cached file).
+            if not use_cached_file:
+                with tqdm_logging_redirect(
+                    loggers=[logging.getLogger("qlever")],
+                    desc="Batch",
+                    total=args.batch_size,
+                    leave=False,
+                    bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}{postfix}",
+                ) as pbar:
+                    for event in source:
+                        # Skip events that are not of type `message` (should not
+                        # happen), have no field `data` (should not happen either), or
+                        # where the topic is not in `args.topics` (one topic by itself
+                        # should provide all relevant updates).
+                        if event.type != "message" or not event.data:
+                            continue
+                        event_data = json.loads(event.data)
+                        topic = event_data.get("meta").get("topic")
+                        if topic != args.topic:
+                            continue
+
+                        try:
+                            # Extract offset, topic, and partition from the message metadata
+                            # to construct a precise event ID for resuming.
+                            meta = event_data.get("meta")
+                            offset = meta.get("offset")
+                            topic = meta.get("topic")
+                            partition = meta.get("partition")
+
+                            # Get the date (rounded *down* to seconds).
+                            date = meta.get("dt")
+                            date = re.sub(r"\.\d*Z$", "Z", date)
+
+                            # Get the other relevant fields from the message.
+                            entity_id = event_data.get("entity_id")
+                            operation = event_data.get("operation")
+                            rdf_added_data = event_data.get("rdf_added_data")
+                            rdf_deleted_data = event_data.get(
+                                "rdf_deleted_data"
+                            )
+                            rdf_linked_shared_data = event_data.get(
+                                "rdf_linked_shared_data"
+                            )
+                            rdf_unlinked_shared_data = event_data.get(
+                                "rdf_unlinked_shared_data"
+                            )
+
+                            # Check batch completion conditions BEFORE processing the
+                            # data of this message. If any of the conditions is met,
+                            # we finish the batch and resume from the LAST PROCESSED
+                            # message (not the current one that triggered the break).
+                            #
+                            # NOTE: We will update event_id_for_next_batch AFTER
+                            # successfully processing each message (see below), so that
+                            # when we break, it contains the last processed event ID.
+                            since = None
+
+                            # Condition 1: Delete followed by insert for same entity.
+                            operation_adds_data = (
+                                rdf_added_data is not None
+                                or rdf_linked_shared_data is not None
+                            )
+                            if (
+                                operation_adds_data
+                                and entity_id in delete_entity_ids
+                            ):
+                                if args.verbose == "yes":
+                                    log.warn(
+                                        f"Encountered operation that adds data for "
+                                        f"an entity ID ({entity_id}) that was deleted "
+                                        f"earlier in this batch; finishing batch and "
+                                        f"resuming from this message in the next batch"
+                                    )
+                                break
+
+                            # Condition 2: Batch size or limit on number of
+                            # messages reached.
+                            if current_batch_size >= args.batch_size or (
+                                args.num_messages is not None
+                                and total_num_messages >= args.num_messages
+                            ):
+                                break
+
+                            # Condition 3: Message close to current time.
+                            date_obj = datetime.strptime(
+                                date, "%Y-%m-%dT%H:%M:%SZ"
+                            ).replace(tzinfo=timezone.utc)
+                            date_as_epoch_s = date_obj.timestamp()
+
+                            now_as_epoch_s = time.time()
+                            delta_to_now_s = now_as_epoch_s - date_as_epoch_s
+                            if (
+                                delta_to_now_s < args.lag_seconds
+                                and current_batch_size > 0
+                            ):
+                                if args.verbose == "yes":
+                                    log.warn(
+                                        f"Encountered message with date {date}, which is within "
+                                        f"{args.lag_seconds} "
+                                        f"second{'s' if args.lag_seconds > 1 else ''} "
+                                        f"of the current time, finishing the current batch"
+                                    )
+                                wait_before_next_batch = (
+                                    args.wait_between_batches is not None
+                                    and args.wait_between_batches > 0
+                                )
+                                break
+
+                            # Condition 4: Reached `--until` date and at least one
+                            # message was processed.
+                            if (
+                                args.until
+                                and date >= args.until
+                                and current_batch_size > 0
+                            ):
+                                log.warn(
+                                    f"Reached --until date {args.until} "
+                                    f"(message date: {date}), that's it folks"
+                                )
+                                self.finished = True
+                                break
+
+                            # Delete operations are postponed until the end of the
+                            # batch, so remember the entity ID here.
+                            if operation == "delete":
+                                delete_entity_ids.add(entity_id)
+
+                            # Replace each occurrence of `\\` by `\u005C\u005C`
+                            # (which is twice the Unicode for backslash).
+                            #
+                            # NOTE: Strictly speaking, it would be enough to do
+                            # this for two backslashes followed by a `u`, but
+                            # doing it for all double backslashes does not
+                            # harm. When parsing a SPARQL query, then according
+                            # to the standar, first all occurrences of `\uxxxx`
+                            # (where `xxxx` are four hex digits) are replaced
+                            # by the corresponding Unicode character. That is a
+                            # problem when `\\uxxxx` occurs in a literal,
+                            # because then it would be replaced by `\` followed
+                            # by the Unicode character, which is invalied
+                            # SPARQL. The subsitution avoids that problem.
+                            def node_to_sparql(node: rdflib.term.Node) -> str:
+                                return node.n3().replace(
+                                    "\\\\", "\\u005C\\u005C"
+                                )
+
+                            # Process the to-be-deleted triples.
+                            for rdf_to_be_deleted in (
+                                rdf_deleted_data,
+                                rdf_unlinked_shared_data,
+                            ):
+                                if rdf_to_be_deleted is not None:
+                                    try:
+                                        rdf_to_be_deleted_data = (
+                                            rdf_to_be_deleted.get("data")
+                                        )
+                                        graph = Graph()
+                                        log.debug(
+                                            f"RDF to_be_deleted data: {rdf_to_be_deleted_data}"
+                                        )
+                                        graph.parse(
+                                            data=rdf_to_be_deleted_data,
+                                            format="turtle",
+                                        )
+                                        for s, p, o in graph:
+                                            triple = f"{s.n3()} {p.n3()} {node_to_sparql(o)}"
+                                            # NOTE: In case there was a previous `insert` of that
+                                            # triple, it is safe to remove that `insert`, but not
+                                            # the `delete` (in case the triple is contained in the
+                                            # original data).
+                                            if triple in insert_triples:
+                                                insert_triples.remove(triple)
+                                            delete_triples.add(triple)
+                                    except Exception as e:
+                                        log.error(
+                                            f"Error reading `rdf_to_be_deleted_data`: {e}"
+                                        )
+                                        return False
+
+                            # Process the to-be-added triples.
+                            for rdf_to_be_added in (
+                                rdf_added_data,
+                                rdf_linked_shared_data,
+                            ):
+                                if rdf_to_be_added is not None:
+                                    try:
+                                        rdf_to_be_added_data = (
+                                            rdf_to_be_added.get("data")
+                                        )
+                                        graph = Graph()
+                                        log.debug(
+                                            "RDF to be added data: {rdf_to_be_added_data}"
+                                        )
+                                        graph.parse(
+                                            data=rdf_to_be_added_data,
+                                            format="turtle",
+                                        )
+                                        for s, p, o in graph:
+                                            triple = f"{s.n3()} {p.n3()} {node_to_sparql(o)}"
+                                            # NOTE: In case there was a previous `delete` of that
+                                            # triple, it is safe to remove that `delete`, but not
+                                            # the `insert` (in case the triple is not contained in
+                                            # the original data).
+                                            if triple in delete_triples:
+                                                delete_triples.remove(triple)
+                                            insert_triples.add(triple)
+                                    except Exception as e:
+                                        log.error(
+                                            f"Error reading `rdf_to_be_added_data`: {e}"
+                                        )
+                                        return False
+
+                        except Exception as e:
+                            log.error(f"Error reading data from message: {e}")
+                            log.info(event)
+                            continue
+
+                        # Message was successfully processed, update batch tracking
+                        current_batch_size += 1
+                        total_num_messages += 1
+                        pbar_update_frequency = 100
+                        if (current_batch_size % pbar_update_frequency) == 0:
+                            pbar.set_postfix(
+                                {
+                                    "Time": date_obj.strftime(
+                                        "%Y-%m-%d %H:%M:%S"
+                                    )
+                                }
+                            )
+                            pbar.update(pbar_update_frequency)
+                        log.debug(
+                            f"DATE: {date_as_epoch_s:.0f} [{date}], "
+                            f"NOW: {now_as_epoch_s:.0f}, "
+                            f"DELTA: {now_as_epoch_s - date_as_epoch_s:.0f}"
+                        )
+                        date_list.append(date)
+                        delta_to_now_list.append(delta_to_now_s)
+
+                        # Update the event ID for the next batch. We increment the
+                        # offset by 1 so that the next batch starts with the next
+                        # message (not re-processing the current one).
+                        event_id_for_next_batch = [
+                            {
+                                "topic": topic,
+                                "partition": partition,
+                                "offset": offset + 1,
+                            }
+                        ]
+
+                        # Ctrl+C finishes the current batch (this should come at the
+                        # end of the inner event loop so that always at least one
+                        # message is processed).
+                        if self.ctrl_c_pressed:
+                            log.warn(
+                                "\rCtrl+C pressed while processing a batch, "
+                                "finishing it and exiting"
+                            )
+                            break
+            else:
+                # Using cached file - set batch size and calculate next offset
+                current_batch_size = args.batch_size
+                total_num_messages += current_batch_size
+                event_id_for_next_batch = [
+                    {
+                        "topic": args.topic,
+                        "partition": args.partition,
+                        "offset": first_offset_in_batch + current_batch_size,
+                    }
+                ]
+
+            # Process the current batch of messages (or skip if using cached).
+            batch_count += 1
+            if not use_cached_file:
+                batch_assembly_end_time = time.perf_counter()
+                batch_assembly_time_ms = int(
+                    1000
+                    * (batch_assembly_end_time - batch_assembly_start_time)
+                )
+                date_list.sort()
+                delta_to_now_list.sort()
+                min_delta_to_now_s = delta_to_now_list[0]
+                if min_delta_to_now_s < 10:
+                    min_delta_to_now_s = f"{min_delta_to_now_s:.1f}"
+                else:
+                    min_delta_to_now_s = f"{int(min_delta_to_now_s):,}"
+                log.info(
+                    f"Assembled batch #{batch_count}, "
+                    f"#messages: {current_batch_size:2,}, "
+                    f"date range: {date_list[0]} - {date_list[-1]}  "
+                    f"[assembly time: {batch_assembly_time_ms:3,}ms, "
+                    f"min delta to NOW: {min_delta_to_now_s}s]"
+                )
+
+                # Add the min and max date of the batch to `insert_triples`.
+                #
+                # NOTE: The min date means that we have *all* updates until that
+                # date. The max date is the date of the latest update we have seen.
+                # However, there may still be earlier updates that we have not seen
+                # yet. Wikidata uses `schema:dateModified` for the latter semantics,
+                # so we use it here as well. For the other semantics, we invent
+                # a new property `wikibase:updatesCompleteUntil`.
+                insert_triples.add(
+                    f"<http://wikiba.se/ontology#Dump> "
+                    f"<http://schema.org/dateModified> "
+                    f'"{date_list[-1]}"^^<http://www.w3.org/2001/XMLSchema#dateTime>'
+                )
+                updates_complete_until = (
+                    date_list[-1]
+                    if args.min_or_max_date == "max"
+                    else date_list[0]
+                )
+                insert_triples.add(
+                    f"<http://wikiba.se/ontology#Dump> "
+                    f"<http://wikiba.se/ontology#updatesCompleteUntil> "
+                    f'"{updates_complete_until}"'
+                    f"^^<http://www.w3.org/2001/XMLSchema#dateTime>"
+                )
+                insert_triples.add(
+                    "<http://wikiba.se/ontology#Dump> "
+                    "<http://wikiba.se/ontology#updateStreamNextOffset> "
+                    f'"{event_id_for_next_batch[0]["offset"]}"'
+                )
+
+                # Construct UPDATE operation.
+                delete_block = " . \n  ".join(delete_triples)
+                insert_block = " . \n  ".join(insert_triples)
+                delete_insert_operation = (
+                    f"DELETE {{\n  {delete_block} \n}} "
+                    f"INSERT {{\n  {insert_block} \n}} "
+                    f"WHERE {{ }}\n"
+                )
+
+                # If `delete_entity_ids` is non-empty, add a `DELETE WHERE`
+                # operation that deletes all triples that are associated with only
+                # those entities.
+                delete_entity_ids_as_values = " ".join(
+                    [f"wd:{qid}" for qid in delete_entity_ids]
+                )
+                if len(delete_entity_ids) > 0:
+                    delete_where_operation = (
+                        f"PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n"
+                        f"PREFIX wikibase: <http://wikiba.se/ontology#>\n"
+                        f"PREFIX wd: <http://www.wikidata.org/entity/>\n"
+                        f"DELETE {{\n"
+                        f"  ?s ?p ?o .\n"
+                        f"}} WHERE {{\n"
+                        f"  {{\n"
+                        f"    VALUES ?s {{ {delete_entity_ids_as_values} }}\n"
+                        f"    ?s ?p ?o .\n"
+                        f"  }} UNION {{\n"
+                        f"    VALUES ?_1 {{ {delete_entity_ids_as_values} }}\n"
+                        f"    ?_1 ?_2 ?s .\n"
+                        f"    ?s ?p ?o .\n"
+                        f"    ?s rdf:type wikibase:Statement .\n"
+                        f"  }}\n"
+                        f"}}\n"
+                    )
+                    delete_insert_operation += ";\n" + delete_where_operation
 
             # Construct curl command. For batch size 1, send the operation via
             # `--data-urlencode`, otherwise write to file and send via `--data-binary`.
             curl_cmd = (
-                f"curl -s -X POST {sparql_endpoint}"
-                f" -H 'Authorization: Bearer {args.access_token}'"
+                f"curl -s -X POST"
+                f' "{sparql_endpoint}?access-token={args.access_token}"'
                 f" -H 'Content-Type: application/sparql-update'"
             )
-            update_arg_file_name = f"update.sparql.{batch_count}"
-            with open(update_arg_file_name, "w") as f:
-                f.write(delete_insert_operation)
+            if use_cached_file:
+                # Use the cached file instead of writing a new one
+                update_arg_file_name = cached_file_name
+            else:
+                # Write the constructed SPARQL update to a file
+                update_arg_file_name = f"update.{first_offset_in_batch}.{current_batch_size}.sparql"
+                with open(update_arg_file_name, "w") as f:
+                    f.write(delete_insert_operation)
+                # Write metadata file with date range
+                meta_file_name = (
+                    f"update.{first_offset_in_batch}.{current_batch_size}.meta"
+                )
+                with open(meta_file_name, "w") as f:
+                    f.write(f"{date_list[0]} - {date_list[-1]}")
             curl_cmd += f" --data-binary @{update_arg_file_name}"
             if args.verbose == "yes":
                 log.info(colored(curl_cmd, "blue"))
@@ -607,20 +849,12 @@ class UpdateWikidataCommand(QleverCommand):
             # Run it (using `curl` for batch size up to 1000, otherwise
             # `requests`).
             try:
-                headers = {
-                    "Authorization": f"Bearer {args.access_token}",
-                    "Content-Type": "application/sparql-update",
-                }
-                response = requests.post(
-                    url=sparql_endpoint,
-                    headers=headers,
-                    data=delete_insert_operation,
-                )
-                result = response.text
-                with open(f"update.result.{batch_count}", "w") as f:
+                result = run_command(curl_cmd, return_output=True)
+                result_file_name = f"update.{first_offset_in_batch}.{current_batch_size}.result"
+                with open(result_file_name, "w") as f:
                     f.write(result)
             except Exception as e:
-                log.warn(f"Error running `requests.post`: {e}")
+                log.warn(f"Error running `curl` command: {e}")
                 log.info("")
                 continue
 
@@ -823,8 +1057,20 @@ class UpdateWikidataCommand(QleverCommand):
             # either from `event_id_for_next_batch` or from `since`).
             source.close()
 
-            # If Ctrl+C was pressed or we reached `--until`, finish.
-            if self.ctrl_c_pressed or self.finished:
+            # After the first batch is processed, enable offset checking for
+            # subsequent batches.
+            first_batch = False
+
+            # If Ctrl+C was pressed, we reached `--until`, or we processed
+            # exactly `--num-messages`, finish.
+            if (
+                self.ctrl_c_pressed
+                or self.finished
+                or (
+                    args.num_messages is not None
+                    and total_num_messages >= args.num_messages
+                )
+            ):
                 break
 
         # Final statistics after all batches have been processed.
