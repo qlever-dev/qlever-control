@@ -240,7 +240,7 @@ class IndexCommand(QleverCommand):
             index_cmd += f" --stxxl-memory {args.stxxl_memory}"
         if args.parser_buffer_size:
             index_cmd += f" --parser-buffer-size {args.parser_buffer_size}"
-        index_cmd += f" | tee {args.name}.index-log.txt"
+        index_cmd += f" 2>&1 | tee {args.name}.index-log.txt"
 
         # If the total file size is larger than 10 GB, set ulimit (such that a
         # large number of open files is allowed).
