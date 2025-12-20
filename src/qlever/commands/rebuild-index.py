@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import os
 import subprocess
 import time
 from pathlib import Path
 
 from qlever.command import QleverCommand
-from qlever.commands.start import StartCommand
-from qlever.commands.stop import StopCommand
 from qlever.log import log
 from qlever.util import (
     run_command,
@@ -87,9 +84,7 @@ class RebuildIndexCommand(QleverCommand):
             f"-d index-name={index_dir_name}/{args.index_name} "
             f"-d access-token={args.access_token}"
         )
-        move_index_cmd = (
-            f"mv {index_dir_name} {index_dir_path}"
-        )
+        move_index_cmd = f"mv {index_dir_name} {index_dir_path}"
         restart_server_cmd = (
             f"cp -a Qleverfile {args.index_dir} && "
             f"cd {args.index_dir} && "
@@ -124,10 +119,7 @@ class RebuildIndexCommand(QleverCommand):
         duration_seconds = round(time_end - time_start)
         log.info("")
         log.info("")
-        log.info(
-            f"Rebuilt index in {duration_seconds:,} seconds; new "
-            f"files are in {args.index_dir}/{args.index_name}"
-        )
+        log.info(f"Rebuilt index in {duration_seconds:,} seconds")
 
         # Stop showing the server log.
         tail_proc.terminate()
@@ -135,15 +127,16 @@ class RebuildIndexCommand(QleverCommand):
         # Move the new index to the specified directory, if needed.
         if index_dir_path != ".":
             try:
+                log.info(f"Moving the new index to {args.index_dir}")
                 run_command(move_index_cmd)
             except Exception as e:
                 log.error(f"Moving the new index failed: {e}")
                 return False
 
-
         # Restart the server with the new index, if requested.
         if args.restart_when_finished:
             try:
+                log.info("Restarting the server with the new index")
                 run_command(restart_server_cmd)
             except Exception as e:
                 log.error(f"Restarting the server failed: {e}")
