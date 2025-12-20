@@ -73,17 +73,35 @@ class RebuildIndexCommand(QleverCommand):
             )
             return False
 
+        # Split `index_dir` into path and dir name. For example, if `index_dir`
+        # is `path/to/index`, then the path is `path/to` and the dir name
+        # is `index`.
+        index_dir_path = str(Path(args.index_dir).parent)
+        index_dir_name = str(Path(args.index_dir).name)
+
         # Command for rebuilding the index.
         rebuild_index_cmd = (
-            f"mkdir -p {args.index_dir} && "
+            f"mkdir -p {index_dir_name} && "
             f"curl -s {args.host_name}:{args.port} "
             f"-d cmd=rebuild-index "
-            f"-d index-name={args.index_dir}/{args.index_name} "
+            f"-d index-name={index_dir_name}/{args.index_name} "
             f"-d access-token={args.access_token}"
         )
+        move_index_cmd = (
+            f"mv {index_dir_name} {index_dir_path}"
+        )
+        restart_server_cmd = (
+            f"cp -a Qleverfile {args.index_dir} && "
+            f"cd {args.index_dir} && "
+            f"qlever start --kill-existing-with-same-port"
+        )
 
-        # Show the command line.
+        # Show the command lines.
         self.show(rebuild_index_cmd, args.show)
+        if index_dir_path != ".":
+            self.show(move_index_cmd, args.show)
+        if args.restart_when_finished:
+            self.show(restart_server_cmd, args.show)
         if args.show:
             return True
 
@@ -114,38 +132,19 @@ class RebuildIndexCommand(QleverCommand):
         # Stop showing the server log.
         tail_proc.terminate()
 
+        # Move the new index to the specified directory, if needed.
+        if index_dir_path != ".":
+            try:
+                run_command(move_index_cmd)
+            except Exception as e:
+                log.error(f"Moving the new index failed: {e}")
+                return False
+
+
         # Restart the server with the new index, if requested.
         if args.restart_when_finished:
-            log.error(
-                "Restarting the server with the new index "
-                "does not work properly yet ..."
-            )
-            return False
-
-            # We need a Qleverfile for this.
-            if Path("Qleverfile").exists() is False:
-                log.error(
-                    "To automatically restart the server, we need a "
-                    "Qleverfile in the current directory"
-                )
-                return False
-            # Copy the Qleverfile to the new index directory.
             try:
-                run_command(f"cp -a Qleverfile {args.index_dir}")
-            except Exception as e:
-                log.error(f"Copying the Qleverfile failed: {e}")
-                return False
-            # Stop this server, change to the new index directory, and start it
-            # again.
-            try:
-                args.cmdline_regex = f"^ServerMain.* -p {args.port} "
-                args.no_containers = False
-                StopCommand().execute(args)
-                os.chdir(args.index_dir)
-                args.kill_existing_with_same_port = False
-                args.no_warmup = False
-                args.run_in_foreground = False
-                StartCommand().execute(args)
+                run_command(restart_server_cmd)
             except Exception as e:
                 log.error(f"Restarting the server failed: {e}")
                 return False
