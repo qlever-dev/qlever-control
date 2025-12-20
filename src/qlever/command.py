@@ -42,7 +42,7 @@ class QleverCommand(ABC):
         pass
 
     @abstractmethod
-    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         """
         Retun the arguments relevant for this command. This must be a subset of
         the names of `all_arguments` defined in `QleverConfig`. Only these
