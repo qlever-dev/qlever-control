@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import re
-import subprocess
 
 from qlever.command import QleverCommand
 from qlever.commands.cache_stats import CacheStatsCommand
 from qlever.log import log
+from qlever.util import run_command
 
 
 class ClearCacheCommand(QleverCommand):
@@ -27,7 +27,7 @@ class ClearCacheCommand(QleverCommand):
 
     def additional_arguments(self, subparser) -> None:
         subparser.add_argument(
-            "--server-url",
+            "--sparql-endpoint",
             help="URL of the QLever server, default is {host_name}:{port}",
         )
         subparser.add_argument(
@@ -57,13 +57,7 @@ class ClearCacheCommand(QleverCommand):
         # Execute the command.
         try:
             clear_cache_cmd += ' -w " %{http_code}"'
-            result = subprocess.run(
-                clear_cache_cmd,
-                shell=True,
-                capture_output=True,
-                text=True,
-                check=True,
-            ).stdout
+            result = run_command(clear_cache_cmd, return_output=True)
             match = re.match(r"^(.*) (\d+)$", result, re.DOTALL)
             if not match:
                 raise Exception(f"Unexpected output:\n{result}")
