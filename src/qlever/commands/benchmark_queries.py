@@ -40,7 +40,7 @@ class BenchmarkQueriesCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return False
 
-    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {"server": ["host_name", "port"], "ui": ["ui_config"]}
 
     def additional_arguments(self, subparser) -> None:
