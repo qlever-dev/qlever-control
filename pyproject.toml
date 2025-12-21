@@ -26,7 +26,7 @@ dependencies = [ "psutil", "termcolor", "argcomplete", "pyyaml", "rdflib", "requ
 [project.urls]
 homepage = "https://github.com/ad-freiburg/qlever"
 documentation = "https://docs.qlever.dev"
-repository = "https://github.com/ad-freiburg/qlever"
+repository = "https://github.com/ad-freiburg/qlever.git"
 bugtracker = "https://github.com/ad-freiburg/qlever/issues"
 
 [project.scripts]
