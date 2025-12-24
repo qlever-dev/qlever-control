@@ -20,7 +20,7 @@ class TestCacheStatsCommand(unittest.TestCase):
     ):
         # Mock arguments for basic cache stats
         args = MagicMock()
-        args.server_url = None
+        args.sparql_endpoint = None
         args.host_name = "localhorst"
         args.port = 1234
         args.show = False
@@ -77,7 +77,7 @@ class TestCacheStatsCommand(unittest.TestCase):
     ):
         # Mock arguments for detailed cache stats
         args = MagicMock()
-        args.server_url = "http://testlocalhost:1234"
+        args.sparql_endpoint = "http://testlocalhost:1234"
         args.show = False
         args.detailed = True
 
@@ -101,10 +101,10 @@ class TestCacheStatsCommand(unittest.TestCase):
 
         # Assertions
         expected_stats_call = (
-            f"curl -s {args.server_url} " f'--data-urlencode "cmd=cache-stats"'
+            f"curl -s {args.sparql_endpoint} " f'--data-urlencode "cmd=cache-stats"'
         )
         expected_settings_call = (
-            f"curl -s {args.server_url} "
+            f"curl -s {args.sparql_endpoint} "
             f'--data-urlencode "cmd=get-settings"'
         )
 
@@ -127,7 +127,7 @@ class TestCacheStatsCommand(unittest.TestCase):
     def test_execute_failed_cache_stats(self, mock_log, mock_check_output):
         # Mock arguments for basic cache stats
         args = MagicMock()
-        args.server_url = "http://testlocalhost:1234"
+        args.sparql_endpoint = "http://testlocalhost:1234"
         args.show = False
         args.detailed = False
 
@@ -153,7 +153,7 @@ class TestCacheStatsCommand(unittest.TestCase):
     ):
         # Mock arguments for basic cache stats
         args = MagicMock()
-        args.server_url = None
+        args.sparql_endpoint = None
         args.port = 1234
         args.show = False
         args.detailed = False
@@ -189,7 +189,7 @@ class TestCacheStatsCommand(unittest.TestCase):
     ):
         # Mock arguments for basic cache stats
         args = MagicMock()
-        args.server_url = None
+        args.sparql_endpoint = None
         args.port = 1234
         args.show = False
         args.detailed = False

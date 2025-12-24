@@ -10,7 +10,8 @@ authors = [
     { name = "Hannah Bast", email = "bast@cs.uni-freiburg.de" }
 ]
 readme = "README.md"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.8"
 
 keywords = ["Graph database", "Triplestore", "Knowledge graphs", "SPARQL", "RDF"]
@@ -23,13 +24,15 @@ classifiers = [
 dependencies = [ "psutil", "termcolor", "argcomplete", "pyyaml", "rdflib", "requests-sse", "tqdm" ]
 
 [project.urls]
-Github = "https://github.com/ad-freiburg/qlever"
+homepage = "https://github.com/ad-freiburg/qlever"
+documentation = "https://docs.qlever.dev"
+repository = "https://github.com/ad-freiburg/qlever.git"
+bugtracker = "https://github.com/ad-freiburg/qlever/issues"
 
 [project.scripts]
 "qlever" = "qlever.qlever_main:main"
 
 [tool.setuptools]
-license-files = ["LICENSE"]
 package-data = { "qlever" = ["Qleverfiles/*"] }
 
 [tool.pytest.ini_options]

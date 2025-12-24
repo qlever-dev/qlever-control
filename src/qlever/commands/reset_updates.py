@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import re
-import subprocess
 
 from qlever.command import QleverCommand
 from qlever.log import log
+from qlever.util import run_command
 
 
 class ResetUpdatesCommand(QleverCommand):
@@ -26,14 +26,14 @@ class ResetUpdatesCommand(QleverCommand):
 
     def additional_arguments(self, subparser) -> None:
         subparser.add_argument(
-            "--server-url",
+            "--sparql-endpoint",
             help="URL of the QLever server, default is {host_name}:{port}",
         )
 
     def execute(self, args) -> bool:
         reset_cmd = "curl -s"
-        if args.server_url:
-            reset_cmd += f" {args.server_url}"
+        if args.sparql_endpoint:
+            reset_cmd += f" {args.sparql_endpoint}"
         else:
             reset_cmd += f" {args.host_name}:{args.port}"
         reset_cmd += f' --data-urlencode "cmd=clear-delta-triples" --data-urlencode "access-token={args.access_token}"'
@@ -43,13 +43,7 @@ class ResetUpdatesCommand(QleverCommand):
 
         try:
             reset_cmd += ' -w " %{http_code}"'
-            result = subprocess.run(
-                reset_cmd,
-                shell=True,
-                capture_output=True,
-                text=True,
-                check=True,
-            ).stdout
+            result = run_command(reset_cmd, return_output=True)
             match = re.match(r"^(.*) (\d+)$", result, re.DOTALL)
             if not match:
                 raise Exception(f"Unexpected output:\n{result}")

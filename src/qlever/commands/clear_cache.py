@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import re
-import subprocess
 
 from qlever.command import QleverCommand
 from qlever.commands.cache_stats import CacheStatsCommand
 from qlever.log import log
+from qlever.util import run_command
 
 
 class ClearCacheCommand(QleverCommand):
@@ -22,12 +22,12 @@ class ClearCacheCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return True
 
-    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {"server": ["host_name", "port", "access_token"]}
 
     def additional_arguments(self, subparser) -> None:
         subparser.add_argument(
-            "--server-url",
+            "--sparql-endpoint",
             help="URL of the QLever server, default is {host_name}:{port}",
         )
         subparser.add_argument(
@@ -38,17 +38,19 @@ class ClearCacheCommand(QleverCommand):
         )
 
     def execute(self, args) -> bool:
+        # Determine SPARQL endpoint.
+        sparql_endpoint = (
+            args.sparql_endpoint
+            if args.sparql_endpoint
+            else (f"{args.host_name}:{args.port}")
+        )
+
         # Construct command line and show it.
-        clear_cache_cmd = "curl -s"
-        if args.server_url:
-            clear_cache_cmd += f" {args.server_url}"
-        else:
-            clear_cache_cmd += f" {args.host_name}:{args.port}"
-        cmd_val = "clear-cache-complete" if args.complete else "clear-cache"
-        clear_cache_cmd += f' --data-urlencode "cmd={cmd_val}"'
+        clear_cache_cmd = f"curl -s {sparql_endpoint} -d cmd=clear-cache"
         if args.complete:
             clear_cache_cmd += (
-                f" --data-urlencode access-token=" f'"{args.access_token}"'
+                f"-complete"
+                f' --data-urlencode access-token="{args.access_token}"'
             )
         self.show(clear_cache_cmd, only_show=args.show)
         if args.show:
@@ -57,13 +59,7 @@ class ClearCacheCommand(QleverCommand):
         # Execute the command.
         try:
             clear_cache_cmd += ' -w " %{http_code}"'
-            result = subprocess.run(
-                clear_cache_cmd,
-                shell=True,
-                capture_output=True,
-                text=True,
-                check=True,
-            ).stdout
+            result = run_command(clear_cache_cmd, return_output=True)
             match = re.match(r"^(.*) (\d+)$", result, re.DOTALL)
             if not match:
                 raise Exception(f"Unexpected output:\n{result}")

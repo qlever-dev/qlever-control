@@ -122,7 +122,7 @@ class StartCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return True
 
-    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {
             "data": ["name", "description", "text_description"],
             "server": [
@@ -317,7 +317,7 @@ class StartCommand(QleverCommand):
         if not args.run_in_foreground:
             log.info("")
             args.detailed = False
-            args.server_url = None
+            args.sparql_endpoint = None
             CacheStatsCommand().execute(args)
 
         # Apply settings if any.

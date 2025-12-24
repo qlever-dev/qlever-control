@@ -22,13 +22,13 @@ class CacheStatsCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return False
 
-    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {"server": ["host_name", "port"]}
 
     def additional_arguments(self, subparser) -> None:
         subparser.add_argument(
-            "--server-url",
-            help="URL of the QLever server, default is {host_name}:{port}",
+            "--sparql-endpoint",
+            help="URL of the SPARQL endpoint, default is {host_name}:{port}",
         )
         subparser.add_argument(
             "--detailed",
@@ -39,16 +39,16 @@ class CacheStatsCommand(QleverCommand):
 
     def execute(self, args) -> bool:
         # Construct the two curl commands.
-        server_url = (
-            args.server_url
-            if args.server_url
+        sparql_endpoint = (
+            args.sparql_endpoint
+            if args.sparql_endpoint
             else f"{args.host_name}:{args.port}"
         )
         cache_stats_cmd = (
-            f'curl -s {server_url} --data-urlencode "cmd=cache-stats"'
+            f'curl -s {sparql_endpoint} --data-urlencode "cmd=cache-stats"'
         )
         cache_settings_cmd = (
-            f'curl -s {server_url} --data-urlencode "cmd=get-settings"'
+            f'curl -s {sparql_endpoint} --data-urlencode "cmd=get-settings"'
         )
 
         # Show them.

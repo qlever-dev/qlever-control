@@ -24,7 +24,7 @@ class SettingsCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return True
 
-    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {"server": ["port", "host_name", "access_token"]}
 
     def additional_arguments(self, subparser) -> None:
