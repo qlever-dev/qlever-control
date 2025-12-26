@@ -66,7 +66,12 @@ class Containerize:
 
         # Options for mounting volumes, setting ports, and setting the working
         # dir.
-        volume_options = "".join([f" -v {v1}:{v2}" for v1, v2 in volumes])
+        volume_options = "".join(
+            [
+                f' --mount type=bind,src="{v1}",target={v2}'
+                for v1, v2 in volumes
+            ]
+        )
         port_options = "".join([f" -p {p1}:{p2}" for p1, p2 in ports])
         working_directory_option = (
             f" -w {working_directory}" if working_directory is not None else ""
@@ -97,7 +102,8 @@ class Containerize:
         # Note: the `{{{{` and `}}}}` result in `{{` and `}}`, respectively.
         containers = (
             run_command(
-                f'{container_system} ps --format="{{{{.Names}}}}"', return_output=True
+                f'{container_system} ps --format="{{{{.Names}}}}"',
+                return_output=True,
             )
             .strip()
             .splitlines()
@@ -105,7 +111,9 @@ class Containerize:
         return container_name in containers
 
     @staticmethod
-    def stop_and_remove_container(container_system: str, container_name: str) -> bool:
+    def stop_and_remove_container(
+        container_system: str, container_name: str
+    ) -> bool:
         """
         Stop the container with the given name using the given system. Return
         `True` if a container with that name was found and stopped, `False`
