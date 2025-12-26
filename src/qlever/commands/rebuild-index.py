@@ -4,6 +4,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from termcolor import colored
+
 from qlever.command import QleverCommand
 from qlever.log import log
 from qlever.util import (
@@ -36,8 +38,8 @@ class RebuildIndexCommand(QleverCommand):
         subparser.add_argument(
             "--index-dir",
             type=str,
-            required=True,
-            help="Directory for the new index (required, no default)",
+            help="Directory for the new index (default: subdirectory "
+            "`rebuild.YYYY-MM-DDTHH:MM` of the current directory)",
         )
         subparser.add_argument(
             "--index-name",
@@ -57,6 +59,9 @@ class RebuildIndexCommand(QleverCommand):
         # Default values for arguments.
         if args.index_name is None:
             args.index_name = args.name
+        if args.index_dir is None:
+            timestamp = time.strftime("%Y-%m-%dT%H:%M", time.localtime())
+            args.index_dir = f"rebuild.{timestamp}"
         if args.index_dir.endswith("/"):
             args.index_dir = args.index_dir[:-1]
 
@@ -73,12 +78,23 @@ class RebuildIndexCommand(QleverCommand):
         # Split `index_dir` into path and dir name. For example, if `index_dir`
         # is `path/to/index`, then the path is `path/to` and the dir name
         # is `index`.
+        #
+        # NOTE: We keep this separate because we can always create a
+        # subdirectory in the current directory (even when running in a
+        # container), but not necessarily a directory at an arbitrary path. If
+        # a path outside the current directory is desired, we move the index
+        # there after it has been built.
         index_dir_path = str(Path(args.index_dir).parent)
         index_dir_name = str(Path(args.index_dir).name)
+        log_file_name = f"{args.index_name}.rebuild-index-log.txt"
 
         # Command for rebuilding the index.
-        rebuild_index_cmd = (
+        mkdir_cmd = (
             f"mkdir -p {index_dir_name} && "
+            f"> {index_dir_name}/{log_file_name} && "
+            f"cp -a Qleverfile {index_dir_name}"
+        )
+        rebuild_index_cmd = (
             f"curl -s {args.host_name}:{args.port} "
             f"-d cmd=rebuild-index "
             f"-d index-name={index_dir_name}/{args.index_name} "
@@ -86,40 +102,52 @@ class RebuildIndexCommand(QleverCommand):
         )
         move_index_cmd = f"mv {index_dir_name} {index_dir_path}"
         restart_server_cmd = (
-            f"cp -a Qleverfile {args.index_dir} && "
             f"cd {args.index_dir} && "
             f"qlever start --kill-existing-with-same-port"
         )
 
         # Show the command lines.
-        self.show(rebuild_index_cmd, args.show)
+        all_cmds = [mkdir_cmd, rebuild_index_cmd]
         if index_dir_path != ".":
-            self.show(move_index_cmd, args.show)
+            all_cmds.append(move_index_cmd)
         if args.restart_when_finished:
-            self.show(restart_server_cmd, args.show)
+            all_cmds.append(restart_server_cmd)
+        self.show("\n".join(all_cmds), args.show)
         if args.show:
             return True
+
+        # Create the index directory and the log file.
+        try:
+            run_command(mkdir_cmd)
+        except Exception as e:
+            log.error(f"Creating the index directory failed: {e}")
+            return False
 
         # Show the server log while rebuilding the index.
         #
         # NOTE: This will only work satisfactorily when no other quieres are
         # being processed at the same time. It would be better if QLever
         # logged the rebuild-index output to a separate log file.
-        tail_cmd = f"exec tail -n 0 -f {args.name}.server-log.txt"
+        tail_cmd = (
+            f"exec tail -n 0 -f "
+            f" {index_dir_name}/{args.name}.rebuild-index-log.txt"
+        )
         tail_proc = subprocess.Popen(tail_cmd, shell=True)
 
-        # Run the command (and time it).
+        # Run the index rebuild command (and time it).
         time_start = time.monotonic()
         try:
-            run_command(rebuild_index_cmd, show_output=True)
+            run_command(rebuild_index_cmd, show_output=False)
         except Exception as e:
             log.error(f"Rebuilding the index failed: {e}")
             return False
         time_end = time.monotonic()
         duration_seconds = round(time_end - time_start)
         log.info("")
-        log.info("")
-        log.info(f"Rebuilt index in {duration_seconds:,} seconds")
+        rebuild_done_msg = f"Rebuilt index in {duration_seconds:,} seconds"
+        if args.index_dir != ".":
+            rebuild_done_msg += f", in the new directory '{args.index_dir}'"
+        log.info(rebuild_done_msg)
 
         # Stop showing the server log.
         tail_proc.terminate()
@@ -136,8 +164,11 @@ class RebuildIndexCommand(QleverCommand):
         # Restart the server with the new index, if requested.
         if args.restart_when_finished:
             try:
-                log.info("Restarting the server with the new index")
-                run_command(restart_server_cmd)
+                log.info("Restarting the server with the new index ...")
+                log.info("")
+                log.info(colored("Command: start", attrs=["bold"]))
+                log.info("")
+                run_command(restart_server_cmd, show_output=True)
             except Exception as e:
                 log.error(f"Restarting the server failed: {e}")
                 return False
