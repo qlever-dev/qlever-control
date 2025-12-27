@@ -27,7 +27,7 @@ class RebuildIndexCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return True
 
-    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {
             "data": ["name"],
             "server": ["host_name", "port", "access_token"],
@@ -107,12 +107,12 @@ class RebuildIndexCommand(QleverCommand):
         )
 
         # Show the command lines.
-        all_cmds = [mkdir_cmd, rebuild_index_cmd]
+        cmds_to_show = [mkdir_cmd, rebuild_index_cmd]
         if index_dir_path != ".":
-            all_cmds.append(move_index_cmd)
+            cmds_to_show.append(move_index_cmd)
         if args.restart_when_finished:
-            all_cmds.append(restart_server_cmd)
-        self.show("\n".join(all_cmds), args.show)
+            cmds_to_show.append(restart_server_cmd)
+        self.show("\n".join(cmds_to_show), args.show)
         if args.show:
             return True
 
@@ -125,32 +125,32 @@ class RebuildIndexCommand(QleverCommand):
 
         # Show the server log while rebuilding the index.
         #
-        # NOTE: This will only work satisfactorily when no other quieres are
+        # NOTE: This will only work satisfactorily when no other queries are
         # being processed at the same time. It would be better if QLever
         # logged the rebuild-index output to a separate log file.
-        tail_cmd = (
-            f"exec tail -n 0 -f "
-            f" {index_dir_name}/{args.name}.rebuild-index-log.txt"
-        )
+        tail_cmd = f"exec tail -n 0 -f {index_dir_name}/{log_file_name}"
         tail_proc = subprocess.Popen(tail_cmd, shell=True)
 
         # Run the index rebuild command (and time it).
-        time_start = time.monotonic()
         try:
-            run_command(rebuild_index_cmd, show_output=False)
-        except Exception as e:
-            log.error(f"Rebuilding the index failed: {e}")
-            return False
-        time_end = time.monotonic()
-        duration_seconds = round(time_end - time_start)
-        log.info("")
-        rebuild_done_msg = f"Rebuilt index in {duration_seconds:,} seconds"
-        if args.index_dir != ".":
-            rebuild_done_msg += f", in the new directory '{args.index_dir}'"
-        log.info(rebuild_done_msg)
-
-        # Stop showing the server log.
-        tail_proc.terminate()
+            time_start = time.monotonic()
+            try:
+                run_command(rebuild_index_cmd, show_output=False)
+            except Exception as e:
+                log.error(f"Rebuilding the index failed: {e}")
+                return False
+            time_end = time.monotonic()
+            duration_seconds = round(time_end - time_start)
+            log.info("")
+            rebuild_done_msg = f"Rebuilt index in {duration_seconds:,} seconds"
+            if index_dir_path != ".":
+                rebuild_done_msg += (
+                    f", in the new directory '{args.index_dir}'"
+                )
+            log.info(rebuild_done_msg)
+        finally:
+            tail_proc.terminate()
+            tail_proc.wait()
 
         # Move the new index to the specified directory, if needed.
         if index_dir_path != ".":
