@@ -112,7 +112,7 @@ class RebuildIndexCommand(QleverCommand):
             cmds_to_show.append(move_index_cmd)
         if args.restart_when_finished:
             cmds_to_show.append(restart_server_cmd)
-        self.show("\n".join(cmds_to_show), args.show)
+        self.show("\n".join(cmds_to_show), only_show=args.show)
         if args.show:
             return True
 
