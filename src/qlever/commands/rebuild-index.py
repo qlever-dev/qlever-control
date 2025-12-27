@@ -143,7 +143,7 @@ class RebuildIndexCommand(QleverCommand):
             duration_seconds = round(time_end - time_start)
             log.info("")
             rebuild_done_msg = f"Rebuilt index in {duration_seconds:,} seconds"
-            if index_dir_path != ".":
+            if index_dir_path == ".":
                 rebuild_done_msg += (
                     f", in the new directory '{args.index_dir}'"
                 )
