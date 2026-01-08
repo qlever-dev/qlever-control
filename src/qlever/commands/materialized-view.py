@@ -59,7 +59,7 @@ class MaterializedViewCommand(QleverCommand):
         )
 
         # Check that the name of the materialized view is valid.
-        if not re.match(self.materialized_view_name_regex, args.name):
+        if not re.match(self.materialized_view_name_regex, args.view_name):
             log.error(
                 f"The name for the materialized view must match "
                 f"the regex {self.materialized_view_name_regex}"
