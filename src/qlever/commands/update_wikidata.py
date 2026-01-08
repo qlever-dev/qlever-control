@@ -256,8 +256,7 @@ class UpdateWikidataCommand(QleverCommand):
         # Initialize all the statistics variables.
         batch_count = 0
         total_num_messages = 0
-        total_num_ops = 0
-        total_time_s = 0
+        total_update_time = 0
         start_time = time.perf_counter()
         wait_before_next_batch = False
         event_id_for_next_batch = (
@@ -912,9 +911,7 @@ class UpdateWikidataCommand(QleverCommand):
             )
             for field in ["operations", "time"]:
                 if field not in result:
-                    log.error(old_json_message_template.format(field))
-                    log.info("")
-                    continue
+                    raise RuntimeError(old_json_message_template.format(field))
 
             # Get the per-operation statistics.
             for i, stats in enumerate(result["operations"]):
@@ -996,12 +993,6 @@ class UpdateWikidataCommand(QleverCommand):
                             f"UNACCOUNTED: {100 * time_unaccounted / time_op_total:2.0f}%",
                         )
 
-                    # Update the totals.
-                    total_num_ops += num_ops
-                    total_time_s += time_op_total / 1000.0
-                    elapsed_time_s = time.perf_counter() - start_time
-                    time_us_per_op = int(1e6 * total_time_s / total_num_ops)
-
                 except Exception as e:
                     log.warn(
                         f"Error extracting statistics: {e}, "
@@ -1019,7 +1010,7 @@ class UpdateWikidataCommand(QleverCommand):
                 result,
                 "parsing",
             )
-            time_metadata_update = get_time_ms(
+            time_metadata = get_time_ms(
                 result,
                 "metadataUpdateForSnapshot",
             )
@@ -1041,20 +1032,23 @@ class UpdateWikidataCommand(QleverCommand):
             )
             time_unaccounted = time_total - (
                 time_parsing
-                + time_metadata_update
+                + time_metadata
                 + time_snapshot
                 + time_writeback
                 + time_operations
             )
 
+            # Update the totals.
+            total_update_time += time_total / 1000.0
+            total_elapsed_time = time.perf_counter() - start_time
+
             # Show statistics for the completed batch.
             if args.verbose == "yes":
                 log.info(
                     colored(
-                        f"TOTAL TRIPLES SO FAR: {total_num_ops:10,}, "
-                        f"TOTAL UPDATE TIME SO FAR: {total_time_s:4.0f}s, "
-                        f"ELAPSED TIME SO FAR: {elapsed_time_s:4.0f}s, "
-                        f"AVG TIME/TRIPLE SO FAR: {time_us_per_op:,}µs",
+                        f"TOTAL UPDATE TIME SO FAR: {total_update_time:4.0f}s, "
+                        f"TOTAL ELAPSED TIME SO FAR: {total_elapsed_time:4.0f}s, "
+                        f"TOTAL TIME FOR THIS UPDATE REQUEST: {time_total:7,}ms, ",
                         attrs=["bold"],
                     )
                 )
@@ -1088,23 +1082,10 @@ class UpdateWikidataCommand(QleverCommand):
             ):
                 break
 
-        # Final statistics after all batches have been processed.
-        elapsed_time_s = time.perf_counter() - start_time
-        time_us_per_op = (
-            int(1e6 * total_time_s / total_num_ops) if total_num_ops > 0 else 0
-        )
+        # Final message after all batches have been processed.
         log.info(
             f"Processed {batch_count} "
             f"{'batches' if batch_count > 1 else 'batch'} "
             f"terminating update command"
-        )
-        log.info(
-            colored(
-                f"TOTAL TRIPLES: {total_num_ops:10,}, "
-                f"TOTAL TIME: {total_time_s:4.0f}s, "
-                f"ELAPSED TIME: {elapsed_time_s:4.0f}s, "
-                f"AVG TIME/TRIPLE: {time_us_per_op:,}µs",
-                attrs=["bold"],
-            )
         )
         return True
