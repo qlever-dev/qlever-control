@@ -78,7 +78,7 @@ class MaterializedViewCommand(QleverCommand):
             f"-H 'Content-type: application/sparql-query' "
             f"-d {shlex.quote(args.view_query)}"
         )
-        self.show(materialized_view_cmd, args.show)
+        self.show(materialized_view_cmd, only_show=args.show)
         if args.show:
             return True
 
