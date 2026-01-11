@@ -67,6 +67,42 @@ def retry_with_backoff(operation, operation_name, max_retries, log):
                 raise
 
 
+def connect_to_sse_stream(sse_stream_url, since=None, event_id=None):
+    """
+    Connect to the SSE stream and return the connected EventSource.
+
+    Args:
+        sse_stream_url: URL of the SSE stream
+        since: ISO date string to start from (mutually exclusive with event_id)
+        event_id: Event ID to resume from (mutually exclusive with since)
+
+    Returns:
+        The connected EventSource object
+    """
+    if event_id:
+        event_id_json = json.dumps(event_id)
+        source = requests_sse.EventSource(
+            sse_stream_url,
+            headers={
+                "Accept": "text/event-stream",
+                "User-Agent": "qlever update-wikidata",
+                "Last-Event-ID": event_id_json,
+            },
+        )
+    else:
+        source = requests_sse.EventSource(
+            sse_stream_url,
+            params={"since": since} if since else {},
+            headers={
+                "Accept": "text/event-stream",
+                "User-Agent": "qlever update-wikidata",
+            },
+        )
+
+    source.connect()
+    return source
+
+
 class UpdateWikidataCommand(QleverCommand):
     """
     Class for executing the `update` command.
@@ -306,27 +342,31 @@ class UpdateWikidataCommand(QleverCommand):
         # message from the SSE stream using the `since` date.
         if not args.offset:
             try:
-                source = requests_sse.EventSource(
-                    args.sse_stream_url,
-                    params={"since": since},
-                    headers={
-                        "Accept": "text/event-stream",
-                        "User-Agent": "qlever update-wikidata",
-                    },
+                source = retry_with_backoff(
+                    lambda: connect_to_sse_stream(
+                        args.sse_stream_url, since=since
+                    ),
+                    "SSE stream connection",
+                    args.num_retries,
+                    log,
                 )
-                source.connect()
+                offset = None
                 for event in source:
                     if event.type == "message" and event.data:
                         event_data = json.loads(event.data)
-                        topic = event_data.get("meta").get("topic")
-                        if topic == args.topic:
-                            args.offset = event_data.get("meta").get("offset")
+                        event_topic = event_data.get("meta").get("topic")
+                        if event_topic == args.topic:
+                            offset = event_data.get("meta").get("offset")
                             log.debug(
-                                f"Determined offset from date: "
-                                f"{since} -> {args.offset}"
+                                f"Determined offset from date: {since} -> {offset}"
                             )
                             break
                 source.close()
+                if offset is None:
+                    raise Exception(
+                        f"No event with topic {args.topic} found in stream"
+                    )
+                args.offset = offset
             except Exception as e:
                 log.error(f"Error determining offset from stream: {e}")
                 return False
@@ -388,14 +428,6 @@ class UpdateWikidataCommand(QleverCommand):
                             attrs=["dark"],
                         )
                     )
-                source = requests_sse.EventSource(
-                    args.sse_stream_url,
-                    headers={
-                        "Accept": "text/event-stream",
-                        "User-Agent": "qlever update-wikidata",
-                        "Last-Event-ID": event_id_json,
-                    },
-                )
             else:
                 if args.verbose == "yes":
                     log.info(
@@ -404,34 +436,24 @@ class UpdateWikidataCommand(QleverCommand):
                             attrs=["dark"],
                         )
                     )
-                source = requests_sse.EventSource(
-                    args.sse_stream_url,
-                    params={"since": since},
-                    headers={
-                        "Accept": "text/event-stream",
-                        "User-Agent": "qlever update-wikidata",
-                    },
+
+            # Connect to the SSE stream with retry logic
+            try:
+                source = retry_with_backoff(
+                    lambda: connect_to_sse_stream(
+                        args.sse_stream_url,
+                        since=since if not event_id_for_next_batch else None,
+                        event_id=event_id_for_next_batch,
+                    ),
+                    "SSE stream connection for batch processing",
+                    args.num_retries,
+                    log,
                 )
-            # Try 10 times to connect to the source, with exponential backoff.
-            # If we cannot connect after that, give up.
-            wait_between_connect_attempts_s = 1
-            source_connected = False
-            while True:
-                try:
-                    source.connect()
-                    source_connected = True
-                    break
-                except Exception:
-                    log.error(
-                        f"Error connecting to stream, waiting "
-                        f"{wait_between_connect_attempts_s}s before retrying"
-                    )
-                    time.sleep(wait_between_connect_attempts_s)
-                    wait_between_connect_attempts_s *= 2
-                    if wait_between_connect_attempts_s > 512:
-                        log.error("Giving up connecting to SSE source, exit")
-                        break
-            if not source_connected:
+            except Exception as e:
+                log.error(
+                    f"Failed to connect to SSE stream after "
+                    f"{args.num_retries} retry attempts, last error: {e}"
+                )
                 break
 
             # Next comes the inner loop, which processes exactly one "batch" of
