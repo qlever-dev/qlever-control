@@ -238,7 +238,15 @@ class UpdateWikidataCommand(QleverCommand):
             choices=["yes", "no"],
             default="yes",
             help="Before each batch, verify that the stream offset matches the "
-            "stored offset in the knowledge base (default: yes)",
+            "offset from the endpoint (default: yes)",
+        )
+        subparser.add_argument(
+            "--rewind-to-earlier-offset",
+            choices=["yes", "no"],
+            default="yes",
+            help="When the stream offset is later than the offset from the "
+            "endpoint (e.g., after a server restart), rewind to the endpoint "
+            "offset and reprocess messages (default: yes)",
         )
         subparser.add_argument(
             "--num-retries",
@@ -304,9 +312,9 @@ class UpdateWikidataCommand(QleverCommand):
         log.warn("Press Ctrl+C to finish and exit gracefully")
         log.info("")
 
-        # If --offset is not provided, first try to get the stored offset from
-        # the knowledge base. Only fall back to date-based approach if no
-        # offset is stored.
+        # If --offset is not provided, first try to get the offset from
+        # the endpoint. Only fall back to date-based approach if no
+        # offset is available.
         if not args.offset:
             try:
                 sparql_query_stored_offset = (
@@ -329,12 +337,12 @@ class UpdateWikidataCommand(QleverCommand):
                 if result and result != '""':
                     args.offset = int(result.strip('"'))
                     log.info(
-                        f"Resuming from stored offset in knowledge base: "
+                        f"Resuming from offset from endpoint: "
                         f"{args.offset}"
                     )
             except Exception as e:
                 log.debug(
-                    f"Could not retrieve stored offset from knowledge base: {e}. "
+                    f"Could not retrieve offset from endpoint: {e}. "
                     f"Will determine offset from date instead."
                 )
 
@@ -475,7 +483,7 @@ class UpdateWikidataCommand(QleverCommand):
                 # before starting, but keep as fallback
                 first_offset_in_batch = None
 
-            # Check that the stream offset matches the stored offset in the KB
+            # Check that the stream offset matches the offset from the endpoint
             # Skip this check on the first batch (when using --offset to resume)
             if (
                 args.check_offset_before_each_batch == "yes"
@@ -508,24 +516,54 @@ class UpdateWikidataCommand(QleverCommand):
                     )
                     if not result:
                         log.error(
-                            "Failed to retrieve stored offset from knowledge base: "
-                            "query returned no results. This might be the first update, "
-                            "or the offset triple is missing."
+                            "Failed to retrieve offset from endpoint: "
+                            "query returned no results; this might be the first update, "
+                            "or the offset triple is missing"
                         )
                         return False
-                    stored_offset = int(result.strip('"'))
-                    if stored_offset != first_offset_in_batch:
+                    endpoint_offset = int(result.strip('"'))
+                    if endpoint_offset < first_offset_in_batch:
+                        # Stream offset is LATER than endpoint offset
+                        if args.rewind_to_earlier_offset == "yes":
+                            log.info(
+                                colored(
+                                    f"Stream offset {first_offset_in_batch} is later "
+                                    f"than offset {endpoint_offset} from endpoint; "
+                                    f"this can happen after a server restart; "
+                                    f"rewinding to offset {endpoint_offset} from endpoint",
+                                    "cyan",
+                                )
+                            )
+                            log.info("")
+                            # Reconnect from the endpoint offset
+                            event_id_for_next_batch = [
+                                {
+                                    "topic": args.topic,
+                                    "partition": args.partition,
+                                    "offset": endpoint_offset,
+                                }
+                            ]
+                            continue  # Skip this batch and reconnect
+                        else:
+                            log.error(
+                                f"Offset mismatch: stream offset {first_offset_in_batch} "
+                                f"is later than offset {endpoint_offset} from endpoint; "
+                                f"rewind disabled by --rewind-to-earlier-offset=no"
+                            )
+                            return False
+                    elif endpoint_offset > first_offset_in_batch:
+                        # Stream offset is EARLIER than endpoint offset - this is bad
                         log.error(
-                            f"Offset mismatch: stream offset is {first_offset_in_batch}, "
-                            f"but stored offset in knowledge base is {stored_offset}. "
-                            f"This indicates that updates may have been applied "
-                            f"out of order or some updates are missing."
+                            f"Offset mismatch: stream offset {first_offset_in_batch} "
+                            f"is earlier than offset {endpoint_offset} from endpoint; "
+                            f"this indicates that updates may have been applied "
+                            f"out of order or some updates are missing"
                         )
                         return False
                 except Exception as e:
                     log.error(
-                        f"Failed to retrieve or verify stored offset from "
-                        f"SPARQL endpoint after {args.num_retries} retry; "
+                        f"Failed to retrieve or verify offset from "
+                        f"endpoint after {args.num_retries} retries; "
                         f"last error: {e}"
                     )
                     return False
