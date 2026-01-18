@@ -33,7 +33,7 @@ STXXL_MEMORY     = 10G
 
 [server]
 PORT                        = 7001
-ACCESS_TOKEN                =
+ACCESS_TOKEN                = ${data:NAME}
 MEMORY_FOR_QUERIES          = 20G
 CACHE_MAX_SIZE              = 15G
 CACHE_MAX_SIZE_SINGLE_ENTRY = 5G
