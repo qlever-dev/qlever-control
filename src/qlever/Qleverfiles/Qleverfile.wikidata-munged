@@ -4,7 +4,7 @@
 # qlever index     # ~4 hours, ~20 GB RAM, ~500 GB index size on disk
 # qlever start     # a few seconds, adjust MEMORY_FOR_QUERIES as needed
 #
-# Measured on an AMD Ryzen 9950X with 128 GB RAM, and NVMe SSD (17.01.2026)
+# Measured on an AMD Ryzen 9 9950X with 128 GB RAM, and NVMe SSD (17.01.2026)
 
 [DEFAULT]
 NAME = wikidata
