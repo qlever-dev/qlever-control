@@ -1,0 +1,47 @@
+# Qleverfile for Wikidata MUNGED, use with `qlever` CLI (`pipx install qlever`)
+#
+# qlever get-data  # ~24 hours, ~110 GB (compressed), ~18 billion triples
+# qlever index     # ~4 hours, ~20 GB RAM, ~500 GB index size on disk
+# qlever start     # a few seconds, adjust MEMORY_FOR_QUERIES as needed
+#
+# Measured on an AMD Ryzen 9950X with 128 GB RAM, and NVMe SSD (17.01.2026)
+
+[DEFAULT]
+NAME = wikidata
+
+[data]
+GET_DATA_URL_BASE     = https://dumps.wikimedia.org/wikidatawiki/entities
+GET_DATA_URL_ALL      = ${GET_DATA_URL_BASE}/20260112/wikidata-20260112-all-BETA.ttl.bz2
+GET_DATA_URL_LEXEMES  = ${GET_DATA_URL_BASE}/20260116/wikidata-20260116-lexemes-BETA.ttl.bz2
+GET_DATA_WDQS_VER     = 0.3.156
+GET_DATA_WGET_CMD     = unbuffer wget -q --show-progress
+GET_DATA_CMD_1        = ${GET_DATA_WGET_CMD} -O service-${GET_DATA_WDQS_VER}-dist.tar.gz https://archiva.wikimedia.org/repository/releases/org/wikidata/query/rdf/service/${GET_DATA_WDQS_VER}/service-${GET_DATA_WDQS_VER}-dist.tar.gz | tee wikidata.download-log.txt && tar -xzf service-${GET_DATA_WDQS_VER}-dist.tar.gz && rm service-${GET_DATA_WDQS_VER}-dist.tar.gz
+GET_DATA_CMD_2        = ${GET_DATA_WGET_CMD} -O dcatap.rdf https://dumps.wikimedia.org/wikidatawiki/entities/dcatap.rdf | tee -a wikidata.download-log.txt && cat dcatap.rdf | docker run -i --rm -v $$(pwd):/data stain/jena riot --syntax=RDF/XML --output=NT /dev/stdin > dcatap.nt && rm dcatap.rdf && ${GET_DATA_WGET_CMD} -O latest-lexemes.ttl.bz2 ${GET_DATA_URL_LEXEMES} 2>&1 | tee -a wikidata.download-log.txt && ${GET_DATA_WGET_CMD} -O latest-all.ttl.bz2 ${GET_DATA_URL_ALL} 2>&1 | tee wikidata.download-log.txt
+GET_DATA_CMD_3        = service-${GET_DATA_WDQS_VER}/munge.sh -f latest-all.ttl.bz2 -d . -c 150000000 && mv wikidump-000000001.ttl.gz latest-all.MUNGED.ttl.gz && touch -r latest-all.ttl.bz2 latest-all.MUNGED.ttl.gz
+GET_DATA_CMD          = ${GET_DATA_CMD_1} && ${GET_DATA_CMD_2} && ${GET_DATA_CMD_3}
+DATE_WIKIDATA_ALL     = $$(date -r latest-all.ttl.bz2 +%d.%m.%Y || echo "NO_DATE")
+DATE_WIKIDATA_LEXEMES = $$(date -r latest-lexemes.ttl.bz2 +%d.%m.%Y || echo "NO_DATE")
+DESCRIPTION           = Complete Wikidata, TTL from ${GET_DATA_URL_BASE} (latest-all.ttl.bz2 from ${DATE_WIKIDATA_ALL} munged, latest-lexemes.ttl.bz2 from ${DATE_WIKIDATA_LEXEMES}), updated LIVE
+
+[index]
+INPUT_FILES      = latest-all.MUNGED.ttl.gz latest-lexemes.ttl.bz2 dcatap.nt
+MULTI_INPUT_JSON = { "cmd": "zcat latest-all.MUNGED.ttl.gz", "format": "ttl", "parallel": "true" }
+                   { "cmd": "lbzcat -n 1 latest-lexemes.ttl.bz2", "format": "ttl", "parallel": "false" }
+                   { "cmd": "cat dcatap.nt", "format": "nt", "parallel": "false" }
+SETTINGS_JSON    = { "num-triples-per-batch": 5000000, "languages-internal": [], "prefixes-external": [""], "locale": { "language": "en", "country": "US", "ignore-punctuation": true } }
+STXXL_MEMORY     = 10G
+
+[server]
+PORT                        = 7001
+ACCESS_TOKEN                =
+MEMORY_FOR_QUERIES          = 20G
+CACHE_MAX_SIZE              = 15G
+CACHE_MAX_SIZE_SINGLE_ENTRY = 5G
+TIMEOUT                     = 600s
+
+[runtime]
+SYSTEM = docker
+IMAGE  = adfreiburg/qlever:latest
+
+[ui]
+UI_CONFIG = wikidata
