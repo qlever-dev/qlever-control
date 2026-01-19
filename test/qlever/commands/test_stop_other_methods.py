@@ -38,7 +38,7 @@ class TestStopCommand(unittest.TestCase):
         args = parser.parse_args([])
 
         # Test that the default value for cmdline_regex is set correctly
-        self.assertEqual(args.cmdline_regex, "ServerMain.* -i [^ ]*%%NAME%%")
+        self.assertEqual(args.cmdline_regex, "qlever-server.* -i [^ ]*%%NAME%%")
 
         # Test that the help text for cmdline_regex is correctly set
         argument_help = subparser._group_actions[-2].help

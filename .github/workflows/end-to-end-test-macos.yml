@@ -79,14 +79,14 @@ jobs:
           export CPPFLAGS="-I/usr/local/opt/llvm@16/include"
           cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$(pwd)/build/conan_toolchain.cmake" -DUSE_PARALLEL=true -DRUN_EXPENSIVE_TESTS=false -DENABLE_EXPENSIVE_CHECKS=true -DCMAKE_CXX_COMPILER=clang++ -DADDITIONAL_COMPILER_FLAGS="-fexperimental-library" -DADDITIONAL_LINKER_FLAGS="-L$(brew --prefix llvm)/lib/c++"
           source build/conanrun.sh
-          make -C build ServerMain IndexBuilderMain
+          make -C build qlever-server qlever-index
 
       - name: Check that qlever binaries and qlever script are found and work
         run: |
           export PATH="$PATH:$(pwd)/qlever-code/build"
           source qlever-code/build/conanrun.sh
-          ServerMain --help | head -3; echo "..."
-          IndexBuilderMain --help | head -3; echo "..."
+          qlever-server --help | head -3; echo "..."
+          qlever-index --help | head -3; echo "..."
           qlever --help
 
       - name: Test qlever script for olympics dataset, without Docker
