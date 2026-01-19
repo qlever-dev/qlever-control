@@ -220,4 +220,14 @@ class QleverConfig:
                             "arguments on the command line. This is possible, "
                             "but not recommended.")
 
+        # Warn if the old binary names are still being used.
+        if getattr(args, "index_binary", None) == "IndexBuilderMain":
+            log.warning("The index binary has been renamed from "
+                        "`IndexBuilderMain` to `qlever-index`. Please update "
+                        "your Qleverfile.")
+        if getattr(args, "server_binary", None) == "ServerMain":
+            log.warning("The server binary has been renamed from "
+                        "`ServerMain` to `qlever-server`. Please update "
+                        "your Qleverfile.")
+
         return args
