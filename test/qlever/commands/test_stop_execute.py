@@ -20,7 +20,7 @@ class TestStopCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
-        args.cmdline_regex = "qlever-server-server.* -i [^ ]*%%NAME%%"
+        args.cmdline_regex = "qlever-server.* -i [^ ]*%%NAME%%"
         args.name = "TestName"
         args.no_containers = True
         args.server_container = "test_container"
