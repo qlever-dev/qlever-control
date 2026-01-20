@@ -5,7 +5,7 @@ import subprocess
 from qlever.command import QleverCommand
 from qlever.containerize import Containerize
 from qlever.log import log
-from qlever.util import get_existing_index_files, run_command
+from qlever.util import binary_exists, get_existing_index_files, run_command
 
 
 class AddTextIndexCommand(QleverCommand):
@@ -82,14 +82,7 @@ class AddTextIndexCommand(QleverCommand):
 
         # When running natively, check if the binary exists and works.
         if args.system == "native":
-            try:
-                run_command(f"{args.index_binary} --help")
-            except Exception as e:
-                log.error(
-                    f'Running "{args.index_binary}" failed ({e}), '
-                    f"set `--index-binary` to a different binary or "
-                    f"use `--container_system`"
-                )
+            if not binary_exists(args.index_binary, "index-binary"):
                 return False
 
         # Check if text index files already exist.
