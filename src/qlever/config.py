@@ -221,13 +221,13 @@ class QleverConfig:
                             "but not recommended.")
 
         # Warn if the old binary names are still being used.
-        if getattr(args, "index_binary", None) == "IndexBuilderMain":
+        if "IndexBuilderMain" in getattr(args, "index_binary", ""):
             log.warning("The index binary has been renamed from "
                         "`IndexBuilderMain` to `qlever-index`. Please update "
-                        "your Qleverfile.")
-        if getattr(args, "server_binary", None) == "ServerMain":
+                        "your Qleverfile or other configuration.")
+        if "ServerMain" in getattr(args, "server_binary", ""):
             log.warning("The server binary has been renamed from "
                         "`ServerMain` to `qlever-server`. Please update "
-                        "your Qleverfile.")
+                        "your Qleverfile or other configuration.")
 
         return args
