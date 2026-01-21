@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import glob
 import json
 import logging
 import os
@@ -8,6 +9,7 @@ import signal
 import time
 from datetime import datetime, timezone
 from enum import Enum, auto
+from pathlib import Path
 
 import rdflib.term
 import requests_sse
@@ -210,10 +212,10 @@ class UpdateWikidataCommand(QleverCommand):
         subparser.add_argument(
             "--wait-between-batches",
             type=int,
-            default=300,
+            default=5,
             help="Wait this many seconds between batches that were "
             "finished due to a message that is within `lag_seconds` of "
-            "the current time (default: 300s)",
+            "the current time (default: 5 seconds)",
         )
         subparser.add_argument(
             "--num-messages",
@@ -254,6 +256,14 @@ class UpdateWikidataCommand(QleverCommand):
             default=10,
             help="Number of retries for offset verification queries when they fail "
             "(default: 10)",
+        )
+        subparser.add_argument(
+            "--keep-update-requests",
+            choices=["none", "all", "last", "last-three"],
+            default="last",
+            help="Which update request files (update.*.{sparql,meta,result}) to keep: "
+            "none (delete all), all (keep all), last (keep only the most recent), "
+            "last-three (keep the three most recent) (default: last)",
         )
 
     # Handle Ctrl+C gracefully by finishing the current batch and then exiting.
@@ -1002,6 +1012,43 @@ class UpdateWikidataCommand(QleverCommand):
                 result_file_name = f"update.{first_offset_in_batch}.{current_batch_size}.result"
                 with open(result_file_name, "w") as f:
                     f.write(result)
+
+                # Clean up old update request files according to --keep-update-requests
+                if args.keep_update_requests != "all":
+                    # Find all update.*.{sparql,meta,result} files
+                    update_files = {}
+                    for ext in ["sparql", "meta", "result"]:
+                        for file_path in glob.glob(f"update.*.*.{ext}"):
+                            # Extract offset from filename (update.OFFSET.SIZE.ext)
+                            parts = Path(file_path).stem.split(".")
+                            if len(parts) >= 3:
+                                offset = parts[1]
+                                if offset not in update_files:
+                                    update_files[offset] = []
+                                update_files[offset].append(file_path)
+
+                    # Sort by offset (newest last)
+                    sorted_offsets = sorted(update_files.keys(), key=lambda x: int(x))
+
+                    # Determine which to keep
+                    if args.keep_update_requests == "none":
+                        files_to_keep = []
+                    elif args.keep_update_requests == "last":
+                        files_to_keep = update_files[sorted_offsets[-1]] if sorted_offsets else []
+                    elif args.keep_update_requests == "last-three":
+                        files_to_keep = []
+                        for offset in sorted_offsets[-3:]:
+                            files_to_keep.extend(update_files[offset])
+
+                    # Delete files not in the keep list
+                    for offset, files in update_files.items():
+                        for file_path in files:
+                            if file_path not in files_to_keep:
+                                try:
+                                    os.remove(file_path)
+                                except Exception:
+                                    pass  # Ignore errors during cleanup
+
             except Exception as e:
                 log.error(
                     f"Failed to execute UPDATE request after "

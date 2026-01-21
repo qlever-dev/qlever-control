@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shlex
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -127,8 +128,15 @@ class RebuildIndexCommand(QleverCommand):
                 f"{args.new_index_dir_basename}{new_index_date}.tmp"
             )
             if args.old_index_dir is None:
+                # Check if this is the first rebuild (no previous.* directories exist)
+                existing_previous_dirs = list(
+                    Path(".").glob(f"{args.old_index_dir_basename}*")
+                )
+                is_first_rebuild = len(existing_previous_dirs) == 0
+
                 args.old_index_dir = (
                     f"{args.old_index_dir_basename}{old_index_date}"
+                    + (".ORIGINAL" if is_first_rebuild else "")
                 )
         if args.new_index_dir.endswith("/"):
             args.new_index_dir = args.new_index_dir[:-1]
@@ -189,7 +197,7 @@ class RebuildIndexCommand(QleverCommand):
             f"mv {shlex.quote(new_index_dir_name)}/* . && "
             f"rmdir {shlex.quote(new_index_dir_name)}"
         )
-        restart_server_cmd = "qlever start --kill-existing-with-same-port"
+        restart_server_cmd = "qlever stop && qlever start"
         if not move_old_index_when_done:
             restart_server_cmd = (
                 f"cd {args.new_index_dir} && ${restart_server_cmd}"
@@ -276,29 +284,31 @@ class RebuildIndexCommand(QleverCommand):
                 log.error(f"Restarting the server failed: {e}")
                 return False
 
-        # List all subdirectories starting with `old_index_dir_basename`,
-        # ordered from oldest to newest (by creation time).
+        # Clean up old index directories according to `--keep-old-index-dirs`.
+        # Find all subdirectories starting with `old_index_dir_basename`,
+        # ordered from oldest to newest (by creation time), and keep or delete
+        # them according to the specified policy.
         if move_old_index_when_done:
             old_index_dirs = sorted(
                 [
-                    d
-                    for d in Path(".").iterdir()
-                    if d.is_dir()
-                    and d.name.startswith(args.old_index_dir_basename)
+                    dir
+                    for dir in Path(".").iterdir()
+                    if dir.is_dir()
+                    and dir.name.startswith(args.old_index_dir_basename)
                 ],
-                key=lambda d: d.stat().st_ctime,
+                key=lambda dir: dir.stat().st_ctime,
             )
             if old_index_dirs:
                 log.info("")
                 log.info(
                     colored(
-                        f"Interate over old index directories (oldest to "
+                        f"Iterate over old index directories (oldest to "
                         f"newest), and check which ones to keep or delete "
                         f"(keep_old_index_dirs = {args.keep_old_index_dirs}):",
                         color="blue",
                     )
                 )
-                for i, d in enumerate(old_index_dirs):
+                for i, dir in enumerate(old_index_dirs):
                     is_oldest = i == 0
                     is_newest = i == len(old_index_dirs) - 1
                     if args.keep_old_index_dirs == "all":
@@ -309,7 +319,19 @@ class RebuildIndexCommand(QleverCommand):
                         action = "KEEP" if is_oldest else "DELETE"
                     elif args.keep_old_index_dirs == "newest":
                         action = "KEEP" if is_newest else "DELETE"
-                    log.info(f"  {d.name:<50} {action}")
+
+                    log.info(f"  {dir.name:<50} {action}")
+
+                    # Actually perform the deletion
+                    if action == "DELETE":
+                        try:
+                            shutil.rmtree(dir)
+                            log.info(f"    → Deleted {dir.name}")
+                        except Exception as e:
+                            log.error(
+                                f"    → Failed to delete {dir.name}: {e}"
+                            )
+
                 log.info("")
 
         return True
