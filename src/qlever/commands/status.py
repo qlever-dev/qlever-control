@@ -25,7 +25,7 @@ class StatusCommand(QleverCommand):
 
     def additional_arguments(self, subparser) -> None:
         subparser.add_argument("--cmdline-regex",
-                               default="^(ServerMain|IndexBuilderMain)",
+                               default="^(qlever-server|qlever-index)",
                                help="Show only processes where the command "
                                     "line matches this regex")
 

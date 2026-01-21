@@ -397,7 +397,7 @@ class TestStartCommand(unittest.TestCase):
         args.kill_existing_with_same_port = False
         args.port = "localhorst"
         args.port = 1234
-        args.cmdline_regex = f"^ServerMain.* -p {args.port}"
+        args.cmdline_regex = f"^qlever-server.* -p {args.port}"
         args.no_containers = True
         args.server_binary = "/test/path/server_binary"
         args.name = "TestName"
