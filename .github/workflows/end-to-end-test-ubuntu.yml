@@ -50,17 +50,17 @@ jobs:
           git pull
           mkdir -p build && cd $_
           cmake -DCMAKE_BUILD_TYPE=Release -DLOGLEVEL=INFO -DUSE_PARALLEL=true -GNinja ..
-          ninja ServerMain IndexBuilderMain
+          ninja qlever-server qlever-index
           docker pull adfreiburg/qlever
 
       - name: Check that qlever binaries, docker image, and qlever script are found and work
         run: |
           mkdir qlever-indices
           export PATH="$PATH:$(pwd)/qlever-control:$(pwd)/qlever-code/build"
-          docker run --entrypoint bash adfreiburg/qlever -c "ServerMain --help" | head -3
-          docker run --entrypoint bash adfreiburg/qlever -c "IndexBuilderMain --help" | head -3
-          ServerMain --help | head -3; echo "..."
-          IndexBuilderMain --help | head -3; echo "..."
+          docker run --entrypoint bash adfreiburg/qlever -c "qlever-server --help" | head -3
+          docker run --entrypoint bash adfreiburg/qlever -c "qlever-index --help" | head -3
+          qlever-server --help | head -3; echo "..."
+          qlever-index --help | head -3; echo "..."
           qlever --help
 
       - name: Test qlever script for olympics dataset, with docker

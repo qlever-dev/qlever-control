@@ -20,7 +20,7 @@ class TestStopCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
-        args.cmdline_regex = "ServerMain.* -i [^ ]*%%NAME%%"
+        args.cmdline_regex = "qlever-server.* -i [^ ]*%%NAME%%"
         args.name = "TestName"
         args.no_containers = True
         args.server_container = "test_container"
@@ -61,7 +61,7 @@ class TestStopCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
-        args.cmdline_regex = "ServerMain.* -i [^ ]*%%NAME%%"
+        args.cmdline_regex = "qlever-server.* -i [^ ]*%%NAME%%"
         args.name = "TestName"
         args.no_containers = True
         args.server_container = "test_container"
@@ -75,7 +75,7 @@ class TestStopCommand(unittest.TestCase):
         # to test with real psutil.process objects use this:
 
         mock_process.as_dict.return_value = {
-            "cmdline": ["ServerMain", "-i", "/some/path/TestName"],
+            "cmdline": ["qlever-server", "-i", "/some/path/TestName"],
             "pid": 1234,
             "username": "test_user",
         }
@@ -115,7 +115,7 @@ class TestStopCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
-        args.cmdline_regex = "ServerMain.* -i [^ ]*%%NAME%%"
+        args.cmdline_regex = "qlever-server.* -i [^ ]*%%NAME%%"
         args.name = "TestName"
         args.no_containers = False
         args.server_container = "test_container"
@@ -157,7 +157,7 @@ class TestStopCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
-        args.cmdline_regex = "ServerMain.* -i [^ ]*%%NAME%%"
+        args.cmdline_regex = "qlever-server.* -i [^ ]*%%NAME%%"
         args.name = "TestName"
         args.no_containers = False
         args.server_container = "test_container"
@@ -204,7 +204,7 @@ class TestStopCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
-        args.cmdline_regex = "ServerMain.* -i [^ ]*%%NAME%%"
+        args.cmdline_regex = "qlever-server.* -i [^ ]*%%NAME%%"
         args.name = "TestName"
         args.no_containers = True
         args.server_container = "test_container"
@@ -216,7 +216,7 @@ class TestStopCommand(unittest.TestCase):
         # Creating mock psutil.Process objects with necessary attributes
         mock_process = MagicMock()
         mock_process.as_dict.return_value = {
-            "cmdline": ["ServerMain", "-i", "/some/path/TestName"],
+            "cmdline": ["qlever-server", "-i", "/some/path/TestName"],
             "pid": 1234,
             "create_time": 1234567890,
             "memory_info": MagicMock(rss=1024 * 1024 * 512),

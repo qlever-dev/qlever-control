@@ -165,7 +165,7 @@ class Qleverfile:
         index_args["index_binary"] = arg(
             "--index-binary",
             type=str,
-            default="IndexBuilderMain",
+            default="qlever-index",
             help="The binary for building the index (this requires "
             "that you have compiled QLever on your machine)",
         )
@@ -242,7 +242,7 @@ class Qleverfile:
         server_args["server_binary"] = arg(
             "--server-binary",
             type=str,
-            default="ServerMain",
+            default="qlever-server",
             help="The binary for starting the server (this requires "
             "that you have compiled QLever on your machine)",
         )

@@ -45,7 +45,7 @@ class StopCommand(QleverCommand):
 
     def additional_arguments(self, subparser) -> None:
         subparser.add_argument("--cmdline-regex",
-                               default="ServerMain.* -i [^ ]*%%NAME%%",
+                               default="qlever-server.* -i [^ ]*%%NAME%%",
                                help="Show only processes where the command "
                                     "line matches this regex")
         subparser.add_argument("--no-containers", action="store_true",
@@ -84,7 +84,7 @@ class StopCommand(QleverCommand):
         message = "No matching process found" if args.no_containers else \
             "No matching process or container found"
         log.error(message)
-        args.cmdline_regex = "^ServerMain.* -i [^ ]*"
+        args.cmdline_regex = "^qlever-server.* -i [^ ]*"
         log.info("")
         StatusCommand().execute(args)
         return True

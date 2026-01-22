@@ -9,7 +9,7 @@ from qlever.commands.status import StatusCommand
 
 def get_mock_args(only_show):
     args = MagicMock()
-    args.cmdline_regex = "^(ServerMain|IndexBuilderMain)"
+    args.cmdline_regex = "^(qlever-server|qlever-index)"
     args.show = only_show
     return [args, args.cmdline_regex, args.show]
 
