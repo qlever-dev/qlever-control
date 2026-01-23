@@ -3,7 +3,7 @@ on:
   #  types:
   #    - published
   push:
-    branches: [ main ]
+    branches: [ main, automatic_pypi_publishing ]
     #tags:
     #    - 'v*'
 
