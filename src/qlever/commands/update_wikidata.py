@@ -240,8 +240,6 @@ class UpdateWikidataCommand(QleverCommand):
 
         for attempt in range(max_retries):
             try:
-                if self.ctrl_c_pressed.is_set():
-                    raise KeyboardInterrupt()
                 return operation()
             except Exception as e:
                 if self.ctrl_c_pressed.is_set():
@@ -265,7 +263,9 @@ class UpdateWikidataCommand(QleverCommand):
                         f"{operation_name} failed (attempt {attempt + 1}/{max_retries}): {e}. "
                         f"Retrying in {delay_str} ..."
                     )
-                    self.ctrl_c_pressed.wait(timeout=retry_delay)
+                    # Returns true if the wait ended because of the flag being set.
+                    if self.ctrl_c_pressed.wait(timeout=retry_delay):
+                        raise KeyboardInterrupt()
                 else:
                     # If this was the last attempt, re-raise the exception.
                     raise
@@ -390,7 +390,10 @@ class UpdateWikidataCommand(QleverCommand):
                     )
                 args.offset = offset
             except KeyboardInterrupt:
-                log.info("Terminating.")
+                log.warn(
+                    "\rCtrl+C pressed while determing current state, "
+                    "exiting"
+                )
                 return True
             except Exception as e:
                 log.error(f"Error determining offset from stream: {e}")
@@ -472,8 +475,11 @@ class UpdateWikidataCommand(QleverCommand):
                     log,
                 )
             except KeyboardInterrupt:
-                log.info("Terminating.")
-                return True
+                log.warn(
+                    "\rCtrl+C pressed while while connecting to stream, "
+                    "exiting"
+                )
+                break
             except Exception as e:
                 log.error(
                     f"Failed to connect to SSE stream after "
@@ -578,8 +584,11 @@ class UpdateWikidataCommand(QleverCommand):
                         )
                         return False
                 except KeyboardInterrupt:
-                    log.info("Terminating.")
-                    return True
+                    log.warn(
+                        "\rCtrl+C pressed while while verifying state, "
+                        "exiting"
+                    )
+                    break
                 except Exception as e:
                     log.error(
                         f"Failed to retrieve or verify offset from "
@@ -1060,7 +1069,10 @@ class UpdateWikidataCommand(QleverCommand):
                                     pass  # Ignore errors during cleanup
 
             except KeyboardInterrupt:
-                log.info("Terminating.")
+                log.warn(
+                    "\rCtrl+C pressed while executing update, "
+                    "exiting"
+                )
                 return True
             except Exception as e:
                 log.error(
