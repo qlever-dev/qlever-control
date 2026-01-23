@@ -311,29 +311,44 @@ def stop_process_with_regex(cmdline_regex: str) -> list[bool] | None:
     return stop_process_results
 
 
-def binary_exists(binary: str, cmd_arg: str) -> bool:
+def binary_exists(binary: str, cmd_arg: str, args) -> bool:
     """
     When a command is run natively, check if the binary exists on the system
     """
+    from qlever.containerize import Containerize
+    is_containerized =  args.system in Containerize.supported_systems()
+    cmd = f"{binary} --help"
+    if is_containerized:
+        cmd = Containerize().containerize_command(
+            cmd,
+            args.system,
+            "run --rm",
+            args.image,
+            "qlever.check-binary",
+            volumes=[("$(pwd)", "/index")],
+            working_directory="/index",
+        )
+
     try:
-        run_command(f"{binary} --help")
+        run_command(cmd)
         return True
     except Exception as e:
-        log.error(
-            f'Running "{binary}" failed, '
-            f"set `--{cmd_arg}` to a different binary or "
-            f"set `--system to a container system`"
-        )
-        log.info("")
-        log.info(f"The error message was: {e}")
-        if binary == "qlever-index" or binary == "qlever-server":
-            log.info("")
-            log.warning(
+        if is_containerized and (binary == "qlever-index" or binary == "qlever-server"):
+            log.error(
+                f'Running "{binary}" failed. '
                 f"This might be because you are using a newer version of "
                 f"the `qlever` command-line tool together with an older "
                 f"Docker image; in that case update with "
                 f"`docker pull adfreiburg/qlever` "
             )
+        else:
+            log.error(
+                f'Running "{binary}" failed, '
+                f"set `--{cmd_arg}` to a different binary or "
+                f"set `--system to a container system`"
+            )
+        log.info("")
+        log.info(f"The error message was: {e}")
         return False
 
 
