@@ -1,7 +1,4 @@
 on:
-  #release:
-  #  types:
-  #    - published
   push:
     branches: [ main, automatic_pypi_publishing ]
     #tags:
@@ -18,6 +15,22 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v6
+
+      - name: Verify that git tag and project version match
+        run: |
+          LATEST_TAG=$(git describe --tags --match "v*" --abbrev=0)
+          TAG_VERSION="${LATEST_TAG#v}"
+          PYPROJECT_VERSION=$(grep '^version = ' pyproject.toml | sed -E "s/version = ['\"]([^'\"]+)['\"].*/\1/")
+
+          if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
+            echo "❌ ERROR: Version mismatch detected!"
+            echo "  Git tag version:     $TAG_VERSION"
+            echo "  pyproject.toml:      $PYPROJECT_VERSION"
+            exit 1
+          fi
+              
+          echo "✅ Version validation passed: $TAG_VERSION"
+
 
       - uses: actions/setup-python@v6
         with:
