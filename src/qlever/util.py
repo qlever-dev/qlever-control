@@ -324,7 +324,7 @@ def binary_exists(binary: str, cmd_arg: str, args) -> bool:
             args.system,
             "run --rm",
             args.image,
-            args.index_container,
+            "qlever.check-binary",
             volumes=[("$(pwd)", "/index")],
             working_directory="/index",
         )
