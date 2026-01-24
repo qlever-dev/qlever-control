@@ -7,40 +7,28 @@ for QLever (pronounced "Clever"), a graph database implementing the
 For a detailed description of what QLever is and what it can do, see 
 [here](https://github.com/ad-freiburg/qlever).
 
-# Installation and Usage
+# Documentation
 
-See the [official documentation](https://docs.qlever.dev/quickstart/) for
-installation and usage instructions. There are native packages available for
-[Debian and Ubuntu](https://docs.qlever.dev/quickstart/#debian-and-ubuntu) as
-well as [macOS](https://docs.qlever.dev/quickstart/#macos-apple-silicon). On
-other platforms QLever is only available via Docker and the `qlever` command-line
-tool has to be [installed with `pipx`/`uv`](https://docs.qlever.dev/quickstart/#others).
+View the latest documentation at <https://docs.qlever.dev/quickstart>.
 
-# Use on Windows
+# Installation
 
-By default, `qlever` uses [QLever's official Docker
-image](https://hub.docker.com/r/adfreiburg/qlever). In principle, that image
-runs on Linux, macOS, and Windows. On Linux, Docker runs natively
-and incurs only a relatively small overhead regarding performance and RAM
-consumption. On macOS and Windows, Docker runs in a virtual machine, which
-incurs a significant and sometimes unpredictable overhead. For example, `qlever
-index` might abort prematurely (without a proper error message) because the
-virtual machine runs out of RAM.
+There are native packages available for
+- [Debian and Ubuntu](https://docs.qlever.dev/quickstart/#debian-and-ubuntu)
+- [macOS](https://docs.qlever.dev/quickstart/#macos-apple-silicon)
 
-For optimal performance, use the [native packages](https://docs.qlever.dev/quickstart/#installing-qlever)
-or compile QLever from source on your machine. For Linux, compiling is relatively
-straightforward: just follow the `RUN` instructions in the
-[Dockerfile](https://github.com/ad-freiburg/qlever/blob/master/Dockerfile). For
-macOS, this is more complicated, see [this workflow](https://github.com/ad-freiburg/qlever/blob/master/.github/workflows/macos.yml).
+On other platforms QLever can be run in Docker and the `qlever` command-line
+tool can be [installed with `pipx`/`uv`](https://docs.qlever.dev/quickstart/#others).
+Note: QLever will be executed in a container which will come with a performance penalty.
 
 # Use with your own dataset
 
 To use QLever with your own dataset, you need a `Qleverfile`, like in the
 example above. The easiest way to write a `Qleverfile` is to get one of the
-existing ones (using `qlever setup-config ...` as explained above) and then
-change it according to your needs (the variable names should be
-self-explanatory). Pick one for a dataset that is similar to yours and when in
-doubt, pick `olympics`.
+existing ones (using `qlever setup-config ...`) and then
+change it according to your needs. Pick one for a dataset that is similar to
+yours and when in doubt, pick `olympics`. A
+[reference of all options](https://docs.qlever.dev/qleverfile/) is available.
 
 # For developers
 
