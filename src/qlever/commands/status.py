@@ -20,7 +20,7 @@ class StatusCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return False
 
-    def relevant_qleverfile_arguments(self) -> dict[str: list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {}
 
     def additional_arguments(self, subparser) -> None:
