@@ -7,53 +7,16 @@ for QLever (pronounced "Clever"), a graph database implementing the
 For a detailed description of what QLever is and what it can do, see 
 [here](https://github.com/ad-freiburg/qlever).
 
-# Installation
+# Installation and Usage
 
-Simply do `pip install qlever` and make sure that the directory where `pip`
-installs the package is in your `PATH`. Typically, `pip` will warn you when
-that is not the case and tell you what to do. If you encounter an "Externally
-managed Environment" error, try `pipx` instead of `pip`.
+See the [official documentation](https://docs.qlever.dev/quickstart/) for
+installation and usage instructions. There are native packages available for
+[Debian and Ubuntu](https://docs.qlever.dev/quickstart/#debian-and-ubuntu) as
+well as [macOS](https://docs.qlever.dev/quickstart/#macos-apple-silicon). On
+other platforms QLever is only available via Docker and the `qlever` command-line
+tool has to be [installed with `pipx`/`uv`](https://docs.qlever.dev/quickstart/#others).
 
-Type `qlever` without arguments to check that the installation worked. When
-using it for the first time, you will see a warning at the top with
-instructions on how to enable autocompletion. Do it, it makes using `qlever`
-so much easier (`pip` cannot do that for you automatically, sorry).
-
-# Usage
-
-Create an empty directory, with a name corresponding to the dataset you want to
-work with. For the following example, take `olympics`. Go to that directory
-and do the following.
-
-```
-qlever setup-config olympics   # Get Qleverfile (config file) for this dataset
-qlever get-data                # Download the dataset
-qlever index                   # Build index data structures for this dataset
-qlever start                   # Start a QLever server using that index
-qlever query                   # Launch an example query
-qlever ui                      # Launch the QLever UI
-```
-
-This will create a SPARQL endpoint for the [120 Years of
-Olympics](https://github.com/wallscope/olympics-rdf) dataset. It is a great
-dataset for getting started because it is small, but not trivial (around 2
-million triples), and the downloading and indexing should only take a few
-seconds.
-
-Each command will also show you the command line it uses. That way you can
-learn, on the side, how QLever works internally. If you just want to know the
-command line for a particular command, without executing it, you can append
-`--show` like this:
-
-```
-qlever index --show
-```
-
-There are many more commands and options, see `qlever --help` for general help,
-`qlever <command> --help` for help on a specific command, or just use the
-autocompletion.
-
-# Use on macOS and Windows
+# Use on Windows
 
 By default, `qlever` uses [QLever's official Docker
 image](https://hub.docker.com/r/adfreiburg/qlever). In principle, that image
@@ -64,11 +27,11 @@ incurs a significant and sometimes unpredictable overhead. For example, `qlever
 index` might abort prematurely (without a proper error message) because the
 virtual machine runs out of RAM.
 
-For optimal performance, compile QLever from source on your machine. For Linux,
-this is relatively straightforward: just follow the `RUN` instructions in the
+For optimal performance, use the [native packages](https://docs.qlever.dev/quickstart/#installing-qlever)
+or compile QLever from source on your machine. For Linux, compiling is relatively
+straightforward: just follow the `RUN` instructions in the
 [Dockerfile](https://github.com/ad-freiburg/qlever/blob/master/Dockerfile). For
-macOS, this is more complicated, see [this
-workflow](https://github.com/ad-freiburg/qlever/blob/master/.github/workflows/macos.yml).
+macOS, this is more complicated, see [this workflow](https://github.com/ad-freiburg/qlever/blob/master/.github/workflows/macos.yml).
 
 # Use with your own dataset
 
@@ -95,7 +58,7 @@ pip install -e .
 Then you can use `qlever` just as if you had installed it via `pip install
 qlever`. Note that you don't have to rerun `pip install -e .` when you modify
 any of the `*.py` files and not even when you add new commands in
-`src/qlever/commands`. The exceutable created by `pip` simply links and refers
+`src/qlever/commands`. The executable created by `pip` simply links and refers
 to the files in your working copy.
 
 If you have bug fixes or new useful features or commands, please open a pull
