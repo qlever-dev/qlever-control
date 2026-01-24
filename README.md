@@ -17,8 +17,8 @@ There are native packages available for
 - [Debian and Ubuntu](https://docs.qlever.dev/quickstart/#debian-and-ubuntu)
 - [macOS](https://docs.qlever.dev/quickstart/#macos-apple-silicon)
 
-On other platforms QLever can be run in Docker and the `qlever` command-line
-tool can be [installed with `pipx`/`uv`](https://docs.qlever.dev/quickstart/#others).
+On other platforms simply install the `qlever` command-line
+[python package using `pipx`/`uv`](https://docs.qlever.dev/quickstart/#others).
 Note: QLever will be executed in a container which will come with a performance penalty.
 
 # Use with your own dataset
