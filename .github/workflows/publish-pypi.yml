@@ -1,0 +1,52 @@
+on:
+  push:
+    branches: [ main, automatic_pypi_publishing ]
+    #tags:
+    #    - 'v*'
+
+name: release
+
+jobs:
+  pypi:
+    name: upload release to PyPI
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+            fetch-tags: true
+            fetch-depth: 0
+
+      - name: Verify that git tag and project version match
+        run: |
+          LATEST_TAG=$(git describe --tags --match "v*" --abbrev=0)
+          TAG_VERSION="${LATEST_TAG#v}"
+          PYPROJECT_VERSION=$(grep '^version = ' pyproject.toml | sed -E "s/version = ['\"]([^'\"]+)['\"].*/\1/")
+
+          if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
+            echo "❌ ERROR: Version mismatch detected!"
+            echo "  Git tag version:     $TAG_VERSION"
+            echo "  pyproject.toml:      $PYPROJECT_VERSION"
+            exit 1
+          fi
+              
+          echo "✅ Version validation passed: $TAG_VERSION"
+
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: "pip"
+
+      - name: Install build tools
+        run: python -m pip install -U build
+
+      - name: Build package
+        run: python -m build
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+            repository-url: https://test.pypi.org/legacy/
