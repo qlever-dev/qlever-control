@@ -46,6 +46,7 @@ class IndexCommand(QleverCommand):
                 "ulimit",
                 "use_patterns",
                 "add_has_word_triples",
+                "add_has_qgram_triples",
                 "text_index",
                 "stxxl_memory",
                 "parser_buffer_size",
@@ -135,7 +136,10 @@ class IndexCommand(QleverCommand):
                 input_cmds = [input_spec["cmd"]]
             else:
                 try:
-                    files = sorted(glob.glob(input_spec["for-each"]))
+                    patterns = input_spec["for-each"].split()
+                    files = sorted(
+                        f for pattern in patterns for f in glob.glob(pattern)
+                    )
                 except Exception as e:
                     raise self.InvalidInputJson(
                         f"Element {i} in `MULTI_INPUT_JSON` contains an "
@@ -224,6 +228,8 @@ class IndexCommand(QleverCommand):
             index_cmd += " --no-patterns"
         if args.add_has_word_triples:
             index_cmd += " --add-has-word-triples"
+        if args.add_has_qgram_triples > 0:
+            index_cmd += f" --add-has-qgram-triples {args.add_has_qgram_triples}"
         if args.text_index in [
             "from_text_records",
             "from_text_records_and_literals",

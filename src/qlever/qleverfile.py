@@ -212,6 +212,14 @@ class Qleverfile:
             help="Whether to add `ql:has-word` triples for text literals "
             "(which can then be used for custom text search queries)",
         )
+        index_args["add_has_qgram_triples"] = arg(
+            "--add-has-qgram-triples",
+            type=int,
+            default=0,
+            help="Add `ql:has-qgram` triples for each q-gram of the specified "
+            "size in each literal (enables fuzzy search). If 0, no such "
+            "triples are added.",
+        )
         index_args["text_index"] = arg(
             "--text-index",
             choices=[
