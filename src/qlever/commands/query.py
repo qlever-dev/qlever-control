@@ -130,8 +130,7 @@ class QueryCommand(QleverCommand):
             if not args.no_time and args.log_level != "NO_LOG":
                 log.info("")
                 log.info(
-                    f"Query processing time (end-to-end):"
-                    f" {time_msecs:,d} ms"
+                    f"Query processing time (end-to-end): {time_msecs:,d} ms"
                 )
         except Exception as e:
             if args.log_level == "DEBUG":

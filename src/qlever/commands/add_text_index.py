@@ -54,7 +54,7 @@ class AddTextIndexCommand(QleverCommand):
             "from_text_records_and_literals",
         ]:
             add_text_index_cmd += (
-                f" -w {args.text_words_file}" f" -d {args.text_docs_file}"
+                f" -w {args.text_words_file} -d {args.text_docs_file}"
             )
         if args.text_index in [
             "from_literals",

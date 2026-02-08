@@ -26,7 +26,7 @@ class UpdateCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return False
 
-    def relevant_qleverfile_arguments(self) -> dict[str,list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {"server": ["host_name", "port", "access_token"]}
 
     def additional_arguments(self, subparser) -> None:
@@ -48,7 +48,9 @@ class UpdateCommand(QleverCommand):
 
     def execute(self, args) -> bool:
         sparql_endpoint = (
-            args.sparql_endpoint if args.sparql_endpoint else f"{args.host_name}:{args.port}"
+            args.sparql_endpoint
+            if args.sparql_endpoint
+            else f"{args.host_name}:{args.port}"
         )
 
         curl_cmd = (
@@ -62,7 +64,9 @@ class UpdateCommand(QleverCommand):
         elif args.update_file:
             curl_cmd += f"--data-binary @{shlex.quote(args.update_file)}"
         else:
-            log.error("No SPARQL UPDATE provided. Pass it as an argument or via --update-file.")
+            log.error(
+                "No SPARQL UPDATE provided. Pass it as an argument or via --update-file."
+            )
             return False
 
         # Show and exit if requested
@@ -87,4 +91,3 @@ class UpdateCommand(QleverCommand):
             return False
 
         return True
-

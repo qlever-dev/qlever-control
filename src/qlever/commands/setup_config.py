@@ -17,7 +17,8 @@ class SetupConfigCommand(QleverCommand):
     def __init__(self):
         self.qleverfiles_path = Path(__file__).parent.parent / "Qleverfiles"
         self.qleverfile_names = [
-            p.name.split(".")[1] for p in self.qleverfiles_path.glob("Qleverfile.*")
+            p.name.split(".")[1]
+            for p in self.qleverfiles_path.glob("Qleverfile.*")
         ]
 
     def description(self) -> str:
@@ -39,7 +40,9 @@ class SetupConfigCommand(QleverCommand):
 
     def execute(self, args) -> bool:
         # Show a warning if `QLEVER_OVERRIDE_SYSTEM_NATIVE` is set.
-        qlever_is_running_in_container = environ.get("QLEVER_IS_RUNNING_IN_CONTAINER")
+        qlever_is_running_in_container = environ.get(
+            "QLEVER_IS_RUNNING_IN_CONTAINER"
+        )
         if qlever_is_running_in_container:
             log.warning(
                 "The environment variable `QLEVER_IS_RUNNING_IN_CONTAINER` is set, "
@@ -48,7 +51,9 @@ class SetupConfigCommand(QleverCommand):
             )
             log.info("")
         # Construct the command line and show it.
-        qleverfile_path = self.qleverfiles_path / f"Qleverfile.{args.config_name}"
+        qleverfile_path = (
+            self.qleverfiles_path / f"Qleverfile.{args.config_name}"
+        )
         setup_config_cmd = (
             f"cat {qleverfile_path}"
             f" | sed -E 's/(^ACCESS_TOKEN.*)/\\1_{get_random_string(12)}/'"
@@ -85,7 +90,7 @@ class SetupConfigCommand(QleverCommand):
             )
         except Exception as e:
             log.error(
-                f'Could not copy "{qleverfile_path}"' f" to current directory: {e}"
+                f'Could not copy "{qleverfile_path}" to current directory: {e}'
             )
             return False
 
