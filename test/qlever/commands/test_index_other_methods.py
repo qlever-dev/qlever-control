@@ -14,7 +14,7 @@ class TestIndexCommand(unittest.TestCase):
         # Call the method
         result = self.index_command.description()
 
-        self.assertEqual(result, "Build the index for a given " "RDF dataset")
+        self.assertEqual(result, "Build the index for a given RDF dataset")
 
     def test_should_have_qleverfile(self):
         # Call the method
@@ -68,15 +68,14 @@ class TestIndexCommand(unittest.TestCase):
         argument_help = subparser._group_actions[-1].help
         self.assertEqual(
             argument_help,
-            "Overwrite an existing index, " "think twice before using this",
+            "Overwrite an existing index, think twice before using this",
         )
 
     def test_get_input_options_for_json_valid_input(self):
         # Mock args with a valid multi_input_json and format
         args = MagicMock()
         args.multi_input_json = (
-            '[{"cmd": "test_data1", "format": "json"}, '
-            '{"cmd": "test_data2"}]'
+            '[{"cmd": "test_data1", "format": "json"}, {"cmd": "test_data2"}]'
         )
         args.format = "jsonld"  # Default format if not specified in JSON
 
@@ -152,7 +151,8 @@ class TestIndexCommand(unittest.TestCase):
         # required "cmd" key
         args = MagicMock()
         args.multi_input_json = (
-            '[{"cmd": "test_data1", "format": "json"}, ' '{"format": "json2"}]'
+            '[{"cmd": "test_data1", "format": "json"}, '
+            '{"format": "json2"}]'
         )  # Missing "cmd"
 
         with self.assertRaises(IndexCommand.InvalidInputJson) as context:
@@ -160,7 +160,7 @@ class TestIndexCommand(unittest.TestCase):
 
         # Verify error mentions the missing `cmd` key
         self.assertEqual(
-            "Element 1 in `MULTI_INPUT_JSON` must contain " "a key `cmd`",
+            "Element 1 in `MULTI_INPUT_JSON` must contain a key `cmd`",
             context.exception.error_message,
         )
 
@@ -172,15 +172,15 @@ class TestIndexCommand(unittest.TestCase):
         # Mock args where one of the JSON objects is not a dictionary
         args = MagicMock()
         args.multi_input_json = (
-            '[{"cmd": "test_data1", "format": "json"}, ' "5]"
-        )  # Missing "cmd"
+            '[{"cmd": "test_data1", "format": "json"}, 5]'  # Missing "cmd"
+        )
 
         with self.assertRaises(IndexCommand.InvalidInputJson) as context:
             self.index_command.get_input_options_for_json(args)
 
         # Verify error mentions the missing `cmd` key
         self.assertEqual(
-            "Element 1 in `MULTI_INPUT_JSON` must be a JSON " "object",
+            "Element 1 in `MULTI_INPUT_JSON` must be a JSON object",
             context.exception.error_message,
         )
 

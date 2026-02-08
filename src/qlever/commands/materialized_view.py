@@ -85,9 +85,11 @@ class MaterializedViewCommand(QleverCommand):
         # Run the command (and time it).
         time_start = time.monotonic()
         try:
-            log.info("Creating the materialized view ... "
-                     "(this may take a while, depending on the complexity "
-                     "of the query and the size of the result)")
+            log.info(
+                "Creating the materialized view ... "
+                "(this may take a while, depending on the complexity "
+                "of the query and the size of the result)"
+            )
             log.info("")
             result = run_command(materialized_view_cmd, return_output=True)
         except Exception as e:
