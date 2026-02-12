@@ -266,6 +266,48 @@ class UpdateWikidataCommand(QleverCommand):
         else:
             self.ctrl_c_pressed = True
 
+    def determine_batch_size_for_cached_update(self, offset: int, batch_size: int) -> int | None:
+        cached_file_name = Path(
+            f"update.{offset}.{batch_size}.sparql"
+        )
+        if cached_file_name.exists():
+            return batch_size
+        else:
+            options = list(Path.cwd().glob(f"update.{offset}.*.sparql"))
+            if len(options) == 0:
+                log.warn(f"Found no cached SPARQL update. Continuing with update stream.")
+                return None
+            elif len(options) > 1:
+                log.warn(f"Found {len(options)} candidates for cached SPARQL update. Using {options[0].name}.")
+            return int(re.search(r"update\.\d+\.(\d+)\.sparql", options[0].name).group(1))
+
+    def determine_next_cached_update(self, first_offset_in_batch: int, batch_size: int) -> tuple[str, int] | None:
+        batch_size = self.determine_batch_size_for_cached_update(first_offset_in_batch, batch_size)
+        if batch_size is None:
+            return None
+        cached_file_name = (
+            f"update.{first_offset_in_batch}.{batch_size}.sparql"
+        )
+        cached_meta_file_name = (
+            f"update.{first_offset_in_batch}.{batch_size}.meta"
+        )
+
+        # Try to read metadata file for date range
+        cached_date_range = None
+        if os.path.exists(cached_meta_file_name):
+            try:
+                with open(cached_meta_file_name, "r") as f:
+                    cached_date_range = f.read().strip()
+            except Exception:
+                pass
+
+        log_msg = f"Using cached SPARQL query file: {cached_file_name}"
+        if cached_date_range:
+            log_msg += f" [date range: {cached_date_range}]"
+        log.debug(colored(log_msg, "cyan"))
+
+        return cached_file_name, batch_size
+
     def execute(self, args) -> bool:
         # cURL command to get the date until which the updates of the
         # SPARQL endpoint are complete.
@@ -580,33 +622,15 @@ class UpdateWikidataCommand(QleverCommand):
             # Check if we can use a cached SPARQL query file
             use_cached_file = False
             cached_file_name = None
-            cached_meta_file_name = None
-            cached_date_range = None
             if (
                 args.use_cached_sparql_queries
                 and first_offset_in_batch is not None
             ):
-                cached_file_name = (
-                    f"update.{first_offset_in_batch}.{args.batch_size}.sparql"
-                )
-                cached_meta_file_name = (
-                    f"update.{first_offset_in_batch}.{args.batch_size}.meta"
-                )
-                if os.path.exists(cached_file_name):
+                cached_update = self.determine_next_cached_update(first_offset_in_batch,
+                                                                     args.batch_size)
+                if cached_update is not None:
+                    cached_file_name, current_batch_size = cached_update
                     use_cached_file = True
-                    # Try to read metadata file for date range
-                    if os.path.exists(cached_meta_file_name):
-                        try:
-                            with open(cached_meta_file_name, "r") as f:
-                                cached_date_range = f.read().strip()
-                        except Exception:
-                            cached_date_range = None
-
-                    if args.verbose == "yes":
-                        log_msg = f"Using cached SPARQL query file: {cached_file_name}"
-                        if cached_date_range:
-                            log_msg += f" [date range: {cached_date_range}]"
-                        log.info(colored(log_msg, "cyan"))
 
             # Process one event at a time (unless using cached file).
             if not use_cached_file:
@@ -872,7 +896,6 @@ class UpdateWikidataCommand(QleverCommand):
                             break
             else:
                 # Using cached file - set batch size and calculate next offset
-                current_batch_size = args.batch_size
                 total_num_messages += current_batch_size
                 event_id_for_next_batch = [
                     {
