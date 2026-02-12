@@ -119,6 +119,13 @@ class UiCommand(QleverCommand):
         sparql_endpoint = f"http://{args.host_name}:{args.port}"
         ui_url = f"http://{args.host_name}:{args.ui_port}"
         pull_cmd = f"{args.ui_system} pull -q {args.ui_image}"
+
+        cmd = Containerize().containerize_command(
+            cmd="python manage.py configure",
+            ports=args.ui_portm
+        )
+        run_cmd = (
+
         get_db_cmd = (
             f"{args.ui_system} create "
             f"--name {args.ui_container} "
@@ -128,6 +135,7 @@ class UiCommand(QleverCommand):
             f"&& {args.ui_system} rm -f {args.ui_container}"
         )
         start_ui_cmd = (
+
             f"{args.ui_system} run -d "
             f"--volume $(pwd):/app/db "
             f"--env QLEVERUI_DATABASE_URL=sqlite:////app/db/{ui_db_file} "
@@ -135,6 +143,8 @@ class UiCommand(QleverCommand):
             f"--name {args.ui_container} "
             f"{args.ui_image}"
         )
+        exec_cmd = (
+            f"{args.ui_system} exec " # -it
         get_config_cmd = (
             f"{args.ui_system} exec -i "
             f"{args.ui_container} "
