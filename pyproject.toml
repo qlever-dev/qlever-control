@@ -31,6 +31,9 @@ bugtracker = "https://github.com/ad-freiburg/qlever/issues"
 
 [project.scripts]
 "qlever" = "qlever.qlever_main:main"
+"qoxigraph" = "qlever.qlever_main:main"
+"qvirtuoso" = "qlever.qlever_main:main"
+"qlever-old" = "qlever.qlever_old:main"
 
 [tool.setuptools]
 package-data = { "qlever" = ["Qleverfiles/*"] }
