@@ -10,12 +10,12 @@ import string
 import subprocess
 from datetime import date, datetime
 from pathlib import Path
+from platform import system
 from typing import Any, Optional
 
 import psutil
 
 from qlever.log import log
-
 
 def get_total_file_size(patterns: list[str]) -> int:
     """
@@ -37,10 +37,14 @@ def run_command(
     show_output: bool = False,
     show_stderr: bool = False,
     use_popen: bool = False,
+    new_session: bool = False,
 ) -> Optional[str | subprocess.Popen]:
     """
     Run the given command and throw an exception if the exit code is non-zero.
     If `return_output` is `True`, return what the command wrote to `stdout`.
+
+    If 'new_session' is `True`, the command will be started in a new process
+    group. NOTE: 'new_session' will only work on POSIX systems
 
     NOTE: The `set -o pipefail` ensures that the exit code of the command is
     non-zero if any part of the pipeline fails (not just the last part).
@@ -55,6 +59,11 @@ def run_command(
         "stdout": None if show_output else subprocess.PIPE,
         "stderr": None if show_stderr else subprocess.PIPE,
     }
+
+    # Add process group isolation if new_session is True
+    # (Works only on POSIX systems).
+    if new_session and system() != "Windows":
+        subprocess_args["start_new_session"] = True
 
     # With `Popen`, the command runs in the current shell and a process object
     # is returned (which can be used, e.g., to kill the process).
