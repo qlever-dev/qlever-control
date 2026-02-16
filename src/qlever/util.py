@@ -9,11 +9,13 @@ import socket
 import string
 import subprocess
 from datetime import date, datetime
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Optional
 
 import psutil
 
+from qlever import script_name
 from qlever.log import log
 
 
@@ -347,3 +349,44 @@ def is_server_alive(url: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def get_image_version_string() -> str:
+    image_name = "docker.io/adfreiburg/qlever"
+    image_version_cmd = r'images --format "{{.Tag}}" ' + image_name
+    is_docker = bool(shutil.which("docker"))
+    if is_docker:
+        image_version_cmd = "docker " + image_version_cmd
+    is_podman = bool(shutil.which("podman"))
+    if is_podman:
+        image_version_cmd = "podman " + image_version_cmd
+    if not is_docker and not is_podman:
+        return f"{image_name} image: Both docker and podman NOT FOUND on PATH"
+    try:
+        version_str = run_command(image_version_cmd, return_output=True)
+        return f"{image_name} image: {version_str.strip()}"
+    except Exception as e:
+        return f"{image_name} image: ERROR in determining version - {e}"
+
+
+def get_binary_version_string(binary_name: str) -> str:
+    if not shutil.which(binary_name):
+        return f"{binary_name}: NOT FOUND on PATH"
+    try:
+        binary_version_str = run_command(
+            f"{binary_name} --version", return_output=True
+        )
+        if not binary_version_str.startswith(f"QLever {binary_name}"):
+            return f"{binary_name}: VERSION information not available!"
+        return binary_version_str.strip()
+    except Exception as e:
+        return f"{binary_name}: ERROR in determining version - {e}"
+
+
+def build_version_string() -> str:
+    parts = []
+    parts.append(f"{script_name}: {version(script_name)}\n")
+    for binary in ["IndexBuilderMain", "ServerMain"]:
+        parts.append(get_binary_version_string(binary))
+    parts.append(get_image_version_string())
+    return "\n".join(parts)

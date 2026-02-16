@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import os
 import traceback
-from importlib.metadata import version
 from pathlib import Path
 
 import argcomplete
@@ -12,6 +11,7 @@ from termcolor import colored
 from qlever import command_objects, engine_name, script_name
 from qlever.log import log, log_levels
 from qlever.qleverfile import Qleverfile
+from qlever.util import build_version_string
 
 
 # Simple exception class for configuration errors (the class need not do
@@ -180,13 +180,14 @@ class QleverConfig:
                 f"This is the {script_name} command line tool, "
                 f"it's all you need to work with {engine_name}",
                 attrs=["bold"],
-            )
+            ),
+            formatter_class=argparse.RawDescriptionHelpFormatter,
         )
         if script_name == "qlever":
             parser.add_argument(
                 "--version",
                 action="version",
-                version=f"%(prog)s {version('qlever')}",
+                version=build_version_string(),
             )
         add_qleverfile_option(parser)
         subparsers = parser.add_subparsers(dest='command')
