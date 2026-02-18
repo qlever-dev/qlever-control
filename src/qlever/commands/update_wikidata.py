@@ -10,10 +10,11 @@ import time
 from datetime import datetime, timezone
 from enum import Enum, auto
 from pathlib import Path
+from typing import Tuple
 
 import rdflib.term
 import requests_sse
-from rdflib import Graph
+from rdflib import Graph, URIRef
 from termcolor import colored
 from tqdm.contrib.logging import tqdm_logging_redirect
 
@@ -265,6 +266,30 @@ class UpdateWikidataCommand(QleverCommand):
             log.warn("\rCtrl+C pressed again, watch your blood pressure")
         else:
             self.ctrl_c_pressed = True
+
+    """
+    The wikidata data model describes entities using data nodes and entity nodes where the data nodes contain metadata.
+    For the WDQS the data nodes are integrated into the entity nodes. The updates also emit these combined nodes.
+    Try to undo this combination to get the correct data.
+    """
+    def undo_wdqs_changes(self, triple: Tuple[rdflib.Node, rdflib.Node, rdflib.Node]) -> Tuple[
+        rdflib.Node, rdflib.Node, rdflib.Node]:
+        from rdflib import Namespace
+        wikibase = Namespace("http://wikiba.se/ontology#")
+        wd = Namespace("http://www.wikidata.org/entity/")
+        data = Namespace("https://www.wikidata.org/wiki/Special:EntityData/")
+        schema = Namespace("http://schema.org/")
+
+        def should_rewrite(s: rdflib.Node, p: rdflib.Node, o: rdflib.Node) -> bool:
+            if not isinstance(s, rdflib.URIRef):
+                return False
+            return p in [wikibase.identifiers, wikibase.sitelinks, wikibase.statements, schema.version] or (
+                    p == schema.dateModified and not s.startswith(str(wikibase)))
+
+        s, p, o = triple
+        if should_rewrite(s, p, o):
+            return URIRef(s.replace(str(wd), str(data))), p, o
+        return s, p, o
 
     def execute(self, args) -> bool:
         # cURL command to get the date until which the updates of the
@@ -776,7 +801,8 @@ class UpdateWikidataCommand(QleverCommand):
                                             data=rdf_to_be_deleted_data,
                                             format="turtle",
                                         )
-                                        for s, p, o in graph:
+                                        for triple in graph:
+                                            s, p, o = self.undo_wdqs_changes(triple)
                                             triple = f"{s.n3()} {p.n3()} {node_to_sparql(o)}"
                                             # NOTE: In case there was a previous `insert` of that
                                             # triple, it is safe to remove that `insert`, but not
@@ -803,13 +829,14 @@ class UpdateWikidataCommand(QleverCommand):
                                         )
                                         graph = Graph()
                                         log.debug(
-                                            "RDF to be added data: {rdf_to_be_added_data}"
+                                            f"RDF to be added data: {rdf_to_be_added_data}"
                                         )
                                         graph.parse(
                                             data=rdf_to_be_added_data,
                                             format="turtle",
                                         )
-                                        for s, p, o in graph:
+                                        for triple in graph:
+                                            s, p, o = self.undo_wdqs_changes(triple)
                                             triple = f"{s.n3()} {p.n3()} {node_to_sparql(o)}"
                                             # NOTE: In case there was a previous `delete` of that
                                             # triple, it is safe to remove that `delete`, but not
