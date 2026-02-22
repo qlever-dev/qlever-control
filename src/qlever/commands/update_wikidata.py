@@ -167,13 +167,6 @@ class UpdateWikidataCommand(QleverCommand):
             help="The partition to consume from the SSE stream (default: 0)",
         )
         subparser.add_argument(
-            "--min-or-max-date",
-            choices=["min", "max"],
-            default="max",
-            help="Use the minimum or maximum date of the batch for the "
-            "`updatesCompleteUntil` property (default: maximum)",
-        )
-        subparser.add_argument(
             "--wait-between-batches",
             type=int,
             default=5,
@@ -230,7 +223,7 @@ class UpdateWikidataCommand(QleverCommand):
             "last-three (keep the three most recent) (default: last)",
         )
 
-    def retry_with_backoff(self, operation, operation_name, max_retries, log):
+    def retry_with_backoff(self, operation, operation_name, max_retries):
         """
         Retry an operation with exponential backoff, see backoff intervals below
         (in seconds). Returns the result of the operation if successful, or raises
@@ -269,6 +262,44 @@ class UpdateWikidataCommand(QleverCommand):
                 else:
                     # If this was the last attempt, re-raise the exception.
                     raise
+
+    def get_next_offset_from_endpoint(self, sparql_endpoint, num_retries):
+        """Query the endpoint for the next stream offset.
+
+        Args:
+            sparql_endpoint: URL of the SPARQL endpoint
+            num_retries: Number of retries for the query
+
+        Returns:
+            int: The offset value from the endpoint
+
+        Raises:
+            Exception: If the query fails or returns no results
+        """
+        sparql_query_offset = (
+            "PREFIX wikibase: <http://wikiba.se/ontology#> "
+            "SELECT (MAX(?offset) AS ?maxOffset) WHERE { "
+            "<http://wikiba.se/ontology#Dump> "
+            "wikibase:updateStreamNextOffset ?offset "
+            "}"
+        )
+        curl_cmd_check_offset = (
+            f"curl -s {sparql_endpoint}"
+            f' -H "Accept: text/csv"'
+            f' -H "Content-type: application/sparql-query"'
+            f' --data "{sparql_query_offset}"'
+        )
+        result = self.retry_with_backoff(
+            lambda: run_command(
+                f"{curl_cmd_check_offset} | sed 1d",
+                return_output=True,
+            ).strip(),
+            "Offset verification",
+            num_retries,
+        )
+        if not result:
+            raise Exception("Query returned no results")
+        return int(result.strip('"'))
 
     # Handle Ctrl+C gracefully by finishing the current batch and then exiting.
     def handle_ctrl_c(self, signal_received, frame):
@@ -326,42 +357,23 @@ class UpdateWikidataCommand(QleverCommand):
         log.warn("Press Ctrl+C to finish and exit gracefully")
         log.info("")
 
-        # If --offset is not provided, first try to get the offset from
-        # the endpoint. Only fall back to date-based approach if no
-        # offset is available.
+        # If no `--offset` is provided, try to get the offset from
+        # the endpoint.
         if not args.offset:
             try:
-                sparql_query_stored_offset = (
-                    "PREFIX wikibase: <http://wikiba.se/ontology#> "
-                    "SELECT (MAX(?offset) AS ?maxOffset) WHERE { "
-                    "<http://wikiba.se/ontology#Dump> "
-                    "wikibase:updateStreamNextOffset ?offset "
-                    "}"
+                args.offset = self.get_next_offset_from_endpoint(
+                    sparql_endpoint, args.num_retries
                 )
-                curl_cmd_get_stored_offset = (
-                    f"curl -s {sparql_endpoint}"
-                    f' -H "Accept: text/csv"'
-                    f' -H "Content-type: application/sparql-query"'
-                    f' --data "{sparql_query_stored_offset}"'
-                )
-                result = run_command(
-                    f"{curl_cmd_get_stored_offset} | sed 1d",
-                    return_output=True,
-                ).strip()
-                if result and result != '""':
-                    args.offset = int(result.strip('"'))
-                    log.info(
-                        f"Resuming from offset from endpoint: "
-                        f"{args.offset}"
-                    )
+                log.info(f"Resuming from offset from endpoint: {args.offset}")
             except Exception as e:
                 log.debug(
                     f"Could not retrieve offset from endpoint: {e}. "
                     f"Will determine offset from date instead."
                 )
 
-        # If --offset is still not set, determine it by reading a single
-        # message from the SSE stream using the `since` date.
+        # If the offset was neither provided via `--offset` nor could
+        # be retrieved from the endpoint, determine it by reading a
+        # single message from the SSE stream at the `since` date.
         if not args.offset:
             try:
                 source = self.retry_with_backoff(
@@ -370,7 +382,6 @@ class UpdateWikidataCommand(QleverCommand):
                     ),
                     "SSE stream connection",
                     args.num_retries,
-                    log,
                 )
                 offset = None
                 for event in source:
@@ -391,7 +402,7 @@ class UpdateWikidataCommand(QleverCommand):
                 args.offset = offset
             except KeyboardInterrupt:
                 log.warn(
-                    "\rCtrl+C pressed while determing current state, "
+                    "\rCtrl+C pressed while determine current state, "
                     "exiting"
                 )
                 return True
@@ -472,7 +483,6 @@ class UpdateWikidataCommand(QleverCommand):
                     ),
                     "SSE stream connection for batch processing",
                     args.num_retries,
-                    log,
                 )
             except KeyboardInterrupt:
                 log.warn(
@@ -506,83 +516,18 @@ class UpdateWikidataCommand(QleverCommand):
                 # before starting, but keep as fallback
                 first_offset_in_batch = None
 
-            # Check that the stream offset matches the offset from the endpoint
-            # Skip this check on the first batch (when using --offset to resume)
+            # Check that the stream offset matches the offset from the
+            # endpoint, unless disabled or this is the first batch.
             if (
                 args.check_offset_before_each_batch == "yes"
                 and not first_batch
                 and first_offset_in_batch is not None
             ):
-                sparql_query_offset = (
-                    "PREFIX wikibase: <http://wikiba.se/ontology#> "
-                    "SELECT (MAX(?offset) AS ?maxOffset) WHERE { "
-                    "<http://wikiba.se/ontology#Dump> "
-                    "wikibase:updateStreamNextOffset ?offset "
-                    "}"
-                )
-                curl_cmd_check_offset = (
-                    f"curl -s {sparql_endpoint}"
-                    f' -H "Accept: text/csv"'
-                    f' -H "Content-type: application/sparql-query"'
-                    f' --data "{sparql_query_offset}"'
-                )
                 # Verify offset with retry logic
                 try:
-                    result = self.retry_with_backoff(
-                        lambda: run_command(
-                            f"{curl_cmd_check_offset} | sed 1d",
-                            return_output=True,
-                        ).strip(),
-                        "Offset verification",
-                        args.num_retries,
-                        log,
+                    endpoint_offset = self.get_next_offset_from_endpoint(
+                        sparql_endpoint, args.num_retries
                     )
-                    if not result:
-                        log.error(
-                            "Failed to retrieve offset from endpoint: "
-                            "query returned no results; this might be the first update, "
-                            "or the offset triple is missing"
-                        )
-                        return False
-                    endpoint_offset = int(result.strip('"'))
-                    if endpoint_offset < first_offset_in_batch:
-                        # Stream offset is LATER than endpoint offset
-                        if args.rewind_to_earlier_offset == "yes":
-                            log.info(
-                                colored(
-                                    f"Stream offset {first_offset_in_batch} is later "
-                                    f"than offset {endpoint_offset} from endpoint; "
-                                    f"this can happen after a server restart; "
-                                    f"rewinding to offset {endpoint_offset} from endpoint",
-                                    "cyan",
-                                )
-                            )
-                            log.info("")
-                            # Reconnect from the endpoint offset
-                            event_id_for_next_batch = [
-                                {
-                                    "topic": args.topic,
-                                    "partition": args.partition,
-                                    "offset": endpoint_offset,
-                                }
-                            ]
-                            continue  # Skip this batch and reconnect
-                        else:
-                            log.error(
-                                f"Offset mismatch: stream offset {first_offset_in_batch} "
-                                f"is later than offset {endpoint_offset} from endpoint; "
-                                f"rewind disabled by --rewind-to-earlier-offset=no"
-                            )
-                            return False
-                    elif endpoint_offset > first_offset_in_batch:
-                        # Stream offset is EARLIER than endpoint offset - this is bad
-                        log.error(
-                            f"Offset mismatch: stream offset {first_offset_in_batch} "
-                            f"is earlier than offset {endpoint_offset} from endpoint; "
-                            f"this indicates that updates may have been applied "
-                            f"out of order or some updates are missing"
-                        )
-                        return False
                 except KeyboardInterrupt:
                     log.warn(
                         "\rCtrl+C pressed while while verifying state, "
@@ -591,9 +536,48 @@ class UpdateWikidataCommand(QleverCommand):
                     break
                 except Exception as e:
                     log.error(
-                        f"Failed to retrieve or verify offset from "
-                        f"endpoint after {args.num_retries} retries; "
-                        f"last error: {e}"
+                        f"Failed to retrieve offset from endpoint "
+                        f"after {args.num_retries} retries: {e}. "
+                        f"This might be the first update, or the offset triple is missing."
+                    )
+                    return False
+
+                if endpoint_offset < first_offset_in_batch:
+                    # Stream offset is LATER than endpoint offset
+                    if args.rewind_to_earlier_offset == "yes":
+                        log.info(
+                            colored(
+                                f"Stream offset {first_offset_in_batch} is later "
+                                f"than offset {endpoint_offset} from endpoint; "
+                                f"this can happen after a server restart; "
+                                f"rewinding to offset {endpoint_offset} from endpoint",
+                                "cyan",
+                            )
+                        )
+                        log.info("")
+                        # Reconnect from the endpoint offset
+                        event_id_for_next_batch = [
+                            {
+                                "topic": args.topic,
+                                "partition": args.partition,
+                                "offset": endpoint_offset,
+                            }
+                        ]
+                        continue  # Skip this batch and reconnect
+                    else:
+                        log.error(
+                            f"Offset mismatch: stream offset {first_offset_in_batch} "
+                            f"is later than offset {endpoint_offset} from endpoint; "
+                            f"rewind disabled by --rewind-to-earlier-offset=no"
+                        )
+                        return False
+                elif endpoint_offset > first_offset_in_batch:
+                    # Stream offset is EARLIER than endpoint offset - this is bad
+                    log.error(
+                        f"Offset mismatch: stream offset {first_offset_in_batch} "
+                        f"is earlier than offset {endpoint_offset} from endpoint; "
+                        f"this indicates that updates may have been applied "
+                        f"out of order or some updates are missing"
                     )
                     return False
 
@@ -678,9 +662,9 @@ class UpdateWikidataCommand(QleverCommand):
                             rdf_linked_shared_data = event_data.get(
                                 "rdf_linked_shared_data"
                             )
-                            rdf_unlinked_shared_data = event_data.get(
-                                "rdf_unlinked_shared_data"
-                            )
+                            # rdf_unlinked_shared_data = event_data.get(
+                            #     "rdf_unlinked_shared_data"
+                            # )
 
                             # Check batch completion conditions BEFORE processing the
                             # data of this message. If any of the conditions is met,
@@ -782,10 +766,14 @@ class UpdateWikidataCommand(QleverCommand):
                                 )
 
                             # Process the to-be-deleted triples.
-                            for rdf_to_be_deleted in (
-                                rdf_deleted_data,
-                                rdf_unlinked_shared_data,
-                            ):
+                            #
+                            # NOTE: The triples from `rdf_unlinked_shared_data`
+                            # must not be deleted, because they are only
+                            # unlinked from the current entity, but may still
+                            # be linked from other entities. If they are not
+                            # linked from any other entity, they will be
+                            # orphaned, but we don't mind that.
+                            for rdf_to_be_deleted in (rdf_deleted_data,):
                                 if rdf_to_be_deleted is not None:
                                     try:
                                         rdf_to_be_deleted_data = (
@@ -928,28 +916,13 @@ class UpdateWikidataCommand(QleverCommand):
                     f"min delta to NOW: {min_delta_to_now_s}s]"
                 )
 
-                # Add the min and max date of the batch to `insert_triples`.
-                #
-                # NOTE: The min date means that we have *all* updates until that
-                # date. The max date is the date of the latest update we have seen.
-                # However, there may still be earlier updates that we have not seen
-                # yet. Wikidata uses `schema:dateModified` for the latter semantics,
-                # so we use it here as well. For the other semantics, we invent
-                # a new property `wikibase:updatesCompleteUntil`.
-                insert_triples.add(
-                    f"<http://wikiba.se/ontology#Dump> "
-                    f"<http://schema.org/dateModified> "
-                    f'"{date_list[-1]}"^^<http://www.w3.org/2001/XMLSchema#dateTime>'
-                )
-                updates_complete_until = (
-                    date_list[-1]
-                    if args.min_or_max_date == "max"
-                    else date_list[0]
-                )
+                # Add a triples `wikibase:Dump wikibase:updatesCompleteUntil
+                # DATE` and `wikibase:Dump wikibase:updateStreamNextOffset
+                # OFFSET`.
                 insert_triples.add(
                     f"<http://wikiba.se/ontology#Dump> "
                     f"<http://wikiba.se/ontology#updatesCompleteUntil> "
-                    f'"{updates_complete_until}"'
+                    f'"{date_list[-1]}"'
                     f"^^<http://www.w3.org/2001/XMLSchema#dateTime>"
                 )
                 insert_triples.add(
@@ -1026,7 +999,6 @@ class UpdateWikidataCommand(QleverCommand):
                     lambda: run_command(curl_cmd, return_output=True),
                     "UPDATE request",
                     args.num_retries,
-                    log,
                 )
                 result_file_name = f"update.{first_offset_in_batch}.{current_batch_size}.result"
                 with open(result_file_name, "w") as f:
@@ -1047,13 +1019,19 @@ class UpdateWikidataCommand(QleverCommand):
                                 update_files[offset].append(file_path)
 
                     # Sort by offset (newest last)
-                    sorted_offsets = sorted(update_files.keys(), key=lambda x: int(x))
+                    sorted_offsets = sorted(
+                        update_files.keys(), key=lambda x: int(x)
+                    )
 
                     # Determine which to keep
                     if args.keep_update_requests == "none":
                         files_to_keep = []
                     elif args.keep_update_requests == "last":
-                        files_to_keep = update_files[sorted_offsets[-1]] if sorted_offsets else []
+                        files_to_keep = (
+                            update_files[sorted_offsets[-1]]
+                            if sorted_offsets
+                            else []
+                        )
                     elif args.keep_update_requests == "last-three":
                         files_to_keep = []
                         for offset in sorted_offsets[-3:]:
