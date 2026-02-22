@@ -273,10 +273,8 @@ class IndexCommand(QleverCommand):
         if args.show:
             return True
 
-        # When running natively, check if the binary exists and works.
-        if args.system == "native":
-            if not binary_exists(args.index_binary, "index-binary"):
-                return False
+        if not binary_exists(args.index_binary, "index-binary", args):
+            return False
 
         # Check if all of the input files exist.
         for pattern in shlex.split(args.input_files):

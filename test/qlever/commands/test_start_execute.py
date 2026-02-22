@@ -125,11 +125,12 @@ def test_check_binary_success(mock_run_cmd):
     # Setup args
     args = MagicMock()
     args.server_binary = "/test/path/server_binary"
+    args.system = "native"
     # mock run_cmd as successful
     mock_run_cmd.return_value = "Command works"
 
     # Execute the function
-    result = qlever.util.binary_exists(args.server_binary, "server-binary")
+    result = qlever.util.binary_exists(args.server_binary, "server-binary", args)
     # check if run_cmd was called once with
     mock_run_cmd.assert_called_once_with(f"{args.server_binary} --help")
     assert result
@@ -143,12 +144,13 @@ def test_check_binary_exception(mock_log, mock_run_cmd):
     # Setup args
     args = MagicMock()
     args.server_binary = "false_binary"
+    args.system = "native"
 
     # Simulate an exception when run_command is called
     mock_run_cmd.side_effect = Exception("Mocked command failure")
 
     # Execute the function
-    result = qlever.util.binary_exists(args.server_binary, "server-binary")
+    result = qlever.util.binary_exists(args.server_binary, "server-binary", args)
 
     # check if run_cmd was called once with
     mock_run_cmd.assert_called_once_with(f"{args.server_binary} --help")
@@ -571,8 +573,10 @@ class TestStartCommand(unittest.TestCase):
     @patch("qlever.commands.start.Containerize.supported_systems")
     @patch("qlever.commands.start.wrap_command_in_container")
     @patch("qlever.commands.start.construct_command")
+    @patch("qlever.commands.start.binary_exists")
     def test_execute_containerize_and_description(
         self,
+        mock_binary_exists,
         mock_construct_cl,
         mock_run_containerize,
         mock_containerize,
@@ -620,6 +624,8 @@ class TestStartCommand(unittest.TestCase):
 
         # Mock Containerize
         mock_containerize.return_value = ["test1", "test2"]
+
+        mock_binary_exists.return_value = True
 
         # Instantiate the StartCommand
         sc = StartCommand()

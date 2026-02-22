@@ -218,10 +218,8 @@ class StartCommand(QleverCommand):
                 SettingsCommand().execute(args)
             return True
 
-        # When running natively, check if the binary exists and works.
-        if args.system == "native":
-            if not binary_exists(args.server_binary, "server-binary"):
-                return False
+        if not binary_exists(args.server_binary, "server-binary", args):
+            return False
 
         # Check if a QLever server is already running on this port.
         if is_qlever_server_alive(args.endpoint_url):

@@ -80,10 +80,8 @@ class AddTextIndexCommand(QleverCommand):
         if args.show:
             return True
 
-        # When running natively, check if the binary exists and works.
-        if args.system == "native":
-            if not binary_exists(args.index_binary, "index-binary"):
-                return False
+        if not binary_exists(args.index_binary, "index-binary", args):
+            return False
 
         # Check if text index files already exist.
         existing_text_index_files = get_existing_index_files(
