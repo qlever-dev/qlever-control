@@ -10,6 +10,7 @@ import time
 from datetime import datetime, timezone
 from enum import Enum, auto
 from pathlib import Path
+from threading import Event
 
 import rdflib.term
 import requests_sse
@@ -30,43 +31,6 @@ def custom_cast_lexical_to_python(lexical, datatype):
 
 
 rdflib.term._castLexicalToPython = custom_cast_lexical_to_python
-
-
-def retry_with_backoff(operation, operation_name, max_retries):
-    """
-    Retry an operation with exponential backoff, see backoff intervals below
-    (in seconds). Returns the result of the operation if successful, or raises
-    the last exception.
-    """
-    backoff_intervals = [5, 10, 30, 60, 300, 900, 1800, 3600]
-
-    for attempt in range(max_retries):
-        try:
-            return operation()
-        except Exception as e:
-            if attempt < max_retries - 1:
-                # Use the appropriate backoff interval (once we get to the end
-                # of the list, keep using the last interval).
-                retry_delay = (
-                    backoff_intervals[attempt]
-                    if attempt < len(backoff_intervals)
-                    else backoff_intervals[-1]
-                )
-                # Show the delay as seconds, minutes, or hours.
-                if retry_delay >= 3600:
-                    delay_str = f"{retry_delay // 3600}h"
-                elif retry_delay >= 60:
-                    delay_str = f"{retry_delay // 60}min"
-                else:
-                    delay_str = f"{retry_delay}s"
-                log.warn(
-                    f"{operation_name} failed (attempt {attempt + 1}/{max_retries}): {e}. "
-                    f"Retrying in {delay_str} ..."
-                )
-                time.sleep(retry_delay)
-            else:
-                # If this was the last attempt, re-raise the exception.
-                raise
 
 
 def connect_to_sse_stream(sse_stream_url, since=None, event_id=None):
@@ -105,45 +69,6 @@ def connect_to_sse_stream(sse_stream_url, since=None, event_id=None):
     return source
 
 
-def get_next_offset_from_endpoint(sparql_endpoint, num_retries):
-    """Query the endpoint for the next stream offset.
-
-    Args:
-        sparql_endpoint: URL of the SPARQL endpoint
-        num_retries: Number of retries for the query
-
-    Returns:
-        int: The offset value from the endpoint
-
-    Raises:
-        Exception: If the query fails or returns no results
-    """
-    sparql_query_offset = (
-        "PREFIX wikibase: <http://wikiba.se/ontology#> "
-        "SELECT (MAX(?offset) AS ?maxOffset) WHERE { "
-        "<http://wikiba.se/ontology#Dump> "
-        "wikibase:updateStreamNextOffset ?offset "
-        "}"
-    )
-    curl_cmd_check_offset = (
-        f"curl -s {sparql_endpoint}"
-        f' -H "Accept: text/csv"'
-        f' -H "Content-type: application/sparql-query"'
-        f' --data "{sparql_query_offset}"'
-    )
-    result = retry_with_backoff(
-        lambda: run_command(
-            f"{curl_cmd_check_offset} | sed 1d",
-            return_output=True,
-        ).strip(),
-        "Offset verification",
-        num_retries,
-    )
-    if not result:
-        raise Exception("Query returned no results")
-    return int(result.strip('"'))
-
-
 class UpdateWikidataCommand(QleverCommand):
     """
     Class for executing the `update` command.
@@ -167,7 +92,7 @@ class UpdateWikidataCommand(QleverCommand):
             "stream/rdf-streaming-updater.mutation.v2"
         )
         # Remember if Ctrl+C was pressed, so we can handle it gracefully.
-        self.ctrl_c_pressed = False
+        self.ctrl_c_pressed = Event()
         # Set to `True` when finished.
         self.finished = False
 
@@ -298,12 +223,90 @@ class UpdateWikidataCommand(QleverCommand):
             "last-three (keep the three most recent) (default: last)",
         )
 
+    def retry_with_backoff(self, operation, operation_name, max_retries):
+        """
+        Retry an operation with exponential backoff, see backoff intervals below
+        (in seconds). Returns the result of the operation if successful, or raises
+        the last exception.
+        """
+        backoff_intervals = [5, 10, 30, 60, 300, 900, 1800, 3600]
+
+        for attempt in range(max_retries):
+            try:
+                return operation()
+            except Exception as e:
+                if self.ctrl_c_pressed.is_set():
+                    raise KeyboardInterrupt()
+                if attempt < max_retries - 1:
+                    # Use the appropriate backoff interval (once we get to the end
+                    # of the list, keep using the last interval).
+                    retry_delay = (
+                        backoff_intervals[attempt]
+                        if attempt < len(backoff_intervals)
+                        else backoff_intervals[-1]
+                    )
+                    # Show the delay as seconds, minutes, or hours.
+                    if retry_delay >= 3600:
+                        delay_str = f"{retry_delay // 3600}h"
+                    elif retry_delay >= 60:
+                        delay_str = f"{retry_delay // 60}min"
+                    else:
+                        delay_str = f"{retry_delay}s"
+                    log.warn(
+                        f"{operation_name} failed (attempt {attempt + 1}/{max_retries}): {e}. "
+                        f"Retrying in {delay_str} ..."
+                    )
+                    # Returns true if the wait ended because of the flag being set.
+                    if self.ctrl_c_pressed.wait(timeout=retry_delay):
+                        raise KeyboardInterrupt()
+                else:
+                    # If this was the last attempt, re-raise the exception.
+                    raise
+
+    def get_next_offset_from_endpoint(self, sparql_endpoint, num_retries):
+        """Query the endpoint for the next stream offset.
+
+        Args:
+            sparql_endpoint: URL of the SPARQL endpoint
+            num_retries: Number of retries for the query
+
+        Returns:
+            int: The offset value from the endpoint
+
+        Raises:
+            Exception: If the query fails or returns no results
+        """
+        sparql_query_offset = (
+            "PREFIX wikibase: <http://wikiba.se/ontology#> "
+            "SELECT (MAX(?offset) AS ?maxOffset) WHERE { "
+            "<http://wikiba.se/ontology#Dump> "
+            "wikibase:updateStreamNextOffset ?offset "
+            "}"
+        )
+        curl_cmd_check_offset = (
+            f"curl -s {sparql_endpoint}"
+            f' -H "Accept: text/csv"'
+            f' -H "Content-type: application/sparql-query"'
+            f' --data "{sparql_query_offset}"'
+        )
+        result = self.retry_with_backoff(
+            lambda: run_command(
+                f"{curl_cmd_check_offset} | sed 1d",
+                return_output=True,
+            ).strip(),
+            "Offset verification",
+            num_retries,
+        )
+        if not result:
+            raise Exception("Query returned no results")
+        return int(result.strip('"'))
+
     # Handle Ctrl+C gracefully by finishing the current batch and then exiting.
     def handle_ctrl_c(self, signal_received, frame):
-        if self.ctrl_c_pressed:
+        if self.ctrl_c_pressed.is_set():
             log.warn("\rCtrl+C pressed again, watch your blood pressure")
         else:
-            self.ctrl_c_pressed = True
+            self.ctrl_c_pressed.set()
 
     def execute(self, args) -> bool:
         # cURL command to get the date until which the updates of the
@@ -358,7 +361,7 @@ class UpdateWikidataCommand(QleverCommand):
         # the endpoint.
         if not args.offset:
             try:
-                args.offset = get_next_offset_from_endpoint(
+                args.offset = self.get_next_offset_from_endpoint(
                     sparql_endpoint, args.num_retries
                 )
                 log.info(f"Resuming from offset from endpoint: {args.offset}")
@@ -373,7 +376,7 @@ class UpdateWikidataCommand(QleverCommand):
         # single message from the SSE stream at the `since` date.
         if not args.offset:
             try:
-                source = retry_with_backoff(
+                source = self.retry_with_backoff(
                     lambda: connect_to_sse_stream(
                         args.sse_stream_url, since=since
                     ),
@@ -397,6 +400,12 @@ class UpdateWikidataCommand(QleverCommand):
                         f"No event with topic {args.topic} found in stream"
                     )
                 args.offset = offset
+            except KeyboardInterrupt:
+                log.warn(
+                    "\rCtrl+C pressed while determine current state, "
+                    "exiting"
+                )
+                return True
             except Exception as e:
                 log.error(f"Error determining offset from stream: {e}")
                 return False
@@ -436,11 +445,8 @@ class UpdateWikidataCommand(QleverCommand):
                 )
                 log.info("")
                 wait_before_next_batch = False
-                for _ in range(args.wait_between_batches):
-                    if self.ctrl_c_pressed:
-                        break
-                    time.sleep(1)
-            if self.ctrl_c_pressed:
+                self.ctrl_c_pressed.wait(args.wait_between_batches)
+            if self.ctrl_c_pressed.is_set():
                 log.warn(
                     "\rCtrl+C pressed while waiting in between batches, "
                     "exiting"
@@ -469,7 +475,7 @@ class UpdateWikidataCommand(QleverCommand):
 
             # Connect to the SSE stream with retry logic
             try:
-                source = retry_with_backoff(
+                source = self.retry_with_backoff(
                     lambda: connect_to_sse_stream(
                         args.sse_stream_url,
                         since=since if not event_id_for_next_batch else None,
@@ -478,6 +484,12 @@ class UpdateWikidataCommand(QleverCommand):
                     "SSE stream connection for batch processing",
                     args.num_retries,
                 )
+            except KeyboardInterrupt:
+                log.warn(
+                    "\rCtrl+C pressed while while connecting to stream, "
+                    "exiting"
+                )
+                break
             except Exception as e:
                 log.error(
                     f"Failed to connect to SSE stream after "
@@ -513,9 +525,15 @@ class UpdateWikidataCommand(QleverCommand):
             ):
                 # Verify offset with retry logic
                 try:
-                    endpoint_offset = get_next_offset_from_endpoint(
+                    endpoint_offset = self.get_next_offset_from_endpoint(
                         sparql_endpoint, args.num_retries
                     )
+                except KeyboardInterrupt:
+                    log.warn(
+                        "\rCtrl+C pressed while while verifying state, "
+                        "exiting"
+                    )
+                    break
                 except Exception as e:
                     log.error(
                         f"Failed to retrieve offset from endpoint "
@@ -857,7 +875,7 @@ class UpdateWikidataCommand(QleverCommand):
                         # Ctrl+C finishes the current batch (this should come at the
                         # end of the inner event loop so that always at least one
                         # message is processed).
-                        if self.ctrl_c_pressed:
+                        if self.ctrl_c_pressed.is_set():
                             log.warn(
                                 "\rCtrl+C pressed while processing a batch, "
                                 "finishing it and exiting"
@@ -977,7 +995,7 @@ class UpdateWikidataCommand(QleverCommand):
             # Run it (using `curl` for batch size up to 1000, otherwise
             # `requests`) with retry logic.
             try:
-                result = retry_with_backoff(
+                result = self.retry_with_backoff(
                     lambda: run_command(curl_cmd, return_output=True),
                     "UPDATE request",
                     args.num_retries,
@@ -1028,6 +1046,12 @@ class UpdateWikidataCommand(QleverCommand):
                                 except Exception:
                                     pass  # Ignore errors during cleanup
 
+            except KeyboardInterrupt:
+                log.warn(
+                    "\rCtrl+C pressed while executing update, "
+                    "exiting"
+                )
+                return True
             except Exception as e:
                 log.error(
                     f"Failed to execute UPDATE request after "
@@ -1250,7 +1274,7 @@ class UpdateWikidataCommand(QleverCommand):
             # If Ctrl+C was pressed, we reached `--until`, or we processed
             # exactly `--num-messages`, finish.
             if (
-                self.ctrl_c_pressed
+                self.ctrl_c_pressed.is_set()
                 or self.finished
                 or (
                     args.num_messages is not None
