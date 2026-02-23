@@ -289,16 +289,16 @@ class UpdateWikidataCommand(QleverCommand):
 
         s, p, o = triple
         triples = []
-        entity_node = URIRef(s.replace(str(wd), str(data)))
+        data_node = URIRef(s.replace(str(wd), str(data)))
         if should_rewrite(s, p, o):
-            triples += [(entity_node, p, o)]
+            triples += [(data_node, p, o)]
         else:
             triples += [(s, p, o)]
         # Data nodes have additional triples `{data node} rdf:type schema:Dataset` and `{data node} schema:about {entity node}`.
         # Due to the merging these are missing from the update stream. `schema:version` is only for all data nodes and only for data nodes.
         # Delete/insert these two triples depending on what happens to `schema:version`.
         if p == schema.version:
-            triples += [(s, rdf.type, schema.Dataset), (s, schema.about, entity_node)]
+            triples += [(data_node, rdf.type, schema.Dataset), (data_node, schema.about, s)]
         return triples
 
     def execute(self, args) -> bool:
