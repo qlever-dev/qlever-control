@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import time
+from pathlib import Path
 
 from qlever.command import QleverCommand
 from qlever.commands.cache_stats import CacheStatsCommand
@@ -282,7 +283,11 @@ class StartCommand(QleverCommand):
                 f" (Ctrl-C stops following the log, but NOT the server)"
             )
         log.info("")
-        tail_cmd = f"exec tail -f {args.name}.server-log.txt"
+        log_file = Path(f"{args.name}.server-log.txt")
+        # Wait for the log file to be created before reading from it
+        while not log_file.exists():
+            time.sleep(0.1)
+        tail_cmd = f"exec tail -f {log_file}"
         tail_proc = subprocess.Popen(tail_cmd, shell=True)
         while not is_qlever_server_alive(args.endpoint_url):
             time.sleep(1)
