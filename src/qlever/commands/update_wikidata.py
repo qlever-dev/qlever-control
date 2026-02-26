@@ -105,12 +105,11 @@ def connect_to_sse_stream(sse_stream_url, since=None, event_id=None):
     return source
 
 
-def get_next_offset_from_endpoint(sparql_endpoint, num_retries):
+def get_next_offset_from_endpoint(sparql_endpoint):
     """Query the endpoint for the next stream offset.
 
     Args:
         sparql_endpoint: URL of the SPARQL endpoint
-        num_retries: Number of retries for the query
 
     Returns:
         int: The offset value from the endpoint
@@ -131,14 +130,10 @@ def get_next_offset_from_endpoint(sparql_endpoint, num_retries):
         f' -H "Content-type: application/sparql-query"'
         f' --data "{sparql_query_offset}"'
     )
-    result = retry_with_backoff(
-        lambda: run_command(
-            f"{curl_cmd_check_offset} | sed 1d",
-            return_output=True,
-        ).strip(),
-        "Offset verification",
-        num_retries,
-    )
+    result = run_command(
+        f"{curl_cmd_check_offset} | sed 1d",
+        return_output=True,
+    ).strip()
     if not result:
         raise Exception("Query returned no results")
     return int(result.strip('"'))
@@ -358,8 +353,10 @@ class UpdateWikidataCommand(QleverCommand):
         # the endpoint.
         if not args.offset:
             try:
-                args.offset = get_next_offset_from_endpoint(
-                    sparql_endpoint, args.num_retries
+                args.offset = retry_with_backoff(
+                    lambda: get_next_offset_from_endpoint(sparql_endpoint),
+                    "Initial offset lookup",
+                    args.num_retries,
                 )
                 log.info(f"Resuming from offset from endpoint: {args.offset}")
             except Exception as e:
@@ -513,8 +510,10 @@ class UpdateWikidataCommand(QleverCommand):
             ):
                 # Verify offset with retry logic
                 try:
-                    endpoint_offset = get_next_offset_from_endpoint(
-                        sparql_endpoint, args.num_retries
+                    endpoint_offset = retry_with_backoff(
+                        lambda: get_next_offset_from_endpoint(sparql_endpoint),
+                        "Offset verification",
+                        args.num_retries,
                     )
                 except Exception as e:
                     log.error(
@@ -974,67 +973,73 @@ class UpdateWikidataCommand(QleverCommand):
             if args.verbose == "yes":
                 log.info(colored(curl_cmd, "blue"))
 
-            # Run it (using `curl` for batch size up to 1000, otherwise
-            # `requests`) with retry logic.
+            # Send the UPDATE request. If it fails, reset to the beginning
+            # of this batch and retry in the next iteration of the outer
+            # loop. If this was a transient error, this makes sure that the
+            # batch is re-assembled and not lost. If the server has
+            # restarted, the offset check at the beginning of the next
+            # iteration will detect the mismatch and rewind.
             try:
-                result = retry_with_backoff(
-                    lambda: run_command(curl_cmd, return_output=True),
-                    "UPDATE request",
-                    args.num_retries,
-                )
-                result_file_name = f"update.{first_offset_in_batch}.{current_batch_size}.result"
-                with open(result_file_name, "w") as f:
-                    f.write(result)
-
-                # Clean up old update request files according to --keep-update-requests
-                if args.keep_update_requests != "all":
-                    # Find all update.*.{sparql,meta,result} files
-                    update_files = {}
-                    for ext in ["sparql", "meta", "result"]:
-                        for file_path in glob.glob(f"update.*.*.{ext}"):
-                            # Extract offset from filename (update.OFFSET.SIZE.ext)
-                            parts = Path(file_path).stem.split(".")
-                            if len(parts) >= 3:
-                                offset = parts[1]
-                                if offset not in update_files:
-                                    update_files[offset] = []
-                                update_files[offset].append(file_path)
-
-                    # Sort by offset (newest last)
-                    sorted_offsets = sorted(
-                        update_files.keys(), key=lambda x: int(x)
-                    )
-
-                    # Determine which to keep
-                    if args.keep_update_requests == "none":
-                        files_to_keep = []
-                    elif args.keep_update_requests == "last":
-                        files_to_keep = (
-                            update_files[sorted_offsets[-1]]
-                            if sorted_offsets
-                            else []
-                        )
-                    elif args.keep_update_requests == "last-three":
-                        files_to_keep = []
-                        for offset in sorted_offsets[-3:]:
-                            files_to_keep.extend(update_files[offset])
-
-                    # Delete files not in the keep list
-                    for offset, files in update_files.items():
-                        for file_path in files:
-                            if file_path not in files_to_keep:
-                                try:
-                                    os.remove(file_path)
-                                except Exception:
-                                    pass  # Ignore errors during cleanup
-
+                result = run_command(curl_cmd, return_output=True)
             except Exception as e:
-                log.error(
-                    f"Failed to execute UPDATE request after "
-                    f"{args.num_retries} retry attempts, last error: "
-                    f"{e}"
+                log.warn(
+                    f"UPDATE request failed: {e}. Will reconnect and retry."
                 )
-                return False
+                event_id_for_next_batch = [
+                    {
+                        "topic": args.topic,
+                        "partition": args.partition,
+                        "offset": first_offset_in_batch,
+                    }
+                ]
+                continue
+            result_file_name = (
+                f"update.{first_offset_in_batch}.{current_batch_size}.result"
+            )
+            with open(result_file_name, "w") as f:
+                f.write(result)
+
+            # Clean up old update request files according to --keep-update-requests
+            if args.keep_update_requests != "all":
+                # Find all update.*.{sparql,meta,result} files
+                update_files = {}
+                for ext in ["sparql", "meta", "result"]:
+                    for file_path in glob.glob(f"update.*.*.{ext}"):
+                        # Extract offset from filename (update.OFFSET.SIZE.ext)
+                        parts = Path(file_path).stem.split(".")
+                        if len(parts) >= 3:
+                            offset = parts[1]
+                            if offset not in update_files:
+                                update_files[offset] = []
+                            update_files[offset].append(file_path)
+
+                # Sort by offset (newest last)
+                sorted_offsets = sorted(
+                    update_files.keys(), key=lambda x: int(x)
+                )
+
+                # Determine which to keep
+                if args.keep_update_requests == "none":
+                    files_to_keep = []
+                elif args.keep_update_requests == "last":
+                    files_to_keep = (
+                        update_files[sorted_offsets[-1]]
+                        if sorted_offsets
+                        else []
+                    )
+                elif args.keep_update_requests == "last-three":
+                    files_to_keep = []
+                    for offset in sorted_offsets[-3:]:
+                        files_to_keep.extend(update_files[offset])
+
+                # Delete files not in the keep list
+                for offset, files in update_files.items():
+                    for file_path in files:
+                        if file_path not in files_to_keep:
+                            try:
+                                os.remove(file_path)
+                            except Exception:
+                                pass  # Ignore errors during cleanup
 
             # Results should be a JSON, parse it.
             try:
