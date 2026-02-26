@@ -12,7 +12,8 @@ DESCRIPTION  = RDF data from ${DATABUS_URL}
 
 [index]
 INPUT_FILES     = rdf-input/*
-CAT_INPUT_FILES = (cat rdf-input/*.nt; lbzcat -n2 rdf-input/*.bzip2 rdf-input/*.bz2)
+BZCAT_CMD       = $$(command -v lbzcat >/dev/null && echo "lbzcat -n2" || echo "bzcat")
+CAT_INPUT_FILES = (cat rdf-input/*.nt; ${BZCAT_CMD} rdf-input/*.bzip2 rdf-input/*.bz2)
 SETTINGS_JSON   = { "ascii-prefixes-only": true, "num-triples-per-batch": 1000000, "prefixes-external": [""] }
 WITH_TEXT_INDEX = false
 

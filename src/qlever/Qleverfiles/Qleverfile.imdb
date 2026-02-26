@@ -10,8 +10,8 @@
 NAME             = imdb
 IMDB_DATA_URL    = https://datasets.imdbws.com
 GET_PREFIXES     = echo "@prefix imdb: <https://www.imdb.com/> ."
-GET_IMDB_BASICS  = FILE=title.basics.tsv.gz; curl -sLO -C - ${IMDB_DATA_URL}/$${FILE}; zcat $${FILE} | sed 1d | awk -F'\t' '{ gsub("\\\\", "\\\\", $$3); gsub("\"", "\\\"", $$3); printf "imdb:%s imdb:id \"%s\" ; imdb:type \"%s\" ; imdb:title \"%s\" .\n", $$1, $$1, $$2, $$3 }'; rm -f $${FILE}
-GET_IMDB_RATINGS = FILE=title.ratings.tsv.gz; curl -sLO -C - ${IMDB_DATA_URL}/$${FILE}; zcat $${FILE} | sed 1d | awk -F'\t' '{ printf "imdb:%s imdb:averageRating %s ; imdb:numVotes %s .\n", $$1, $$2, $$3 }'; rm -f $${FILE}
+GET_IMDB_BASICS  = FILE=title.basics.tsv.gz; curl -sLO -C - ${IMDB_DATA_URL}/$${FILE}; gunzip -c $${FILE} | sed 1d | awk -F'\t' '{ gsub("\\\\", "\\\\", $$3); gsub("\"", "\\\"", $$3); printf "imdb:%s imdb:id \"%s\" ; imdb:type \"%s\" ; imdb:title \"%s\" .\n", $$1, $$1, $$2, $$3 }'; rm -f $${FILE}
+GET_IMDB_RATINGS = FILE=title.ratings.tsv.gz; curl -sLO -C - ${IMDB_DATA_URL}/$${FILE}; gunzip -c $${FILE} | sed 1d | awk -F'\t' '{ printf "imdb:%s imdb:averageRating %s ; imdb:numVotes %s .\n", $$1, $$2, $$3 }'; rm -f $${FILE}
 GET_DATA_CMD     = (${GET_PREFIXES}; ${GET_IMDB_BASICS}; ${GET_IMDB_RATINGS}) > ${NAME}.ttl
 VERSION          = $$(date -r imdb.ttl +"%d.%m.%Y %H:%M" || echo "NO_DATE")
 DESCRIPTION      = IMDb, CSV from ${IMDB_DATA_URL}, converted to RDF TTL using awk, version ${VERSION}

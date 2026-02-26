@@ -18,7 +18,7 @@ DESCRIPTION  = OpenStreetMap, PBF from ${GET_DATA_URL}, converted to RDF TTL and
 
 [index]
 INPUT_FILES        = ${data:NAME}.ttl.gz
-MULTI_INPUT_JSON   = { "cmd": "zcat ${INPUT_FILES}", "parallel": "true" }
+MULTI_INPUT_JSON   = { "cmd": "gunzip -c ${INPUT_FILES}", "parallel": "true" }
 VOCABULARY_TYPE    = on-disk-compressed-geo-split
 PARSER_BUFFER_SIZE = 100M
 STXXL_MEMORY       = 60G

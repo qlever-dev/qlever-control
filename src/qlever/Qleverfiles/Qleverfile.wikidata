@@ -20,8 +20,10 @@ DESCRIPTION       = Complete Wikidata, from ${GET_DATA_URL} (latest-all.ttl.bz2 
 
 [index]
 INPUT_FILES      = latest-all.ttl.bz2 latest-lexemes.ttl.bz2 dcatap.nt
-MULTI_INPUT_JSON = [{ "cmd": "lbzcat -n 4 latest-all.ttl.bz2", "format": "ttl", "parallel": "true" },
-                    { "cmd": "lbzcat -n 1 latest-lexemes.ttl.bz2", "format": "ttl", "parallel": "false" },
+BZCAT_CMD_1      = $$(command -v lbzcat >/dev/null && echo "lbzcat -n 1" || echo "bzcat")
+BZCAT_CMD_4      = $$(command -v lbzcat >/dev/null && echo "lbzcat -n 4" || echo "bzcat")
+MULTI_INPUT_JSON = [{ "cmd": "${BZCAT_CMD_4} latest-all.ttl.bz2", "format": "ttl", "parallel": "true" },
+                    { "cmd": "${BZCAT_CMD_1} latest-lexemes.ttl.bz2", "format": "ttl", "parallel": "false" },
                     { "cmd": "cat dcatap.nt", "format": "nt", "parallel": "false" }]
 SETTINGS_JSON    = { "languages-internal": [], "prefixes-external": [""], "locale": { "language": "en", "country": "US", "ignore-punctuation": true }, "ascii-prefixes-only": true, "num-triples-per-batch": 5000000 }
 STXXL_MEMORY     = 10G
