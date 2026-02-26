@@ -70,6 +70,17 @@ class QleverConfig:
         subparser = subparsers.add_parser(command_name,
                                           description=description,
                                           help=description)
+        
+        # qleverfile_group = subparser.add_argument_group(
+        #     "Qleverfile options",
+        #     "These options can also be specified in the Qleverfile under "
+        #     "the relevant [section]"
+        # )
+
+        # cli_only_group = subparser.add_argument_group(
+        #     "Command line only options",
+        #     "These options cannot be set in the Qleverfile"
+        # )
 
         # Add the arguments relevant for the command.
         for section in arg_names:
@@ -81,6 +92,11 @@ class QleverConfig:
                                    f"`{section}` not found")
                 args, kwargs = all_qleverfile_args[section][arg_name]
                 kwargs_copy = kwargs.copy()
+                # kwargs_copy["help"] = f"[{section}] {kwargs_copy["help"]}"
+                action_type = kwargs_copy.get("action", "store")
+                if action_type == "store" and "metavar" not in kwargs_copy:
+                    metavar = arg_name.upper()
+                    kwargs_copy["metavar"] = f"(In Qleverfile: [{section}] {metavar})"
                 # If `qleverfile_config` is given, add info about default
                 # values to the help string.
                 if qleverfile_config is not None:
