@@ -68,6 +68,7 @@ def connect_to_sse_stream(sse_stream_url, since=None, event_id=None):
     source.connect()
     return source
 
+
 def get_next_offset_from_endpoint(sparql_endpoint):
     """Query the endpoint for the next stream offset.
 
@@ -100,6 +101,7 @@ def get_next_offset_from_endpoint(sparql_endpoint):
     if not result:
         raise Exception("Query returned no results")
     return int(result.strip('"'))
+
 
 class UpdateWikidataCommand(QleverCommand):
     """
@@ -295,7 +297,6 @@ class UpdateWikidataCommand(QleverCommand):
                     # If this was the last attempt, re-raise the exception.
                     raise
 
-
     # Handle Ctrl+C gracefully by finishing the current batch and then exiting.
     def handle_ctrl_c(self, signal_received, frame):
         if self.ctrl_c_pressed.is_set():
@@ -395,8 +396,7 @@ class UpdateWikidataCommand(QleverCommand):
                 args.offset = offset
             except KeyboardInterrupt:
                 log.warn(
-                    "\rCtrl+C pressed while determine current state, "
-                    "exiting"
+                    "\rCtrl+C pressed while determine current state, exiting"
                 )
                 return True
             except Exception as e:
@@ -525,8 +525,7 @@ class UpdateWikidataCommand(QleverCommand):
                     )
                 except KeyboardInterrupt:
                     log.warn(
-                        "\rCtrl+C pressed while while verifying state, "
-                        "exiting"
+                        "\rCtrl+C pressed while while verifying state, exiting"
                     )
                     break
                 except Exception as e:
@@ -995,24 +994,24 @@ class UpdateWikidataCommand(QleverCommand):
             # iteration will detect the mismatch and rewind.
             try:
                 result = run_command(curl_cmd, return_output=True)
-            except KeyboardInterrupt:
-                log.warn(
-                    "\rCtrl+C pressed while executing update, "
-                    "exiting"
-                )
-                return True
-            except Exception as e:
-                log.warn(
-                    f"UPDATE request failed: {e}. Will reconnect and retry."
-                )
-                event_id_for_next_batch = [
-                    {
-                        "topic": args.topic,
-                        "partition": args.partition,
-                        "offset": first_offset_in_batch,
-                    }
-                ]
-                continue
+            except Exception:
+                if self.ctrl_c_pressed.is_set():
+                    log.warn(
+                        "\r  \nCtrl+C pressed while executing update, exiting"
+                    )
+                    return True
+                else:
+                    log.warn(
+                        "\r  \nUpdate request failed; will reconnect and retry"
+                    )
+                    event_id_for_next_batch = [
+                        {
+                            "topic": args.topic,
+                            "partition": args.partition,
+                            "offset": first_offset_in_batch,
+                        }
+                    ]
+                    continue
             result_file_name = (
                 f"update.{first_offset_in_batch}.{current_batch_size}.result"
             )
