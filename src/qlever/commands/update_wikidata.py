@@ -353,11 +353,7 @@ class UpdateWikidataCommand(QleverCommand):
         # the endpoint.
         if not args.offset:
             try:
-                args.offset = retry_with_backoff(
-                    lambda: get_next_offset_from_endpoint(sparql_endpoint),
-                    "Initial offset lookup",
-                    args.num_retries,
-                )
+                args.offset = get_next_offset_from_endpoint(sparql_endpoint)
                 log.info(f"Resuming from offset from endpoint: {args.offset}")
             except Exception as e:
                 log.debug(
