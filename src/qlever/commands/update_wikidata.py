@@ -267,19 +267,13 @@ class UpdateWikidataCommand(QleverCommand):
             self.ctrl_c_pressed = True
 
     def determine_batch_size_for_cached_update(self, offset: int, batch_size: int) -> int | None:
-        cached_file_name = Path(
-            f"update.{offset}.{batch_size}.sparql"
-        )
-        if cached_file_name.exists():
-            return batch_size
-        else:
-            options = list(Path.cwd().glob(f"update.{offset}.*.sparql"))
-            if len(options) == 0:
-                log.warn(f"Found no cached SPARQL update. Continuing with update stream.")
-                return None
-            elif len(options) > 1:
-                log.warn(f"Found {len(options)} candidates for cached SPARQL update. Using {options[0].name}.")
-            return int(re.search(r"update\.\d+\.(\d+)\.sparql", options[0].name).group(1))
+        options = list(Path.cwd().glob(f"update.{offset}.*.sparql"))
+        if len(options) == 0:
+            log.warn(f"Found no cached SPARQL update. Continuing with update stream.")
+            return None
+        elif len(options) > 1:
+            log.warn(f"Found {len(options)} candidates for cached SPARQL update. Using {options[0].name}.")
+        return int(re.search(r"update\.\d+\.(\d+)\.sparql", options[0].name).group(1))
 
     def determine_next_cached_update(self, first_offset_in_batch: int, batch_size: int) -> tuple[str, int] | None:
         batch_size = self.determine_batch_size_for_cached_update(first_offset_in_batch, batch_size)
