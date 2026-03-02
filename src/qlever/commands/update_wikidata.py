@@ -300,7 +300,8 @@ class UpdateWikidataCommand(QleverCommand):
     # Handle Ctrl+C gracefully by finishing the current batch and then exiting.
     def handle_ctrl_c(self, signal_received, frame):
         if self.ctrl_c_pressed.is_set():
-            log.warn("\rCtrl+C pressed again, watch your blood pressure")
+            pass
+            # log.warn("\rCtrl+C pressed again, watch your blood pressure")
         else:
             self.ctrl_c_pressed.set()
 
