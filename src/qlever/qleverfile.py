@@ -39,9 +39,11 @@ class Qleverfile:
         "lazy-result-max-cache-size",
         "query-planning-budget",
         "request-body-limit",
+        "service-allowed-iri-prefixes",
         "service-max-redirects",
         "service-max-value-rows",
         "sort-estimate-cancellation-factor",
+        "sort-in-memory-threshold",
         "sparql-results-json-with-time",
         "spatial-join-prefilter-max-size",
         "spatial-join-max-num-threads",
@@ -139,6 +141,15 @@ class Qleverfile:
             type=str,
             default="{}",
             help="The `.settings.json` file for the index",
+        )
+        index_args["materialized_views"] = arg(
+            "--materialized-views",
+            type=str,
+            default=None,
+            help="JSON to specify materialized views to be created at the "
+            'end of the index build, of the form `{ "view_name": '
+            '"SPARQL query", ... }`; default: do not create any '
+            "materialized views",
         )
         index_args["ulimit"] = arg(
             "--ulimit",

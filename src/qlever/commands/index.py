@@ -40,6 +40,7 @@ class IndexCommand(QleverCommand):
                 "multi_input_json",
                 "parallel_parsing",
                 "settings_json",
+                "materialized_views",
                 "vocabulary_type",
                 "index_binary",
                 "only_pso_and_pos_permutations",
@@ -240,6 +241,10 @@ class IndexCommand(QleverCommand):
             index_cmd += f" --stxxl-memory {args.stxxl_memory}"
         if args.parser_buffer_size:
             index_cmd += f" --parser-buffer-size {args.parser_buffer_size}"
+        if args.materialized_views:
+            index_cmd += (
+                f" --materialized-views {shlex.quote(args.materialized_views)}"
+            )
         index_cmd += f" 2>&1 | tee {args.name}.index-log.txt"
 
         # If the total file size is larger than 10 GB, set ulimit (such that a
