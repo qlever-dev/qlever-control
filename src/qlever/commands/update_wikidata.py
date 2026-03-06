@@ -392,7 +392,7 @@ class UpdateWikidataCommand(QleverCommand):
 
         # If no `--offset` is provided, try to get the offset from
         # the endpoint.
-        if not args.offset:
+        if args.offset is None:
             try:
                 args.offset = get_next_offset_from_endpoint(sparql_endpoint)
                 log.info(f"Resuming from offset from endpoint: {args.offset}")
@@ -405,7 +405,7 @@ class UpdateWikidataCommand(QleverCommand):
         # If the offset was neither provided via `--offset` nor could
         # be retrieved from the endpoint, determine it by reading a
         # single message from the SSE stream at the `since` date.
-        if not args.offset:
+        if args.offset is None:
             try:
                 source = self.retry_with_backoff(
                     lambda: connect_to_sse_stream(
@@ -454,7 +454,7 @@ class UpdateWikidataCommand(QleverCommand):
                     "offset": args.offset,
                 }
             ]
-            if args.offset
+            if args.offset is not None
             else None
         )
 
