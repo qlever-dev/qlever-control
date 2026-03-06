@@ -186,10 +186,6 @@ class UpdateWikidataCommand(QleverCommand):
         subparser.add_argument(
             "--topic",
             type=str,
-            choices=[
-                "eqiad.rdf-streaming-updater.mutation",
-                "codfw.rdf-streaming-updater.mutation",
-            ],
             default="eqiad.rdf-streaming-updater.mutation",
             help="The topic to consume from the SSE stream (default: "
             "eqiad.rdf-streaming-updater.mutation)",
