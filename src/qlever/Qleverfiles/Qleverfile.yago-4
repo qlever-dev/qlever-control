@@ -16,7 +16,7 @@ DESCRIPTION  = "Full dump from https://yago-knowledge.org/downloads/yago-4, vers
 
 [index]
 INPUT_FILES     = yago-wd-*.nt.gz
-CAT_INPUT_FILES = zcat ${INPUT_FILES}
+CAT_INPUT_FILES = gunzip -c ${INPUT_FILES}
 SETTINGS_JSON   = { "languages-internal": ["en"], "locale": { "language": "en", "country": "US", "ignore-punctuation": true }, "ascii-prefixes-only": false, "num-triples-per-batch": 5000000 }
 STXXL_MEMORY    = 10G
 
