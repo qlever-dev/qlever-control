@@ -7,7 +7,7 @@ from qlever.commands.log import LogCommand
 class TestStartCommand(unittest.TestCase):
     def test_description(self):
         self.assertEqual(
-            "Show the last lines of the server log file and " "follow it",
+            "Show the last lines of the server log file and follow it",
             LogCommand().description(),
         )
 
@@ -39,7 +39,7 @@ class TestStartCommand(unittest.TestCase):
         # --tail-num-lines is correctly set
         argument_help = subparser._group_actions[-3].help
         self.assertEqual(
-            "Show this many of the last lines of the log " "file",
+            "Show this many of the last lines of the log file",
             argument_help,
         )
 

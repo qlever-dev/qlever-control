@@ -79,7 +79,8 @@ class IndexStatsCommand(QleverCommand):
                     lines.extend(text_log_file.readlines())
         except Exception as e:
             log.error(
-                f"Problem reading text index log file " f"{text_log_file_name}: {e}"
+                f"Problem reading text index log file "
+                f"{text_log_file_name}: {e}"
             )
             return False
 
@@ -109,7 +110,8 @@ class IndexStatsCommand(QleverCommand):
                 if regex_match:
                     try:
                         return datetime.strptime(
-                            re.match(timestamp_regex, line).group(), timestamp_format
+                            re.match(timestamp_regex, line).group(),
+                            timestamp_format,
                         ), regex_match
                     except Exception as e:
                         log.error(
@@ -217,14 +219,19 @@ class IndexStatsCommand(QleverCommand):
                 else normal_end
             )
             perm_info_text = (
-                perm_info.group(1).replace(" and ", " & ") if perm_info else f"#{i + 1}"
+                perm_info.group(1).replace(" and ", " & ")
+                if perm_info
+                else f"#{i + 1}"
             )
-            show_duration(f"Permutation {perm_info_text}", [(perm_begin, perm_end)])
+            show_duration(
+                f"Permutation {perm_info_text}", [(perm_begin, perm_end)]
+            )
         show_duration("Text index", [(text_begin, text_end)])
         if text_begin and text_end:
             log.info("")
             show_duration(
-                "TOTAL time", [(overall_begin, normal_end), (text_begin, text_end)]
+                "TOTAL time",
+                [(overall_begin, normal_end), (text_begin, text_end)],
             )
         elif normal_end:
             log.info("")

@@ -154,7 +154,9 @@ def is_qlever_server_alive(endpoint_url: str) -> bool:
         return False
 
 
-def get_existing_index_files(basename: str, add_non_essential: bool = False) -> list[str]:
+def get_existing_index_files(
+    basename: str, add_non_essential: bool = False
+) -> list[str]:
     """
     Helper function that returns a list of all index files for `basename` in
     the current working directory.
@@ -163,7 +165,9 @@ def get_existing_index_files(basename: str, add_non_essential: bool = False) -> 
     # Essential index files.
     existing_index_files = []
     existing_index_files.extend(Path.cwd().glob(f"{basename}.index.*"))
-    existing_index_files.extend(Path.cwd().glob(f"{basename}.internal.index.*"))
+    existing_index_files.extend(
+        Path.cwd().glob(f"{basename}.internal.index.*")
+    )
     existing_index_files.extend(Path.cwd().glob(f"{basename}.text.*"))
     existing_index_files.extend(Path.cwd().glob(f"{basename}.vocabulary.*"))
     existing_index_files.extend(Path.cwd().glob(f"{basename}.meta-data.json"))
@@ -172,9 +176,15 @@ def get_existing_index_files(basename: str, add_non_essential: bool = False) -> 
     # Non-essential index files.
     if add_non_essential:
         existing_index_files.extend(Path.cwd().glob(f"{basename}.view.*"))
-        existing_index_files.extend(Path.cwd().glob(f"{basename}.settings.json"))
-        existing_index_files.extend(Path.cwd().glob(f"{basename}.index-log.txt"))
-        existing_index_files.extend(Path.cwd().glob(f"{basename}.server-log.txt"))
+        existing_index_files.extend(
+            Path.cwd().glob(f"{basename}.settings.json")
+        )
+        existing_index_files.extend(
+            Path.cwd().glob(f"{basename}.index-log.txt")
+        )
+        existing_index_files.extend(
+            Path.cwd().glob(f"{basename}.server-log.txt")
+        )
 
     # Return only the file names, not the full paths.
     return [path.name for path in existing_index_files]

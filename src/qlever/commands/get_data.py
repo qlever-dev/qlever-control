@@ -37,12 +37,13 @@ class GetDataCommand(QleverCommand):
         try:
             run_command(args.get_data_cmd, show_output=True)
         except Exception as e:
-            log.error(f"Problem executing \"{args.get_data_cmd}\": {e}")
+            log.error(f'Problem executing "{args.get_data_cmd}": {e}')
             return False
 
         # Show the total file size in GB and return.
         patterns = shlex.split(args.input_files)
         total_file_size = get_total_file_size(patterns)
-        print(f"Download successful, total file size: "
-              f"{total_file_size:,} bytes")
+        print(
+            f"Download successful, total file size: {total_file_size:,} bytes"
+        )
         return True

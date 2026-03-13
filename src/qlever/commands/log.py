@@ -15,7 +15,7 @@ class LogCommand(QleverCommand):
         pass
 
     def description(self) -> str:
-        return ("Show the last lines of the server log file and follow it")
+        return "Show the last lines of the server log file and follow it"
 
     def should_have_qleverfile(self) -> bool:
         return False
@@ -24,15 +24,24 @@ class LogCommand(QleverCommand):
         return {"data": ["name"]}
 
     def additional_arguments(self, subparser) -> None:
-        subparser.add_argument("--tail-num-lines", type=int, default=20,
-                               help="Show this many of the last lines of the "
-                                    "log file")
-        subparser.add_argument("--from-beginning", action="store_true",
-                               default=False,
-                               help="Show all lines of the log file")
-        subparser.add_argument("--no-follow", action="store_true",
-                               default=False,
-                               help="Don't follow the log file")
+        subparser.add_argument(
+            "--tail-num-lines",
+            type=int,
+            default=20,
+            help="Show this many of the last lines of the log file",
+        )
+        subparser.add_argument(
+            "--from-beginning",
+            action="store_true",
+            default=False,
+            help="Show all lines of the log file",
+        )
+        subparser.add_argument(
+            "--no-follow",
+            action="store_true",
+            default=False,
+            help="Don't follow the log file",
+        )
 
     def execute(self, args) -> bool:
         # Construct the command and show it.
@@ -50,8 +59,10 @@ class LogCommand(QleverCommand):
             return True
 
         # Execute the command.
-        log.info(f"Follow log file {log_file}, press Ctrl-C to stop"
-                 f" following (will not stop the server)")
+        log.info(
+            f"Follow log file {log_file}, press Ctrl-C to stop"
+            f" following (will not stop the server)"
+        )
         log.info("")
         try:
             subprocess.run(log_cmd, shell=True)
@@ -59,8 +70,3 @@ class LogCommand(QleverCommand):
         except Exception as e:
             log.error(e)
             return False
-
-
-
-
-

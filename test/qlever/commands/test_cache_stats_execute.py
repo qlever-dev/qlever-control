@@ -101,7 +101,8 @@ class TestCacheStatsCommand(unittest.TestCase):
 
         # Assertions
         expected_stats_call = (
-            f"curl -s {args.sparql_endpoint} " f'--data-urlencode "cmd=cache-stats"'
+            f"curl -s {args.sparql_endpoint} "
+            f'--data-urlencode "cmd=cache-stats"'
         )
         expected_settings_call = (
             f"curl -s {args.sparql_endpoint} "
