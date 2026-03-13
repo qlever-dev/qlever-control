@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from qlever import script_name
 from qlever.command import QleverCommand
 from qlever.log import log
 from qlever.util import get_total_file_size
@@ -39,12 +40,13 @@ class IndexStatsCommand(QleverCommand):
             default=False,
             help="Show only the space used",
         )
-        subparser.add_argument(
-            "--ignore-text-index",
-            action="store_true",
-            default=False,
-            help="Ignore the text index",
-        )
+        if script_name == "qlever":
+            subparser.add_argument(
+                "--ignore-text-index",
+                action="store_true",
+                default=False,
+                help="Ignore the text index",
+            )
         subparser.add_argument(
             "--time-unit",
             choices=["s", "min", "h", "auto"],
@@ -58,9 +60,15 @@ class IndexStatsCommand(QleverCommand):
             help="The size unit",
         )
 
-    def execute_time(self, args, log_file_name) -> bool:
+    def execute_time(
+        self, args, log_file_name: str
+    ) -> dict[str, tuple[float | None, str]]:
         """
-        Part of `execute` that shows the time used.
+        Parse the index build log file and compute the duration of each
+        indexing phase. Returns a dict mapping phase names (e.g.
+        "Parse input", "TOTAL time") to (duration, unit) tuples. The
+        duration is None if the phase timestamps are missing. Returns
+        an empty dict on error.
         """
 
         # Read the content of `log_file_name` into a list of lines.
@@ -69,19 +77,20 @@ class IndexStatsCommand(QleverCommand):
                 lines = log_file.readlines()
         except Exception as e:
             log.error(f"Problem reading index log file {log_file_name}: {e}")
-            return False
+            return {}
         # If there is a separate `add-text-index-log.txt` file, append those
         # lines.
+        text_log_file_name = f"{args.name}.text-index-log.txt"
         try:
-            text_log_file_name = f"{args.name}.text-index-log.txt"
             if Path(text_log_file_name).exists():
                 with open(text_log_file_name, "r") as text_log_file:
                     lines.extend(text_log_file.readlines())
         except Exception as e:
             log.error(
-                f"Problem reading text index log file " f"{text_log_file_name}: {e}"
+                f"Problem reading text index log file "
+                f"{text_log_file_name}: {e}"
             )
-            return False
+            return {}
 
         # Helper function that finds the next line matching the given `regex`,
         # starting from `current_line`, and extracts the time. Returns a tuple
@@ -95,7 +104,7 @@ class IndexStatsCommand(QleverCommand):
         # line if no match is found.
         current_line = 0
 
-        def find_next_line(regex, update_current_line=True):
+        def find_next_line(regex: str, update_current_line: bool = True):
             nonlocal lines
             nonlocal current_line
             current_line_backup = current_line
@@ -109,7 +118,8 @@ class IndexStatsCommand(QleverCommand):
                 if regex_match:
                     try:
                         return datetime.strptime(
-                            re.match(timestamp_regex, line).group(), timestamp_format
+                            re.match(timestamp_regex, line).group(),
+                            timestamp_format,
                         ), regex_match
                     except Exception as e:
                         log.error(
@@ -167,18 +177,23 @@ class IndexStatsCommand(QleverCommand):
         # Check whether at least the first phase is done.
         if overall_begin is None:
             log.error("Missing line that index build has started")
-            return False
+            return {}
         if overall_begin and not merge_begin:
             log.error(
                 "According to the log file, the index build "
                 "has started, but is still in its first "
                 "phase (parsing the input)"
             )
-            return False
+            return {}
 
-        # Helper function that shows the duration for a phase (if the start and
-        # end timestamps are available).
-        def show_duration(heading, start_end_pairs):
+        def duration(
+            start_end_pairs: list[tuple[datetime | None, datetime | None]],
+        ) -> float | None:
+            """
+            Compute the total duration across all valid (start, end) pairs,
+            converted to `time_unit`. Returns None if no pair has both
+            timestamps available.
+            """
             nonlocal time_unit
             num_start_end_pairs = 0
             diff_seconds = 0
@@ -187,28 +202,31 @@ class IndexStatsCommand(QleverCommand):
                     diff_seconds += (end - start).total_seconds()
                     num_start_end_pairs += 1
             if num_start_end_pairs > 0:
-                if time_unit == "h":
-                    diff = diff_seconds / 3600
-                elif time_unit == "min":
-                    diff = diff_seconds / 60
-                else:
-                    diff = diff_seconds
-                log.info(f"{heading:<21} : {diff:>6.1f} {time_unit}")
+                return diff_seconds / self.get_time_unit_factor(time_unit)
+            return None
 
-        # Get the times of the various phases (hours or minutes, depending on
-        # how long the first phase took).
-        time_unit = args.time_unit
-        if time_unit == "auto":
-            time_unit = "h"
-            if merge_begin and overall_begin:
-                parse_duration = (merge_begin - overall_begin).total_seconds()
-                if parse_duration < 200:
-                    time_unit = "s"
-                elif parse_duration < 3600:
-                    time_unit = "min"
-        show_duration("Parse input", [(overall_begin, merge_begin)])
-        show_duration("Build vocabularies", [(merge_begin, convert_begin)])
-        show_duration("Convert to global IDs", [(convert_begin, convert_end)])
+        # Determine the time unit based on the duration of the first phase
+        # (parsing), unless explicitly specified.
+        parse_duration = None
+        if merge_begin and overall_begin:
+            parse_duration = (merge_begin - overall_begin).total_seconds()
+        time_unit = self.get_time_unit(args.time_unit, parse_duration)
+
+        # Compute durations for each indexing phase. Each entry maps a
+        # phase name to (duration_in_time_unit, time_unit).
+        durations = {}
+        durations["Parse input"] = (
+            duration([(overall_begin, merge_begin)]),
+            time_unit,
+        )
+        durations["Build vocabularies"] = (
+            duration([(merge_begin, convert_begin)]),
+            time_unit,
+        )
+        durations["Convert to global IDs"] = (
+            duration([(convert_begin, convert_end)]),
+            time_unit,
+        )
         for i in range(len(perm_begin_and_info)):
             perm_begin, perm_info = perm_begin_and_info[i]
             perm_end = (
@@ -217,65 +235,107 @@ class IndexStatsCommand(QleverCommand):
                 else normal_end
             )
             perm_info_text = (
-                perm_info.group(1).replace(" and ", " & ") if perm_info else f"#{i + 1}"
+                perm_info.group(1).replace(" and ", " & ")
+                if perm_info
+                else f"#{i + 1}"
             )
-            show_duration(f"Permutation {perm_info_text}", [(perm_begin, perm_end)])
-        show_duration("Text index", [(text_begin, text_end)])
+            durations[f"Permutation {perm_info_text}"] = (
+                duration([(perm_begin, perm_end)]),
+                time_unit,
+            )
+        durations["Text index"] = (
+            duration([(text_begin, text_end)]),
+            time_unit,
+        )
+        # TOTAL includes the text index time if it was built separately.
         if text_begin and text_end:
-            log.info("")
-            show_duration(
-                "TOTAL time", [(overall_begin, normal_end), (text_begin, text_end)]
+            durations["TOTAL time"] = (
+                duration(
+                    [(overall_begin, normal_end), (text_begin, text_end)]
+                ),
+                time_unit,
             )
         elif normal_end:
-            log.info("")
-            show_duration("TOTAL time", [(overall_begin, normal_end)])
-        return True
+            durations["TOTAL time"] = (
+                duration([(overall_begin, normal_end)]),
+                time_unit,
+            )
+        return durations
 
-    def execute_space(self, args) -> bool:
+    @staticmethod
+    def get_time_unit(time_unit: str, parse_duration: float | None) -> str:
         """
-        Part of `execute` that shows the space used.
+        Resolve the time unit. If `time_unit` is not "auto", return it
+        as-is. Otherwise, pick a unit based on how long the parse phase
+        took (seconds if < 200s, minutes if < 1h, hours otherwise).
         """
+        if time_unit != "auto":
+            return time_unit
+        time_unit = "h"
+        if parse_duration is not None:
+            if parse_duration < 200:
+                time_unit = "s"
+            elif parse_duration < 3600:
+                time_unit = "min"
+        return time_unit
 
-        # Get the sizes for the various groups of index files.
-        index_size = get_total_file_size([f"{args.name}.index.*"])
-        vocab_size = get_total_file_size([f"{args.name}.vocabulary.*"])
-        text_size = get_total_file_size([f"{args.name}.text.*"])
+    @staticmethod
+    def get_time_unit_factor(time_unit: str) -> int:
+        """Return the number of seconds per `time_unit`."""
+        return {"s": 1, "min": 60, "h": 3600}[time_unit]
+
+    def execute_space(self, args) -> dict[str, tuple[float, str]]:
+        """
+        Compute the disk space used by each group of index files. Returns
+        a dict mapping display labels (e.g. "Files index.*", "TOTAL size")
+        to (size, unit) tuples, where size is already converted to `unit`.
+        """
+        # Collect raw sizes in bytes.
+        sizes = {}
+        for size_type in ["index", "vocabulary", "text"]:
+            sizes[size_type] = get_total_file_size(
+                [f"{args.name}.{size_type}.*"]
+            )
         if args.ignore_text_index:
-            text_size = 0
-        total_size = index_size + vocab_size + text_size
+            sizes["text"] = 0
+        sizes["total"] = sum(sizes.values())
 
-        # Determing the proper unit for the size.
-        size_unit = args.size_unit
-        if size_unit == "auto":
-            size_unit = "TB"
-            if total_size < 1e6:
-                size_unit = "B"
-            elif total_size < 1e9:
-                size_unit = "MB"
-            elif total_size < 1e12:
-                size_unit = "GB"
+        # Convert all sizes to the chosen unit.
+        size_unit = self.get_size_unit(args.size_unit, sizes["total"])
+        unit_factor = self.get_size_unit_factor(size_unit)
+        for size_type in sizes:
+            sizes[size_type] /= unit_factor
 
-        # Helper function for showing the size in a uniform way.
-        def show_size(heading, size):
-            nonlocal size_unit
-            if size_unit == "GB":
-                size /= 1e9
-            elif size_unit == "MB":
-                size /= 1e6
-            elif size_unit == "TB":
-                size /= 1e12
-            if size_unit == "B":
-                log.info(f"{heading:<21} :  {size:,} {size_unit}")
-            else:
-                log.info(f"{heading:<21} : {size:>6.1f} {size_unit}")
+        sizes_to_show = {}
+        sizes_to_show["Files index.*"] = (sizes["index"], size_unit)
+        sizes_to_show["Files vocabulary.*"] = (sizes["vocabulary"], size_unit)
+        if sizes["text"] > 0:
+            sizes_to_show["Files text.*"] = (sizes["text"], size_unit)
+        sizes_to_show["TOTAL size"] = (sizes["total"], size_unit)
+        return sizes_to_show
 
-        show_size("Files index.*", index_size)
-        show_size("Files vocabulary.*", vocab_size)
-        if text_size > 0:
-            show_size("Files text.*", text_size)
-        log.info("")
-        show_size("TOTAL size", total_size)
-        return True
+    @staticmethod
+    def get_size_unit(size_unit: str, total_size: int) -> str:
+        """
+        Resolve the size unit. If `size_unit` is not "auto", return it
+        as-is. Otherwise, pick the largest unit that keeps the total
+        size >= 1 in that unit.
+        """
+        if size_unit != "auto":
+            return size_unit
+        size_unit = "TB"
+        if total_size < 1e6:
+            size_unit = "B"
+        elif total_size < 1e9:
+            size_unit = "MB"
+        elif total_size < 1e12:
+            size_unit = "GB"
+        return size_unit
+
+    @staticmethod
+    def get_size_unit_factor(size_unit: str) -> int | float:
+        """Return the number of bytes per `size_unit`."""
+        return {"B": 1, "MB": 1e6, "GB": 1e9, "TB": 1e12}[size_unit]
 
     def execute(self, args) -> bool:
         return_value = True
@@ -290,7 +350,18 @@ class IndexStatsCommand(QleverCommand):
                 only_show=args.show,
             )
             if not args.show:
-                return_value &= self.execute_time(args, log_file_name)
+                durations = self.execute_time(args, log_file_name)
+                heading_length = max([len(heading) for heading in durations]) + 2
+                # Display each phase duration, skipping phases with
+                # missing timestamps (duration is None).
+                for heading, (duration, time_unit) in durations.items():
+                    if duration is not None:
+                        if heading == "TOTAL time" and len(durations) > 1:
+                            log.info("")
+                        log.info(
+                            f"{heading:<{heading_length}} : {duration:>6.1f} {time_unit}"
+                        )
+                return_value &= len(durations) != 0
             if not args.only_time:
                 log.info("")
 
@@ -301,6 +372,15 @@ class IndexStatsCommand(QleverCommand):
                 only_show=args.show,
             )
             if not args.show:
-                return_value &= self.execute_space(args)
+                sizes = self.execute_space(args)
+                # Display the disk space used by each group of index files.
+                for heading, (size, size_unit) in sizes.items():
+                    if heading == "TOTAL size" and len(sizes) > 1:
+                        log.info("")
+                    if size_unit == "B":
+                        log.info(f"{heading:<21} :  {size:,} {size_unit}")
+                    else:
+                        log.info(f"{heading:<21} : {size:>6.1f} {size_unit}")
+                return_value &= len(sizes) != 0
 
         return return_value

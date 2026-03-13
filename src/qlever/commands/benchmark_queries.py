@@ -9,17 +9,425 @@ import time
 import traceback
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import rdflib
 import yaml
 from termcolor import colored
 
+from qlever import command_objects, engine_name, script_name
 from qlever.command import QleverCommand
 from qlever.commands.clear_cache import ClearCacheCommand
 from qlever.commands.ui import dict_to_yaml
+from qlever.containerize import Containerize
 from qlever.log import log, mute_log
 from qlever.util import run_command, run_curl_command
+
+
+def pretty_printed_query(
+    query: str, show_prefixes: bool, system: str = "docker"
+) -> str:
+    """
+    Pretty-print a SPARQL query using the sparql-formatter Docker image.
+    Optionally strips PREFIX declarations from the output.
+    Argument `system` can either be docker or podman.
+    """
+    if system not in Containerize.supported_systems():
+        system = "docker"
+    remove_prefixes_cmd = " | sed '/^PREFIX /Id'" if not show_prefixes else ""
+    pretty_print_query_cmd = (
+        f"echo {shlex.quote(query)}"
+        f" | {system} run -i --rm docker.io/sparqling/sparql-formatter"
+        f"{remove_prefixes_cmd} | grep -v '^$'"
+    )
+    try:
+        query_pretty_printed = run_command(
+            pretty_print_query_cmd, return_output=True
+        )
+        return query_pretty_printed.rstrip()
+    except Exception as e:
+        log.error(
+            f"Failed to pretty-print query, returning original query: {e}"
+        )
+        return query.rstrip()
+
+
+def sparql_query_type(query: str) -> str:
+    """
+    Determine the SPARQL query type (SELECT, ASK, CONSTRUCT, DESCRIBE)
+    from the query string. Returns "UNKNOWN" if no type is found.
+    """
+    match = re.search(
+        r"(SELECT|ASK|CONSTRUCT|DESCRIBE)\s", query, re.IGNORECASE
+    )
+    if match:
+        return match.group(1).upper()
+    else:
+        return "UNKNOWN"
+
+
+def filter_queries(
+    queries: list[tuple[str, str, str]], query_ids: str, query_regex: str
+) -> list[tuple[str, str, str]]:
+    """
+    Given a list of queries (tuple of query desc and full sparql query),
+    filter them and keep the ones which are a part of query_ids
+    or match with query_regex
+    """
+    # Get the list of query indices to keep
+    total_queries = len(queries)
+    query_indices = []
+    for part in query_ids.split(","):
+        if "-" in part:
+            start, end = part.split("-")
+            if end == "$":
+                end = total_queries
+            query_indices.extend(range(int(start) - 1, int(end)))
+        else:
+            idx = int(part) if part != "$" else total_queries
+            query_indices.append(idx - 1)
+
+    try:
+        filtered_queries = []
+        pattern = (
+            re.compile(query_regex, re.IGNORECASE) if query_regex else None
+        )
+        for query_idx in query_indices:
+            if query_idx >= total_queries:
+                continue
+
+            name, description, query = queries[query_idx]
+
+            # Only include queries that match the query_regex if present
+            if pattern and not (
+                pattern.search(name)
+                or pattern.search(description)
+                or pattern.search(query)
+            ):
+                continue
+
+            filtered_queries.append((name, description, query))
+        return filtered_queries
+    except Exception as exc:
+        log.error(f"Error filtering queries: {exc}")
+        return []
+
+
+def parse_queries_tsv(queries_cmd: str) -> list[tuple[str, str, str]]:
+    """
+    Execute the given bash command to fetch tsv queries and return a
+    list of queries i.e. tuple(query_name, "", full_sparql_query)
+    Note: query_description is returned as empty to match the return
+    structure of parse_queries_yml and for backward compatibility
+    """
+    try:
+        tsv_queries_str = run_command(queries_cmd, return_output=True)
+        if len(tsv_queries_str) == 0:
+            log.error("No queries found in the TSV queries file")
+            return []
+        return [
+            (query_name, "", sparql_query)
+            for line in tsv_queries_str.strip().splitlines()
+            for query_name, sparql_query in [line.split("\t", 1)]
+        ]
+    except Exception as exc:
+        log.error(f"Failed to read the TSV queries file: {exc}")
+        return []
+
+
+def get_result_size(
+    count_only: bool,
+    query_type: str,
+    accept_header: str,
+    result_file: str,
+) -> tuple[int, dict[str, str] | None]:
+    """
+    Get the result size and error_msg dict (if query failed) for
+    different accept headers
+    """
+
+    def get_json_error_msg(e: Exception) -> dict[str, str]:
+        error_msg = {
+            "short": "Malformed JSON",
+            "long": "curl returned with code 200, "
+            "but the JSON is malformed: " + re.sub(r"\s+", " ", str(e)),
+        }
+        return error_msg
+
+    result_size = 0
+    error_msg = None
+    # CASE 0: The result is empty despite a 200 HTTP code (not a
+    # problem for CONSTRUCT and DESCRIBE queries).
+    if Path(result_file).stat().st_size == 0 and (
+        not query_type == "CONSTRUCT" and not query_type == "DESCRIBE"
+    ):
+        result_size = 0
+        error_msg = {
+            "short": "Empty result",
+            "long": "curl returned with code 200, but the result is empty",
+        }
+
+    # CASE 1: Just counting the size of the result (TSV or JSON).
+    elif count_only:
+        if accept_header in ("text/tab-separated-values", "text/csv"):
+            result_size = run_command(
+                f"sed 1d {result_file}", return_output=True
+            )
+        elif accept_header == "application/qlever-results+json":
+            try:
+                # sed cmd to get the number between 2nd and 3rd double_quotes
+                result_size = run_command(
+                    f"jq '.res[0]' {result_file}"
+                    " | sed 's/[^0-9]*\\([0-9]*\\).*/\\1/'",
+                    return_output=True,
+                )
+            except Exception as e:
+                error_msg = get_json_error_msg(e)
+        else:
+            try:
+                result_size = run_command(
+                    f'jq -r ".results.bindings[0]'
+                    f" | to_entries[0].value.value"
+                    f' | tonumber" {result_file}',
+                    return_output=True,
+                )
+            except Exception as e:
+                error_msg = get_json_error_msg(e)
+
+    # CASE 2: Downloading the full result (TSV, CSV, Turtle, JSON).
+    else:
+        if accept_header in ("text/tab-separated-values", "text/csv"):
+            result_size = run_command(
+                f"sed 1d {result_file} | wc -l", return_output=True
+            )
+        elif accept_header == "text/turtle":
+            result_size = run_command(
+                f"sed '1d;/^@prefix/d;/^\\s*$/d' {result_file} | wc -l",
+                return_output=True,
+            )
+        elif accept_header == "application/qlever-results+json":
+            try:
+                result_size = run_command(
+                    f'jq -r ".resultsize" {result_file}',
+                    return_output=True,
+                )
+            except Exception as e:
+                error_msg = get_json_error_msg(e)
+        else:
+            try:
+                result_size = int(
+                    run_command(
+                        f'jq -r ".results.bindings | length" {result_file}',
+                        return_output=True,
+                    ).rstrip()
+                )
+            except Exception as e:
+                error_msg = get_json_error_msg(e)
+    return int(result_size), error_msg
+
+
+def get_single_int_result(result_file: str) -> int | None:
+    """
+    When downloading the full result of a query with accept header as
+    application/sparql-results+json and result_size == 1, get the single
+    integer result value (if any).
+    """
+    single_int_result = None
+    try:
+        single_int_result = int(
+            run_command(
+                f'jq -e -r ".results.bindings[0][] | .value" {result_file}',
+                return_output=True,
+            ).rstrip()
+        )
+    except Exception:
+        pass
+    return single_int_result
+
+
+def restart_server(start_only: bool = False) -> bool:
+    """
+    Restart the SPARQL server after the server hangs i.e. doesn't return
+    results after timeout + 30s
+    Extremely useful for benchmarking oxigraph (doesn't have timeout implemented)
+    and blazegraph (sometimes doesn't terminate query execution at timeout)
+    Only useful when Qleverfile in CWD and configured properly i.e. no command
+    line args needed to call stop and start commands
+    """
+    stop_cmd = f"{script_name} stop"
+    start_cmd = f"{script_name} start"
+    if not start_only:
+        try:
+            run_command(stop_cmd)
+            time.sleep(2)
+        except Exception as e:
+            log.warning(f"{script_name} process could not be stopped!: {e}")
+    try:
+        run_command(start_cmd)
+        time.sleep(5)
+        log.info(f"Successfully restarted {engine_name} server after hang!")
+        return True
+    except Exception as e:
+        log.warning(
+            f"{script_name} server could not be restarted. This might affect "
+            f"the benchmark process!: {e}"
+        )
+        return False
+
+
+def compute_index_stats() -> tuple[float | None, float | None]:
+    """
+    Compute the index size (Bytes) and time (seconds) if available
+    """
+    index_stats = command_objects["index-stats"]
+    index_time = index_size = None
+    index_log_file = next(Path.cwd().glob("*.index-log.txt"), None)
+
+    if index_log_file:
+        index_args = SimpleNamespace(
+            time_unit="s",
+            size_unit="B",
+            ignore_text_index=False,
+            name=index_log_file.name.split(".")[0],
+        )
+        durations = index_stats.execute_time(index_args, index_log_file.name)
+        if len(durations) > 0 and "TOTAL time" in durations:
+            index_time = durations["TOTAL time"][0]
+        sizes = index_stats.execute_space(index_args)
+        if len(sizes) > 0 and "TOTAL size" in sizes:
+            index_size = sizes["TOTAL size"][0]
+
+    return index_time, index_size
+
+
+def get_query_results(
+    result_file: str, result_size: int, accept_header: str
+) -> tuple[list[str], list[list[str]]]:
+    """
+    Return headers and query results as a tuple for various accept headers
+    """
+    if accept_header in ("text/tab-separated-values", "text/csv"):
+        separator = "," if accept_header == "text/csv" else "\t"
+        get_result_cmd = f"sed -n '1,{result_size + 1}p' {result_file}"
+        results_str = run_command(get_result_cmd, return_output=True)
+        results = results_str.splitlines()
+        reader = csv.reader(StringIO(results_str), delimiter=separator)
+        headers = next(reader)
+        results = [row for row in reader]
+        return headers, results
+
+    elif accept_header == "application/qlever-results+json":
+        get_result_cmd = (
+            f"jq '{{headers: .selected, results: .res[0:{result_size}]}}' "
+            f"{result_file}"
+        )
+        results_str = run_command(get_result_cmd, return_output=True)
+        results_json = json.loads(results_str)
+        return results_json["headers"], results_json["results"]
+
+    elif accept_header == "application/sparql-results+json":
+        get_result_cmd = (
+            f"jq '{{headers: .head.vars, "
+            f"bindings: .results.bindings[0:{result_size}]}}' "
+            f"{result_file}"
+        )
+        results_str = run_command(get_result_cmd, return_output=True)
+        results_json = json.loads(results_str)
+        results = []
+        bindings = results_json.get("bindings", [])
+        for binding in bindings:
+            result = []
+            if not binding or not isinstance(binding, dict):
+                results.append([])
+                continue
+            for obj in binding.values():
+                value = '"' + obj["value"] + '"'
+                if obj["type"] == "uri":
+                    value = "<" + value.strip('"') + ">"
+                elif "datatype" in obj:
+                    value += "^^<" + obj["datatype"] + ">"
+                elif "xml:lang" in obj:
+                    value += "@" + obj["xml:lang"]
+                result.append(value)
+            results.append(result)
+        return results_json["headers"], results
+
+    else:  # text/turtle
+        graph = rdflib.Graph()
+        graph.parse(result_file, format="turtle")
+        headers = ["?subject", "?predicate", "?object"]
+        results = []
+        for i, (s, p, o) in enumerate(graph):
+            if i >= result_size:
+                break
+            results.append([str(s), str(p), str(o)])
+        return headers, results
+
+
+def get_result_yml_query_record(
+    name: str,
+    description: str,
+    query: str,
+    client_time: float,
+    result: str | dict[str, str],
+    result_size: int | None,
+    max_result_size: int,
+    accept_header: str,
+    server_restarted: bool,
+) -> dict[str, Any]:
+    """
+    Construct a dictionary with query information for output result yaml file
+    """
+    record = {
+        "name": name,
+        "description": description,
+        "query": query,
+        "runtime_info": {},
+        "server_restarted": server_restarted,
+    }
+    if result_size is None:
+        results = f"{result['short']}: {result['long']}"
+        headers = []
+    else:
+        record["result_size"] = result_size
+        result_size = (
+            max_result_size if result_size > max_result_size else result_size
+        )
+        headers, results = get_query_results(
+            result, result_size, accept_header
+        )
+        if accept_header == "application/qlever-results+json":
+            runtime_info_cmd = (
+                f"jq 'if .runtimeInformation then"
+                f" .runtimeInformation else"
+                f' "null" end\' {result}'
+            )
+            runtime_info_str = run_command(
+                runtime_info_cmd, return_output=True
+            )
+            if runtime_info_str != "null":
+                record["runtime_info"] = json.loads(runtime_info_str)
+    record["runtime_info"]["client_time"] = client_time
+    record["headers"] = headers
+    record["results"] = results
+    return record
+
+
+def write_query_records_to_result_file(
+    query_data: dict[str, list[dict[str, Any]]], out_file: Path
+) -> None:
+    """
+    Write yaml record for all queries to output yaml file
+    """
+    config_yaml = dict_to_yaml(query_data)
+    with open(out_file, "w") as eval_yaml_file:
+        eval_yaml_file.write(config_yaml)
+        log.info("")
+        log.info(
+            f"Generated result yaml file: {out_file.stem}{out_file.suffix} "
+            f"in the directory {out_file.parent.resolve()}"
+        )
 
 
 class BenchmarkQueriesCommand(QleverCommand):
@@ -29,19 +437,25 @@ class BenchmarkQueriesCommand(QleverCommand):
     """
 
     def __init__(self):
-        pass
+        self.benchmark_name = None
+        self.benchmark_description = None
 
     def description(self) -> str:
         return (
             "Run the given benchmark or example queries and show their "
-            "processing times and result sizes"
+            "processing times and result sizes. Optionally, store the "
+            "benchmark results in a YML file."
         )
 
     def should_have_qleverfile(self) -> bool:
         return False
 
     def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
-        return {"server": ["host_name", "port"], "ui": ["ui_config"]}
+        return {
+            "server": ["host_name", "port", "timeout"],
+            "runtime": ["system"],
+            "ui": ["ui_config"],
+        }
 
     def additional_arguments(self, subparser) -> None:
         subparser.add_argument(
@@ -64,8 +478,8 @@ class BenchmarkQueriesCommand(QleverCommand):
             type=str,
             default=None,
             help=(
-                "Path to a TSV file containing benchmark queries "
-                "(query_description, full_sparql_query)"
+                "Path to a TSV file containing the benchmark queries "
+                "(short_query_name, full_sparql_query)"
             ),
         )
         subparser.add_argument(
@@ -73,11 +487,14 @@ class BenchmarkQueriesCommand(QleverCommand):
             type=str,
             default=None,
             help=(
-                "Path to a YAML file containing benchmark queries.  "
-                "The YAML file should have a top-level "
-                "key called 'queries', which is a list of dictionaries. "
-                "Each dictionary should contain 'query' for the query "
-                "description and 'sparql' for the full SPARQL query."
+                "Path to a YML file containing the benchmark queries. "
+                "The YAML must follow this structure ->"
+                "name: <benchmark name (str)>, "
+                "description: <benchmark description (str)>, "
+                "queries: <list[query]> where each query contains: "
+                "name: <short query name (mandatory)>, "
+                "description <query description (optional)>, "
+                "query: <full sparql query (mandatory)>"
             ),
         )
         subparser.add_argument(
@@ -142,10 +559,10 @@ class BenchmarkQueriesCommand(QleverCommand):
             help="Clear the cache before each query (only works for QLever)",
         )
         subparser.add_argument(
-            "--width-query-description",
+            "--width-query-name",
             type=int,
             default=70,
-            help="Width for printing the query description",
+            help="Width for printing the query name",
         )
         subparser.add_argument(
             "--width-error-message",
@@ -164,7 +581,7 @@ class BenchmarkQueriesCommand(QleverCommand):
             action="store_true",
             default=False,
             help="Add the query type (SELECT, ASK, CONSTRUCT, DESCRIBE, "
-            "UNKNOWN) to the description",
+            "UNKNOWN) to the query description",
         )
         subparser.add_argument(
             "--show-query",
@@ -205,105 +622,51 @@ class BenchmarkQueriesCommand(QleverCommand):
                 "YML file (Default = 5)"
             ),
         )
-
-    def pretty_printed_query(self, query: str, show_prefixes: bool) -> str:
-        remove_prefixes_cmd = (
-            " | sed '/^PREFIX /Id'" if not show_prefixes else ""
+        subparser.add_argument(
+            "--benchmark-name",
+            type=str,
+            default=None,
+            help=(
+                "Benchmark name to be saved in result YML file (This will "
+                "override the 'name' field in --queries-yml file). This benchmark "
+                "name would be displayed as header title when comparing RDF Graph "
+                "Databases on the evaluation web app. Only relevant "
+                "when --result-file argument is passed."
+            ),
         )
-        pretty_print_query_cmd = (
-            f"echo {shlex.quote(query)}"
-            f" | docker run -i --rm sparqling/sparql-formatter"
-            f"{remove_prefixes_cmd} | grep -v '^$'"
+        subparser.add_argument(
+            "--benchmark-description",
+            type=str,
+            default=None,
+            help=(
+                "Benchmark description to be saved in result YML file (This "
+                "will override the 'description' field in --queries-yml file). "
+                "This benchmark description would be displayed as additional "
+                "help text on the evaluation web app for the given benchmark. "
+                "Only relevant when --result-file argument is passed."
+            ),
         )
-        try:
-            query_pretty_printed = run_command(
-                pretty_print_query_cmd, return_output=True
-            )
-            return query_pretty_printed.rstrip()
-        except Exception as e:
-            log.error(
-                f"Failed to pretty-print query, returning original query: {e}"
-            )
-            return query.rstrip()
-
-    def sparql_query_type(self, query: str) -> str:
-        match = re.search(
-            r"(SELECT|ASK|CONSTRUCT|DESCRIBE)\s", query, re.IGNORECASE
+        subparser.add_argument(
+            "--restart-on-hang",
+            action="store_true",
+            help=(
+                "Enable automatic server recovery during benchmarking. "
+                "If a query continues running for more than 30 seconds past the "
+                "configured timeout, the benchmark runner will assume the SPARQL "
+                "server is stuck. It will then stop and restart the server for "
+                "the current engine, and resume execution with the next query. "
+                "NOTE: This only works if all the server parameters for start and "
+                "stop are configured in the Qleverfile and no arguments are needed "
+                f"for the {script_name} start and {script_name} stop commands."
+            ),
         )
-        if match:
-            return match.group(1).upper()
-        else:
-            return "UNKNOWN"
 
-    @staticmethod
-    def filter_queries(
-        queries: list[tuple[str, str]], query_ids: str, query_regex: str
-    ) -> list[tuple[str, str]]:
-        """
-        Given a list of queries (tuple of query desc and full sparql query),
-        filter them and keep the ones which are a part of query_ids
-        or match with query_regex
-        """
-        # Get the list of query indices to keep
-        total_queries = len(queries)
-        query_indices = []
-        for part in query_ids.split(","):
-            if "-" in part:
-                start, end = part.split("-")
-                if end == "$":
-                    end = total_queries
-                query_indices.extend(range(int(start) - 1, int(end)))
-            else:
-                idx = int(part) if part != "$" else total_queries
-                query_indices.append(idx - 1)
-
-        try:
-            filtered_queries = []
-            pattern = (
-                re.compile(query_regex, re.IGNORECASE) if query_regex else None
-            )
-            for query_idx in query_indices:
-                if query_idx >= total_queries:
-                    continue
-
-                query_desc, sparql = queries[query_idx]
-
-                # Only include queries that match the query_regex if present
-                if pattern and not (
-                    pattern.search(query_desc) or pattern.search(sparql)
-                ):
-                    continue
-
-                filtered_queries.append((query_desc, sparql))
-            return filtered_queries
-        except Exception as exc:
-            log.error(f"Error filtering queries: {exc}")
-            return []
-
-    @staticmethod
-    def parse_queries_tsv(queries_cmd: str) -> list[tuple[str, str]]:
-        """
-        Execute the given bash command to fetch tsv queries and return a
-        list of queries i.e. tuple(query_description, full_sparql_query)
-        """
-        try:
-            tsv_queries_str = run_command(queries_cmd, return_output=True)
-            if len(tsv_queries_str) == 0:
-                log.error("No queries found in the TSV queries file")
-                return []
-            return [
-                tuple(line.split("\t"))
-                for line in tsv_queries_str.strip().splitlines()
-            ]
-        except Exception as exc:
-            log.error(f"Failed to read the TSV queries file: {exc}")
-            return []
-
-    @staticmethod
-    def parse_queries_yml(queries_file: str) -> list[tuple[str, str]]:
+    def parse_queries_yml(
+        self, queries_file: str
+    ) -> list[tuple[str, str, str]]:
         """
         Parse a YML file, validate its structure and return a list of
-        queries i.e. tuple(query_description, full_sparql_query)
+        queries i.e. tuple(query_name, query_description, full_sparql_query)
         """
         with open(queries_file, "r", encoding="utf-8") as q_file:
             try:
@@ -323,131 +686,27 @@ class BenchmarkQueriesCommand(QleverCommand):
             log.error("Error: 'queries' key in YML file must hold a list.")
             return []
 
-        for item in data["queries"]:
+        if name := data.get("name"):
+            self.benchmark_name = name
+        if description := data.get("description"):
+            self.benchmark_description = description
+
+        queries = []
+        for query in data["queries"]:
             if (
-                not isinstance(item, dict)
-                or "query" not in item
-                or "sparql" not in item
+                not isinstance(query, dict)
+                or "query" not in query
+                or "name" not in query
             ):
                 log.error(
                     "Error: Each item in 'queries' must contain "
-                    "'query' and 'sparql' keys."
+                    "'name' and 'query' keys."
                 )
                 return []
-
-        return [(query["query"], query["sparql"]) for query in data["queries"]]
-
-    def get_result_size(
-        self,
-        count_only: bool,
-        query_type: str,
-        accept_header: str,
-        result_file: str,
-    ) -> tuple[int, dict[str, str] | None]:
-        """
-        Get the result size and error_msg dict (if query failed) for
-        different accept headers
-        """
-
-        def get_json_error_msg(e: Exception) -> dict[str, str]:
-            error_msg = {
-                "short": "Malformed JSON",
-                "long": "curl returned with code 200, "
-                "but the JSON is malformed: " + re.sub(r"\s+", " ", str(e)),
-            }
-            return error_msg
-
-        result_size = 0
-        error_msg = None
-        # CASE 0: The result is empty despite a 200 HTTP code (not a
-        # problem for CONSTRUCT and DESCRIBE queries).
-        if Path(result_file).stat().st_size == 0 and (
-            not query_type == "CONSTRUCT" and not query_type == "DESCRIBE"
-        ):
-            result_size = 0
-            error_msg = {
-                "short": "Empty result",
-                "long": "curl returned with code 200, but the result is empty",
-            }
-
-        # CASE 1: Just counting the size of the result (TSV or JSON).
-        elif count_only:
-            if accept_header in ("text/tab-separated-values", "text/csv"):
-                result_size = run_command(
-                    f"sed 1d {result_file}", return_output=True
-                )
-            elif accept_header == "application/qlever-results+json":
-                try:
-                    # sed cmd to get the number between 2nd and 3rd double_quotes
-                    result_size = run_command(
-                        f"jq '.res[0]' {result_file}"
-                        " | sed 's/[^0-9]*\\([0-9]*\\).*/\\1/'",
-                        return_output=True,
-                    )
-                except Exception as e:
-                    error_msg = get_json_error_msg(e)
-            else:
-                try:
-                    result_size = run_command(
-                        f'jq -r ".results.bindings[0]'
-                        f" | to_entries[0].value.value"
-                        f' | tonumber" {result_file}',
-                        return_output=True,
-                    )
-                except Exception as e:
-                    error_msg = get_json_error_msg(e)
-
-        # CASE 2: Downloading the full result (TSV, CSV, Turtle, JSON).
-        else:
-            if accept_header in ("text/tab-separated-values", "text/csv"):
-                result_size = run_command(
-                    f"sed 1d {result_file} | wc -l", return_output=True
-                )
-            elif accept_header == "text/turtle":
-                result_size = run_command(
-                    f"sed '1d;/^@prefix/d;/^\\s*$/d' {result_file} | wc -l",
-                    return_output=True,
-                )
-            elif accept_header == "application/qlever-results+json":
-                try:
-                    result_size = run_command(
-                        f'jq -r ".resultsize" {result_file}',
-                        return_output=True,
-                    )
-                except Exception as e:
-                    error_msg = get_json_error_msg(e)
-            else:
-                try:
-                    result_size = int(
-                        run_command(
-                            f'jq -r ".results.bindings | length"'
-                            f" {result_file}",
-                            return_output=True,
-                        ).rstrip()
-                    )
-                except Exception as e:
-                    error_msg = get_json_error_msg(e)
-        return int(result_size), error_msg
-
-    @staticmethod
-    def get_single_int_result(result_file: str) -> int | None:
-        """
-        When downloading the full result of a query with accept header as
-        application/sparql-results+json and result_size == 1, get the single
-        integer result value (if any).
-        """
-        single_int_result = None
-        try:
-            single_int_result = int(
-                run_command(
-                    f'jq -e -r ".results.bindings[0][] | .value"'
-                    f" {result_file}",
-                    return_output=True,
-                ).rstrip()
+            queries.append(
+                (query["name"], query.get("description") or "", query["query"])
             )
-        except Exception:
-            pass
-        return single_int_result
+        return queries
 
     def execute(self, args) -> bool:
         # We can't have both `--remove-offset-and-limit` and `--limit`.
@@ -456,7 +715,7 @@ class BenchmarkQueriesCommand(QleverCommand):
             return False
 
         # Extract dataset and sparql_engine name from result file
-        dataset, engine = None, None
+        dataset = engine = None
         if args.result_file is not None:
             result_file_parts = args.result_file.split(".")
             if len(result_file_parts) != 2:
@@ -478,6 +737,11 @@ class BenchmarkQueriesCommand(QleverCommand):
                 )
                 results_dir_path.mkdir(parents=True, exist_ok=True)
             dataset, engine = result_file_parts
+            self.benchmark_name = dataset.capitalize()
+            self.benchmark_description = (
+                f"{dataset.capitalize()} benchmark ran using {script_name} "
+                "benchmark-queries"
+            )
 
         # If `args.accept` is `application/sparql-results+json` or
         # `application/qlever-results+json` or `AUTO`, we need `jq`.
@@ -573,11 +837,11 @@ class BenchmarkQueriesCommand(QleverCommand):
         if args.queries_yml:
             queries = self.parse_queries_yml(args.queries_yml)
         elif args.queries_tsv:
-            queries = self.parse_queries_tsv(f"cat {args.queries_tsv}")
+            queries = parse_queries_tsv(f"cat {args.queries_tsv}")
         else:
-            queries = self.parse_queries_tsv(example_queries_cmd)
+            queries = parse_queries_tsv(example_queries_cmd)
 
-        filtered_queries = self.filter_queries(
+        filtered_queries = filter_queries(
             queries, args.query_ids, args.query_regex
         )
 
@@ -588,25 +852,52 @@ class BenchmarkQueriesCommand(QleverCommand):
         # We want the width of the query description to be an uneven number (in
         # case we have to truncated it, in which case we want to have a " ... "
         # in the middle).
-        width_query_description_half = args.width_query_description // 2
-        width_query_description = 2 * width_query_description_half + 1
+        width_query_name_half = args.width_query_name // 2
+        width_query_name = 2 * width_query_name_half + 1
+
+        try:
+            timeout = int(args.timeout[:-1])
+        except ValueError:
+            timeout = None
 
         # Launch the queries one after the other and for each print: the
         # description, the result size (number of rows), and the query
         # processing time (seconds).
         query_times = []
         result_sizes = []
-        result_yml_query_records = {"queries": []}
+        result_yml_query_records = {
+            "name": self.benchmark_name,
+            "description": self.benchmark_description,
+            "queries": [],
+        }
+        if args.result_file:
+            if timeout:
+                result_yml_query_records["timeout"] = timeout
+            # Override the name and description if provided as args
+            if args.benchmark_name:
+                result_yml_query_records["name"] = args.benchmark_name
+            if args.benchmark_description:
+                result_yml_query_records["description"] = (
+                    args.benchmark_description
+                )
+
+            index_time, index_size = compute_index_stats()
+            result_yml_query_records["index_time"] = index_time
+            result_yml_query_records["index_size"] = index_size
+
         num_failed = 0
-        for description, query in filtered_queries:
+        for name, description, query in filtered_queries:
             if len(query) == 0:
-                log.error("Could not parse description and query, line is:")
+                log.error(
+                    "Could not parse name, description and query, line is:"
+                )
                 log.info("")
-                log.info(f"{description}\t{query}")
+                log.info(f"{name}\t{description}\t{query}")
                 return False
-            query_type = self.sparql_query_type(query)
+            query_type = sparql_query_type(query)
             if args.add_query_type_to_description or args.accept == "AUTO":
-                description = f"{description} [{query_type}]"
+                # If no query description, use name and append query type to it
+                description = f"{description or name} [{query_type}]"
 
             # Clear the cache.
             if args.clear_cache == "yes":
@@ -673,7 +964,9 @@ class BenchmarkQueriesCommand(QleverCommand):
                 log.info("")
                 log.info(
                     colored(
-                        self.pretty_printed_query(query, args.show_prefixes),
+                        pretty_printed_query(
+                            query, args.show_prefixes, args.system
+                        ),
                         "cyan",
                     )
                 )
@@ -698,19 +991,25 @@ class BenchmarkQueriesCommand(QleverCommand):
             result_file = (
                 f"qlever.example_queries.result.{abs(hash(curl_cmd))}.tmp"
             )
+            result_size = 0
+            single_int_result = None
             start_time = time.time()
+            server_restarted = False
             try:
+                max_time = None
+                if args.restart_on_hang and timeout:
+                    max_time = timeout + 30
                 http_code = run_curl_command(
                     sparql_endpoint,
                     headers={"Accept": accept_header},
                     params={"query": query},
                     result_file=result_file,
+                    max_time=max_time,
                 ).strip()
+                time_seconds = time.time() - start_time
                 if http_code == "200":
-                    time_seconds = time.time() - start_time
                     error_msg = None
                 else:
-                    time_seconds = time.time() - start_time
                     error_msg = {
                         "short": f"HTTP code: {http_code}",
                         "long": re.sub(
@@ -719,6 +1018,16 @@ class BenchmarkQueriesCommand(QleverCommand):
                     }
             except Exception as e:
                 time_seconds = time.time() - start_time
+
+                # If curl timed out after hitting max_time = 30s
+                if "exit code 28" in str(e) and args.restart_on_hang:
+                    server_restarted = restart_server()
+                # If server is not responding and has crashed
+                elif (
+                    "exit code 52" in str(e) or "exit code 7" in str(e)
+                ) and args.restart_on_hang:
+                    server_restarted = restart_server(start_only=True)
+
                 if args.log_level == "DEBUG":
                     traceback.print_exc()
                 error_msg = {
@@ -729,19 +1038,18 @@ class BenchmarkQueriesCommand(QleverCommand):
             # Get result size (via the command line, in order to avoid loading
             # a potentially large JSON file into Python, which is slow).
             if error_msg is None:
-                result_size, error_msg = self.get_result_size(
+                result_size, error_msg = get_result_size(
                     args.download_or_count == "count",
                     query_type,
                     accept_header,
                     result_file,
                 )
-                single_int_result = None
                 if (
                     result_size == 1
                     and accept_header == "application/sparql-results+json"
                     and args.download_or_count == "download"
                 ):
-                    single_int_result = self.get_single_int_result(result_file)
+                    single_int_result = get_single_int_result(result_file)
 
             # Get the result yaml record if output file needs to be generated
             if args.result_file is not None:
@@ -755,25 +1063,27 @@ class BenchmarkQueriesCommand(QleverCommand):
                 query_results = (
                     error_msg if error_msg is not None else result_file
                 )
-                query_record = self.get_result_yml_query_record(
-                    query=description,
-                    sparql=self.pretty_printed_query(
-                        query, args.show_prefixes
+                query_record = get_result_yml_query_record(
+                    name=name,
+                    description=description,
+                    query=pretty_printed_query(
+                        query, args.show_prefixes, args.system
                     ),
                     client_time=time_seconds,
                     result=query_results,
                     result_size=result_length,
                     max_result_size=args.max_results_output_file,
                     accept_header=accept_header,
+                    server_restarted=server_restarted,
                 )
                 result_yml_query_records["queries"].append(query_record)
 
-            # Print description, time, result in tabular form.
-            if len(description) > width_query_description:
-                description = (
-                    description[: width_query_description_half - 2]
+            # Print name, time, result in tabular form.
+            if len(name) > width_query_name:
+                name = (
+                    name[: width_query_name_half - 2]
                     + " ... "
-                    + description[-width_query_description_half + 2 :]
+                    + name[-width_query_name_half + 2 :]
                 )
             if error_msg is None:
                 result_size = int(result_size)
@@ -783,7 +1093,7 @@ class BenchmarkQueriesCommand(QleverCommand):
                     else ""
                 )
                 log.info(
-                    f"{description:<{width_query_description}}  "
+                    f"{name:<{width_query_name}}  "
                     f"{time_seconds:6.2f} s  "
                     f"{result_size:>{args.width_result_size},}"
                     f"{single_int_result}"
@@ -806,7 +1116,7 @@ class BenchmarkQueriesCommand(QleverCommand):
                     "\n" if args.show_query == "on-error" else "  "
                 )
                 log.info(
-                    f"{description:<{width_query_description}}    "
+                    f"{name:<{width_query_name}}    "
                     f"{colored('FAILED   ', 'red')}"
                     f"{colored(error_msg['short'], 'red'):>{args.width_result_size}}"
                     f"{seperator_short_long}"
@@ -815,8 +1125,8 @@ class BenchmarkQueriesCommand(QleverCommand):
                 if args.show_query == "on-error":
                     log.info(
                         colored(
-                            self.pretty_printed_query(
-                                query, args.show_prefixes
+                            pretty_printed_query(
+                                query, args.show_prefixes, args.system
                             ),
                             "cyan",
                         )
@@ -835,7 +1145,7 @@ class BenchmarkQueriesCommand(QleverCommand):
             if len(result_yml_query_records["queries"]) != 0:
                 outfile_name = f"{dataset}.{engine}.results.yaml"
                 outfile = Path(args.results_dir) / outfile_name
-                self.write_query_records_to_result_file(
+                write_query_records_to_result_file(
                     query_data=result_yml_query_records,
                     out_file=outfile,
                 )
@@ -857,19 +1167,19 @@ class BenchmarkQueriesCommand(QleverCommand):
             description = f"TOTAL   for {n} {query_or_queries}"
             log.info("")
             log.info(
-                f"{description:<{width_query_description}}  "
+                f"{description:<{width_query_name}}  "
                 f"{total_query_time:6.2f} s  "
                 f"{total_result_size:>14,}"
             )
             description = f"AVERAGE for {n} {query_or_queries}"
             log.info(
-                f"{description:<{width_query_description}}  "
+                f"{description:<{width_query_name}}  "
                 f"{average_query_time:6.2f} s  "
                 f"{average_result_size:>14,}"
             )
             description = f"MEDIAN  for {n} {query_or_queries}"
             log.info(
-                f"{description:<{width_query_description}}  "
+                f"{description:<{width_query_name}}  "
                 f"{median_query_time:6.2f} s  "
                 f"{median_result_size:>14,}"
             )
@@ -883,137 +1193,10 @@ class BenchmarkQueriesCommand(QleverCommand):
                 num_failed_string += "  [all]"
             log.info(
                 colored(
-                    f"{description:<{width_query_description}}  "
-                    f"{num_failed:>24}",
+                    f"{description:<{width_query_name}}  {num_failed:>24}",
                     "red",
                 )
             )
 
         # Return success (has nothing to do with how many queries failed).
         return True
-
-    def get_result_yml_query_record(
-        self,
-        query: str,
-        sparql: str,
-        client_time: float,
-        result: str | dict[str, str],
-        result_size: int | None,
-        max_result_size: int,
-        accept_header: str,
-    ) -> dict[str, Any]:
-        """
-        Construct a dictionary with query information for output result yaml file
-        """
-        record = {
-            "query": query,
-            "sparql": sparql,
-            "runtime_info": {},
-        }
-        if result_size is None:
-            results = f"{result['short']}: {result['long']}"
-            headers = []
-        else:
-            record["result_size"] = result_size
-            result_size = (
-                max_result_size
-                if result_size > max_result_size
-                else result_size
-            )
-            headers, results = self.get_query_results(
-                result, result_size, accept_header
-            )
-            if accept_header == "application/qlever-results+json":
-                runtime_info_cmd = (
-                    f"jq 'if .runtimeInformation then"
-                    f" .runtimeInformation else"
-                    f' "null" end\' {result}'
-                )
-                runtime_info_str = run_command(
-                    runtime_info_cmd, return_output=True
-                )
-                if runtime_info_str != "null":
-                    record["runtime_info"] = json.loads(runtime_info_str)
-        record["runtime_info"]["client_time"] = client_time
-        record["headers"] = headers
-        record["results"] = results
-        return record
-
-    def get_query_results(
-        self, result_file: str, result_size: int, accept_header: str
-    ) -> tuple[list[str], list[list[str]]]:
-        """
-        Return headers and query results as a tuple for various accept headers
-        """
-        if accept_header in ("text/tab-separated-values", "text/csv"):
-            separator = "," if accept_header == "text/csv" else "\t"
-            get_result_cmd = f"sed -n '1,{result_size + 1}p' {result_file}"
-            results_str = run_command(get_result_cmd, return_output=True)
-            results = results_str.splitlines()
-            reader = csv.reader(StringIO(results_str), delimiter=separator)
-            headers = next(reader)
-            results = [row for row in reader]
-            return headers, results
-
-        elif accept_header == "application/qlever-results+json":
-            get_result_cmd = (
-                f"jq '{{headers: .selected, results: .res[0:{result_size}]}}' "
-                f"{result_file}"
-            )
-            results_str = run_command(get_result_cmd, return_output=True)
-            results_json = json.loads(results_str)
-            return results_json["headers"], results_json["results"]
-
-        elif accept_header == "application/sparql-results+json":
-            get_result_cmd = (
-                f"jq '{{headers: .head.vars, "
-                f"bindings: .results.bindings[0:{result_size}]}}' "
-                f"{result_file}"
-            )
-            results_str = run_command(get_result_cmd, return_output=True)
-            results_json = json.loads(results_str)
-            results = []
-            bindings = results_json.get("bindings", [])
-            for binding in bindings:
-                result = []
-                if not binding or not isinstance(binding, dict):
-                    results.append([])
-                    continue
-                for obj in binding.values():
-                    value = '"' + obj["value"] + '"'
-                    if obj["type"] == "uri":
-                        value = "<" + value.strip('"') + ">"
-                    elif "datatype" in obj:
-                        value += "^^<" + obj["datatype"] + ">"
-                    elif "xml:lang" in obj:
-                        value += "@" + obj["xml:lang"]
-                    result.append(value)
-                results.append(result)
-            return results_json["headers"], results
-
-        else:  # text/turtle
-            graph = rdflib.Graph()
-            graph.parse(result_file, format="turtle")
-            headers = ["?subject", "?predicate", "?object"]
-            results = []
-            for i, (s, p, o) in enumerate(graph):
-                if i >= result_size:
-                    break
-                results.append([str(s), str(p), str(o)])
-            return headers, results
-
-    @staticmethod
-    def write_query_records_to_result_file(
-        query_data: dict[str, list[dict[str, Any]]], out_file: Path
-    ) -> None:
-        """
-        Write yaml record for all queries to output yaml file
-        """
-        config_yaml = dict_to_yaml(query_data)
-        with open(out_file, "w") as eval_yaml_file:
-            eval_yaml_file.write(config_yaml)
-            log.info("")
-            log.info(
-                f"Generated result yaml file: {out_file.stem}{out_file.suffix} "
-                f"in the directory {out_file.parent.resolve()}"
-            )
