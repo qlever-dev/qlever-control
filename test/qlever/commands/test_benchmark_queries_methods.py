@@ -1,6 +1,9 @@
 import pytest
 
-from qlever.commands.benchmark_queries import BenchmarkQueriesCommand
+from qlever.commands.benchmark_queries import (
+    get_result_size,
+    get_single_int_result,
+)
 
 MODULE = "qlever.commands.benchmark_queries"
 
@@ -30,7 +33,7 @@ def test_empty_result_non_construct_describe(
     mock_path_stat.return_value.st_size = 0
     run_cmd_mock = mock_command(MODULE, "run_command")
 
-    size, err = BenchmarkQueriesCommand().get_result_size(
+    size, err = get_result_size(
         count_only=download_or_count == "count",
         query_type="SELECT",
         accept_header=accept_header,
@@ -62,7 +65,7 @@ def test_empty_result_construct_describe(
     run_cmd_mock = mock_command(MODULE, "run_command")
     run_cmd_mock.return_value = "42"
 
-    size, err = BenchmarkQueriesCommand().get_result_size(
+    size, err = get_result_size(
         count_only=download_or_count == "count",
         query_type=query_type,
         accept_header=accept_header,
@@ -89,7 +92,7 @@ def test_count_and_download_success(
     run_cmd_mock = mock_command(MODULE, "run_command")
     run_cmd_mock.return_value = "42"
 
-    size, err = BenchmarkQueriesCommand().get_result_size(
+    size, err = get_result_size(
         count_only=download_or_count == "count",
         query_type="SELECT",
         accept_header=accept_header,
@@ -107,7 +110,7 @@ def test_download_turtle_success(mock_command):
     run_cmd_mock = mock_command(MODULE, "run_command")
     run_cmd_mock.return_value = "42"
 
-    size, err = BenchmarkQueriesCommand().get_result_size(
+    size, err = get_result_size(
         count_only=False,
         query_type="SELECT",
         accept_header="text/turtle",
@@ -135,7 +138,7 @@ def test_download_and_count_json_malformed(
     run_cmd_mock = mock_command(MODULE, "run_command")
     run_cmd_mock.side_effect = Exception("jq failed")
 
-    size, err = BenchmarkQueriesCommand().get_result_size(
+    size, err = get_result_size(
         count_only=download_or_count == "count",
         query_type="SELECT",
         accept_header=accept_header,
@@ -156,7 +159,7 @@ def test_single_int_result_success(mock_command):
     run_cmd_mock = mock_command(MODULE, "run_command")
     run_cmd_mock.return_value = "123"
 
-    single_int_result = BenchmarkQueriesCommand().get_single_int_result(
+    single_int_result = get_single_int_result(
         "result.json"
     )
 
@@ -168,7 +171,7 @@ def test_single_int_result_non_int_fail(mock_command):
     run_cmd_mock = mock_command(MODULE, "run_command")
     run_cmd_mock.return_value = "abc"
 
-    single_int_result = BenchmarkQueriesCommand().get_single_int_result(
+    single_int_result = get_single_int_result(
         "result.json"
     )
 
@@ -180,7 +183,7 @@ def test_single_int_result_failure(mock_command):
     run_cmd_mock = mock_command(MODULE, "run_command")
     run_cmd_mock.side_effect = Exception("jq failed")
 
-    single_int_result = BenchmarkQueriesCommand().get_single_int_result(
+    single_int_result = get_single_int_result(
         "result.json"
     )
 
