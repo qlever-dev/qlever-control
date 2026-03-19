@@ -37,6 +37,7 @@ class Qleverfile:
         "lazy-index-scan-num-threads",
         "lazy-index-scan-queue-size",
         "lazy-result-max-cache-size",
+        "permutation-writer-num-threads",
         "query-planning-budget",
         "request-body-limit",
         "service-allowed-iri-prefixes",
