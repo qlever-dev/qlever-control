@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import time
+from pathlib import Path
 
 from qlever.command import QleverCommand
 from qlever.commands.cache_stats import CacheStatsCommand
@@ -60,10 +61,13 @@ def kill_existing_server(args) -> bool:
 def wrap_command_in_container(args, start_cmd) -> str:
     if not args.server_container:
         args.server_container = f"qlever.server.{args.name}"
+    run_subcmd = "run --restart=unless-stopped"
+    if not args.run_in_foreground:
+        run_subcmd += " -d"
     start_cmd = Containerize().containerize_command(
         start_cmd,
         args.system,
-        "run -d --restart=unless-stopped",
+        run_subcmd,
         args.image,
         args.server_container,
         volumes=[("$(pwd)", "/index")],
@@ -280,7 +284,20 @@ class StartCommand(QleverCommand):
                 f" (Ctrl-C stops following the log, but NOT the server)"
             )
         log.info("")
-        tail_cmd = f"exec tail -f {args.name}.server-log.txt"
+        log_file = Path(f"{args.name}.server-log.txt")
+        # Wait for the log file to be created before reading from it
+        max_wait_seconds = 30
+        waited = 0.0
+        while not log_file.exists():
+            if waited >= max_wait_seconds:
+                log.error(
+                    f"Log file {log_file} was not created within "
+                    f"{max_wait_seconds} seconds"
+                )
+                return False
+            time.sleep(0.1)
+            waited += 0.1
+        tail_cmd = f"exec tail -f {log_file}"
         tail_proc = subprocess.Popen(tail_cmd, shell=True)
         while not is_qlever_server_alive(args.endpoint_url):
             time.sleep(1)
@@ -329,6 +346,11 @@ class StartCommand(QleverCommand):
                 process.wait()
             except KeyboardInterrupt:
                 process.terminate()
+                # Stop the container process manually
+                if args.system in Containerize.supported_systems():
+                    args.cmdline_regex = "qlever-server.* -i [^ ]*%%NAME%%"
+                    args.no_containers = False
+                    StopCommand().execute(args)
             tail_proc.terminate()
 
         return True
