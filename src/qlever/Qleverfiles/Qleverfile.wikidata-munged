@@ -25,8 +25,9 @@ DESCRIPTION           = Complete Wikidata, TTL from ${GET_DATA_URL_BASE} (latest
 
 [index]
 INPUT_FILES      = latest-all.MUNGED.ttl.gz latest-lexemes.ttl.bz2 dcatap.nt
-MULTI_INPUT_JSON = { "cmd": "zcat latest-all.MUNGED.ttl.gz", "format": "ttl", "parallel": "true" }
-                   { "cmd": "lbzcat -n 1 latest-lexemes.ttl.bz2", "format": "ttl", "parallel": "false" }
+BZCAT_CMD        = $$(command -v lbzcat >/dev/null && echo "lbzcat -n 1" || echo "bzcat")
+MULTI_INPUT_JSON = { "cmd": "gunzip -c latest-all.MUNGED.ttl.gz", "format": "ttl", "parallel": "true" }
+                   { "cmd": "${BZCAT_CMD} latest-lexemes.ttl.bz2", "format": "ttl", "parallel": "false" }
                    { "cmd": "cat dcatap.nt", "format": "nt", "parallel": "false" }
 SETTINGS_JSON    = { "num-triples-per-batch": 5000000, "languages-internal": [], "prefixes-external": [""], "locale": { "language": "en", "country": "US", "ignore-punctuation": true } }
 STXXL_MEMORY     = 10G
