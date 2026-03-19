@@ -86,8 +86,34 @@ class RebuildIndexCommand(QleverCommand):
             help="When the rebuild is finished, stop the server with the old "
             "index and start it again with the new index",
         )
+        subparser.add_argument(
+            "--vacuum-only",
+            action="store_true",
+            default=False,
+            help="Instead of rebuilding the index, only vacuum the delta "
+            "triples (remove redundant insertions and deletions)",
+        )
 
     def execute(self, args) -> bool:
+        # If `--vacuum-only` is set, issue `cmd=vacuum-delta-triples` via the
+        # API and return.
+        if args.vacuum_only:
+            vacuum_cmd = (
+                f"curl -s {args.host_name}:{args.port} "
+                f"-d cmd=vacuum-delta-triples "
+                f"-d access-token={args.access_token}"
+            )
+            self.show(vacuum_cmd, only_show=args.show)
+            if args.show:
+                return True
+            try:
+                result = run_command(vacuum_cmd, return_output=True)
+                log.info(result)
+            except Exception as e:
+                log.error(f"Vacuuming delta triples failed: {e}")
+                return False
+            return True
+
         # Either `--new-index-dir` or `--old-index-dir`.
         if args.new_index_dir is not None and args.old_index_dir is not None:
             log.error(

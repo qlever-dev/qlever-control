@@ -52,6 +52,7 @@ class Qleverfile:
         "throw-on-unbound-variables",
         "treat-default-graph-as-named-graph",
         "use-binsearch-transitive-path",
+        "vacuum-minimum-block-size",
         "websocket-updates-enabled",
     ]
 
