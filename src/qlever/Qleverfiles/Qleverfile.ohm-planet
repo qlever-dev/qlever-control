@@ -18,7 +18,7 @@ DESCRIPTION    = OHM from ${GET_DATA_URL} (with GeoSPARQL predicates ogc:sfConta
 
 [index]
 INPUT_FILES        = ${data:NAME}.ttl.gz
-MULTI_INPUT_JSON   = { "cmd": "zcat ${INPUT_FILES}", "parallel": "true" }
+MULTI_INPUT_JSON   = { "cmd": "gunzip -c ${INPUT_FILES}", "parallel": "true" }
 STXXL_MEMORY       = 5G
 PARSER_BUFFER_SIZE = 50M
 SETTINGS_JSON      = { "num-triples-per-batch": 5000000 }
