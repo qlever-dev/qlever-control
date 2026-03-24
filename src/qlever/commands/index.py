@@ -12,6 +12,7 @@ from qlever.util import (
     binary_exists,
     get_existing_index_files,
     get_total_file_size,
+    input_files_exist,
     run_command,
 )
 
@@ -282,15 +283,8 @@ class IndexCommand(QleverCommand):
             return False
 
         # Check if all of the input files exist.
-        for pattern in shlex.split(args.input_files):
-            if len(glob.glob(pattern)) == 0:
-                log.error(f'No file matching "{pattern}" found')
-                log.info("")
-                log.info(
-                    "Did you call `qlever get-data`? If you did, check "
-                    "GET_DATA_CMD and INPUT_FILES in the QLeverfile"
-                )
-                return False
+        if not input_files_exist(args.input_files, "qlever"):
+            return False
 
         # Check if index files (name.index.*) already exist.
         existing_index_files = get_existing_index_files(args.name)

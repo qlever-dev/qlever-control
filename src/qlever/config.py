@@ -81,6 +81,10 @@ class QleverConfig:
                                    f"`{section}` not found")
                 args, kwargs = all_qleverfile_args[section][arg_name]
                 kwargs_copy = kwargs.copy()
+                action_type = kwargs_copy.get("action", "store")
+                if action_type == "store" and "metavar" not in kwargs_copy:
+                    metavar = arg_name.upper()
+                    kwargs_copy["metavar"] = f"(In Qleverfile: [{section}] {metavar})"
                 # If `qleverfile_config` is given, add info about default
                 # values to the help string.
                 if qleverfile_config is not None:

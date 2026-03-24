@@ -381,7 +381,7 @@ class IndexStatsCommand(QleverCommand):
                 # missing timestamps (duration is None).
                 for heading, (duration, time_unit) in durations.items():
                     if duration is not None:
-                        if heading == "TOTAL time":
+                        if heading == "TOTAL time" and len(durations) != 1:
                             log.info("")
                         log.info(
                             f"{heading:<25} : {duration:>6.1f} {time_unit}"
@@ -400,7 +400,7 @@ class IndexStatsCommand(QleverCommand):
                 sizes = self.execute_space(args)
                 # Display the disk space used by each group of index files.
                 for heading, (size, size_unit) in sizes.items():
-                    if heading == "TOTAL size":
+                    if heading == "TOTAL size" and len(sizes) != 1:
                         log.info("")
                     if size_unit == "B":
                         log.info(f"{heading:<25} :  {size:,} {size_unit}")
