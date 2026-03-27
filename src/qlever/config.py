@@ -90,10 +90,12 @@ class QleverConfig:
                     if qleverfile_value is not None:
                         kwargs_copy["default"] = qleverfile_value
                         kwargs_copy["required"] = False
+                        escaped_value = qleverfile_value.replace('%', '%%')
                         kwargs_copy["help"] += (f" [default, from Qleverfile:"
-                                                f" {qleverfile_value}]")
+                                                f" {escaped_value}]")
                     else:
-                        kwargs_copy["help"] += f" [default: {default_value}]"
+                        escaped_default = str(default_value).replace('%', '%%')
+                        kwargs_copy["help"] += f" [default: {escaped_default}]"
                 subparser.add_argument(*args, **kwargs_copy)
 
         # Additional arguments that are shared by all commands.
