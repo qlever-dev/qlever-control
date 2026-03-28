@@ -112,6 +112,7 @@ def test_wrap_command_in_container(mock_containerize_command):
         volumes=[("$(pwd)", "/index")],
         ports=[(args.port, args.port)],
         working_directory="/index",
+        disable_selinux=args.disable_selinux == "yes",
     )
     # check start command was successfully returned
     start_command = "Test_Container_Command"

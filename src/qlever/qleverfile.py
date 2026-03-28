@@ -380,6 +380,16 @@ class Qleverfile:
             type=str,
             help=f"The name of the container used by `{script_name} start`",
         )
+        runtime_args["disable_selinux"] = arg(
+            "--disable-selinux",
+            choices=["yes", "no"],
+            default="no",
+            help=(
+                "Disable SELinux confinement for the container, "
+                "use this if you get permission errors on "
+                "bind-mounted files (e.g. on Fedora or RHEL)"
+            ),
+        )
 
         ui_args["ui_port"] = arg(
             "--ui-port",

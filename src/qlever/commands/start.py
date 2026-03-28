@@ -69,6 +69,7 @@ def wrap_command_in_container(args, start_cmd) -> str:
         volumes=[("$(pwd)", "/index")],
         ports=[(args.port, args.port)],
         working_directory="/index",
+        disable_selinux=args.disable_selinux == "yes",
     )
     return start_cmd
 
@@ -142,7 +143,8 @@ class StartCommand(QleverCommand):
                 "use_text_index",
                 "warmup_cmd",
             ],
-            "runtime": ["system", "image", "server_container"],
+            "runtime": ["system", "image", "server_container",
+                        "disable_selinux"],
         }
 
     def additional_arguments(self, subparser) -> None:

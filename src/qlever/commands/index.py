@@ -51,7 +51,12 @@ class IndexCommand(QleverCommand):
                 "stxxl_memory",
                 "parser_buffer_size",
             ],
-            "runtime": ["system", "image", "index_container"],
+            "runtime": [
+                "system",
+                "image",
+                "index_container",
+                "disable_selinux",
+            ],
         }
 
     def additional_arguments(self, subparser) -> None:
@@ -265,6 +270,7 @@ class IndexCommand(QleverCommand):
                 args.index_container,
                 volumes=[("$(pwd)", "/index")],
                 working_directory="/index",
+                disable_selinux=args.disable_selinux == "yes",
             )
 
         # Command for writing the settings JSON to a file.

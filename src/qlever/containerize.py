@@ -12,6 +12,15 @@ from qlever.log import log
 from qlever.util import get_random_string, run_command
 
 
+def _selinux_enforcing() -> bool:
+    """Check if SELinux is in enforcing mode by reading the kernel interface."""
+    try:
+        with open("/sys/fs/selinux/enforce") as f:
+            return f.read().strip() == "1"
+    except (FileNotFoundError, PermissionError):
+        return False
+
+
 class ContainerizeException(Exception):
     pass
 
@@ -41,6 +50,7 @@ class Containerize:
         ports: list[tuple[int, int]] = [],
         working_directory: Optional[str] = None,
         use_bash: bool = True,
+        disable_selinux: bool = False,
     ) -> str:
         """
         Get the command to run `cmd` with the given `container_system` and the
@@ -52,6 +62,15 @@ class Containerize:
             return ContainerizeException(
                 f'Invalid container system "{container_system}"'
                 f" (must be one of {Containerize.supported_systems()})"
+            )
+
+        # Warn if SELinux is enforcing but not disabled for the container.
+        if _selinux_enforcing() and not disable_selinux:
+            log.warning(
+                "SELinux is enforcing, which may cause permission "
+                "errors with bind-mounted files. If you experience "
+                "issues, set DISABLE_SELINUX = yes in your "
+                "Qleverfile or use --disable-selinux yes"
             )
 
         # Set user and group ids. This is important so that the files created
@@ -77,11 +96,18 @@ class Containerize:
             f" -w {working_directory}" if working_directory is not None else ""
         )
 
+        # If SELinux is disabled for the container, add the security option
+        # so that the container can access bind-mounted host files.
+        selinux_option = (
+            " --security-opt label=disable" if disable_selinux else ""
+        )
+
         # Construct the command that runs `cmd` with the given container
         # system.
         containerized_cmd = (
             f"{container_system} {run_subcommand}"
             f"{user_option}"
+            f"{selinux_option}"
             f" -v /etc/localtime:/etc/localtime:ro"
             f"{volume_options}"
             f"{port_options}"
@@ -155,6 +181,7 @@ class Containerize:
         if args.system in Containerize.supported_systems():
             if not args.server_container:
                 args.server_container = get_random_string(20)
+            disable_selinux = getattr(args, "disable_selinux", "no") == "yes"
             run_cmd = Containerize().containerize_command(
                 cmd,
                 args.system,
@@ -163,5 +190,6 @@ class Containerize:
                 args.server_container,
                 volumes=[("$(pwd)", "/index")],
                 working_directory="/index",
+                disable_selinux=disable_selinux,
             )
             return run_command(run_cmd, return_output=True)

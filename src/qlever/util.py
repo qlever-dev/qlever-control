@@ -323,6 +323,7 @@ def binary_exists(binary: str, cmd_arg: str, args) -> bool:
 
     is_containerized = args.system in Containerize.supported_systems()
     cmd = f"{binary} --help"
+    disable_selinux = getattr(args, "disable_selinux", "no") == "yes"
     if is_containerized:
         cmd = Containerize().containerize_command(
             cmd,
@@ -332,6 +333,7 @@ def binary_exists(binary: str, cmd_arg: str, args) -> bool:
             "qlever.check-binary",
             volumes=[("$(pwd)", "/index")],
             working_directory="/index",
+            disable_selinux=disable_selinux,
         )
 
     try:
