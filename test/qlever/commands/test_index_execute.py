@@ -14,10 +14,10 @@ class TestIndexCommand(unittest.TestCase):
     @patch("qlever.commands.index.Containerize")
     @patch("qlever.commands.index.get_existing_index_files")
     @patch("qlever.commands.index.get_total_file_size")
-    @patch("qlever.commands.index.glob")
+    @patch("qlever.commands.index.input_files_exist")
     def test_execute_successful_indexing_without_extras(
         self,
-        mock_glob,
+        mock_input_files_exist,
         mock_get_total_file_size,
         mock_get_existing_index_files,
         mock_containerize,
@@ -50,9 +50,9 @@ class TestIndexCommand(unittest.TestCase):
         args.parser_buffer_size = None
         args.materialized_views = None
 
-        # Mock glob, get_total_file_size, get_existing_index_files,
-        # run_command and containerize
-        mock_glob.glob.return_value = ["input1.nt", "input2.nt"]
+        # Mock input_files_exist, get_total_file_size,
+        # get_existing_index_files, run_command and containerize
+        mock_input_files_exist.return_value = True
         mock_get_total_file_size.return_value = 5e9  # 5 GB
         mock_get_existing_index_files.return_value = []
         mock_index_run_command.return_value = None
@@ -98,10 +98,10 @@ class TestIndexCommand(unittest.TestCase):
     @patch("qlever.commands.index.get_existing_index_files")
     @patch("qlever.commands.index.get_total_file_size")
     @patch("qlever.commands.index.log")
-    @patch("qlever.commands.index.glob")
+    @patch("qlever.commands.index.input_files_exist")
     def test_execute_indexing_with_already_existing_files(
         self,
-        mock_glob,
+        mock_input_files_exist,
         mock_log,
         mock_get_total_file_size,
         mock_get_existing_index_files,
@@ -129,9 +129,9 @@ class TestIndexCommand(unittest.TestCase):
         args.multi_input_json = False
         args.materialized_views = None
 
-        # Mock glob, get_total_file_size, get_existing_index_files,
-        # run_command and containerize
-        mock_glob.glob.return_value = ["input1.nt", "input2.nt"]
+        # Mock input_files_exist, get_total_file_size,
+        # get_existing_index_files, run_command and containerize
+        mock_input_files_exist.return_value = True
         mock_get_total_file_size.return_value = 5e9  # 5 GB
         mock_get_existing_index_files.return_value = ["TestName.index"]
         mock_run_command.return_value = None
@@ -226,10 +226,10 @@ class TestIndexCommand(unittest.TestCase):
     @patch("qlever.commands.index.Containerize")
     @patch("qlever.commands.index.get_existing_index_files")
     @patch("qlever.commands.index.get_total_file_size")
-    @patch("qlever.commands.index.glob")
+    @patch("qlever.commands.index.input_files_exist")
     def test_execute_total_file_size_greater_than_ten_gb(
         self,
-        mock_glob,
+        mock_input_files_exist,
         mock_get_total_file_size,
         mock_get_existing_index_files,
         mock_containerize,
@@ -262,9 +262,9 @@ class TestIndexCommand(unittest.TestCase):
         args.parser_buffer_size = None
         args.materialized_views = None
 
-        # Mock glob, get_total_file_size, get_existing_index_files,
-        # run_command and containerize
-        mock_glob.glob.return_value = ["input1.nt", "input2.nt"]
+        # Mock input_files_exist, get_total_file_size,
+        # get_existing_index_files, run_command and containerize
+        mock_input_files_exist.return_value = True
         mock_get_total_file_size.return_value = 15e9  # 15 GB
         mock_get_existing_index_files.return_value = []
         mock_index_run_command.return_value = None

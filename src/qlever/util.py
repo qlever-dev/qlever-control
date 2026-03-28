@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import errno
+import glob
 import re
 import secrets
 import shlex
@@ -8,26 +10,33 @@ import shutil
 import socket
 import string
 import subprocess
+import time
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Optional
 
 import psutil
 
+from qlever import script_name
 from qlever.log import log
 
 
-def get_total_file_size(patterns: list[str]) -> int:
+def get_total_file_size(
+    patterns: list[str], exclude: set[str] | None = None
+) -> int:
     """
-    Helper function that gets the total size of all files mathing the given
-    patterns in bytes.
+    Helper function that gets the total size of all files matching the given
+    patterns in bytes. Files whose names match any entry in `exclude` are
+    skipped.
     """
-
+    if not exclude:
+        exclude = set()
     total_size = 0
     search_dir = Path.cwd()
     for pattern in patterns:
         for file in search_dir.glob(pattern):
-            total_size += file.stat().st_size
+            if file.name not in exclude:
+                total_size += file.stat().st_size
     return total_size
 
 
@@ -87,7 +96,7 @@ def run_curl_command(
     url: str,
     headers: dict[str, str] = {},
     params: dict[str, str] = {},
-    result_file: Optional[str] = None,
+    result_file: str | None = None,
     max_time: int | None = None,
 ) -> str:
     """
@@ -299,7 +308,11 @@ def stop_process_with_regex(cmdline_regex: str) -> list[bool] | None:
                     "cmdline",
                 ]
             )
-            cmdline = " ".join(pinfo["cmdline"])
+            cmdline = (
+                " ".join(pinfo["cmdline"])
+                if isinstance(pinfo["cmdline"], list)
+                else ""
+            )
         except Exception as e:
             # For some processes (e.g., zombies), getting info may fail.
             log.debug(f"Error getting process info: {e}")
@@ -323,7 +336,7 @@ def binary_exists(binary: str, cmd_arg: str, args) -> bool:
 
     is_containerized = args.system in Containerize.supported_systems()
     cmd = f"{binary} --help"
-    if is_containerized:
+    if is_containerized and script_name == "qlever":
         cmd = Containerize().containerize_command(
             cmd,
             args.system,
@@ -369,3 +382,140 @@ def is_server_alive(url: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def input_files_exist(input_files: str) -> bool:
+    """
+    Check if all of the input files exist in current working directory.
+    """
+    for pattern in shlex.split(input_files):
+        if len(glob.glob(pattern)) == 0:
+            log.error(f'No file matching "{pattern}" found')
+            log.info("")
+            log.info(
+                f"Did you call `{script_name} get-data`? If you did, "
+                "check GET_DATA_CMD and INPUT_FILES in the Qleverfile"
+            )
+            return False
+    return True
+
+
+def build_image(build_cmd: str, system: str, image: str) -> bool:
+    """
+    Build a container image using the build command, container system and
+    image name. This method is supposed to be used before executing the index
+    command and the logs show that.
+    """
+    log.info(f"Building {system} image {image}...")
+    try:
+        run_command(build_cmd, show_output=True)
+        log.info(
+            f"Finished building {system} image {image}! "
+            "Continuing with index operation...\n"
+        )
+        return True
+    except Exception as e:
+        log.error(f"Building the {system} image {image} failed: {e}")
+        return False
+
+
+def get_container_image_id(system: str, image: str) -> str:
+    """
+    Get the container image ID to check if the image exists on the system.
+    """
+    try:
+        image_id = run_command(
+            f"{system} images -q {image}", return_output=True
+        )
+    except Exception as e:
+        log.info(
+            f"Couldn't identify if {system} image {image} "
+            f"exists on the system : {e}"
+        )
+        log.info(
+            "Assuming that the image doesn't exist and the image would "
+            "be built.\n"
+        )
+        image_id = ""
+    return image_id
+
+
+def get_ini_sed_cmd(
+    section: str, option: str, new_value: str, is_suffix: bool = False
+) -> str:
+    """
+    Generates a cross-platform sed command to update the value of a
+    key = value pair or append to one (by using is_suffix = True) in an INI file.
+    """
+    if is_suffix:
+        pattern = f"s/(^{option}.*)/\\1{new_value}/"
+    else:
+        pattern = f"s/(^{option}[[:space:]]*=[[:space:]]*).*/\\1{new_value}/"
+    return f"sed -E '/^\\[{section}\\]/,/^\\[/ {pattern}'"
+
+
+def parse_memory(value: str) -> str:
+    """
+    Validate memory size string like '4G'.
+    Returns the string unchanged if valid, raises argparse.ArgumentTypeError otherwise.
+    """
+    if not re.match(r"^\d+[G]$", value, re.IGNORECASE):
+        raise argparse.ArgumentTypeError(
+            f"Invalid memory size '{value}'. Use format like 4G, 32G."
+        )
+    return value.upper()
+
+
+def add_memory_options(subparser, index=True, server=True):
+    """
+    Add total memory-related options to a subparser for setup-config command.
+    """
+    if index:
+        subparser.add_argument(
+            "--total-index-memory",
+            type=parse_memory,
+            default="4G",
+            help=(
+                "Maximum memory budget for indexing. All relevant [index] "
+                "options in the Qleverfile will be auto-generated with sensible "
+                "defaults that together stay within this limit. "
+            ),
+        )
+
+    if server:
+        subparser.add_argument(
+            "--total-server-memory",
+            type=parse_memory,
+            default="4G",
+            help=(
+                "Maximum memory budget for the server. All relevant [server] "
+                "options in the Qleverfile will be auto-generated with sensible "
+                "defaults that together stay within this limit. "
+            ),
+        )
+
+
+def tail_log_file(
+    log_file: Path,
+    max_wait_seconds: int = 30,
+) -> subprocess.Popen | None:
+    """
+    Wait for the log file to appear and start tailing it from the
+    beginning. The old log file should be deleted before calling this
+    function.
+
+    Returns the tail process, or None if the log file was not created
+    within `max_wait_seconds`.
+    """
+    waited = 0.0
+    while not log_file.exists():
+        if waited >= max_wait_seconds:
+            log.error(
+                f"Log file {log_file} was not created within "
+                f"{max_wait_seconds} seconds"
+            )
+            return None
+        time.sleep(0.1)
+        waited += 0.1
+    tail_cmd = f"exec tail -n +1 -f {log_file}"
+    return subprocess.Popen(tail_cmd, shell=True)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import time
+from pathlib import Path
 
 from qlever.command import QleverCommand
 from qlever.commands.cache_stats import CacheStatsCommand
@@ -12,7 +13,12 @@ from qlever.commands.warmup import WarmupCommand
 from qlever.containerize import Containerize
 from qlever.log import log
 from qlever.qleverfile import Qleverfile
-from qlever.util import binary_exists, is_qlever_server_alive, run_command
+from qlever.util import (
+    binary_exists,
+    is_qlever_server_alive,
+    run_command,
+    tail_log_file,
+)
 
 
 # Construct the command line based on the config file.
@@ -60,10 +66,13 @@ def kill_existing_server(args) -> bool:
 def wrap_command_in_container(args, start_cmd) -> str:
     if not args.server_container:
         args.server_container = f"qlever.server.{args.name}"
+    run_subcmd = "run --restart=unless-stopped"
+    if not args.run_in_foreground:
+        run_subcmd += " -d"
     start_cmd = Containerize().containerize_command(
         start_cmd,
         args.system,
-        "run -d --restart=unless-stopped",
+        run_subcmd,
         args.image,
         args.server_container,
         volumes=[("$(pwd)", "/index")],
@@ -256,6 +265,11 @@ class StartCommand(QleverCommand):
         #                   f" (use `lsof -i :{port}` to find out which one)")
         #         return False
 
+        # Remove old log file so that the wait loop below correctly
+        # waits for the server to create a fresh one.
+        log_file = Path(f"{args.name}.server-log.txt")
+        log_file.unlink(missing_ok=True)
+
         # Execute the command line.
         try:
             process = run_command(
@@ -280,8 +294,9 @@ class StartCommand(QleverCommand):
                 f" (Ctrl-C stops following the log, but NOT the server)"
             )
         log.info("")
-        tail_cmd = f"exec tail -f {args.name}.server-log.txt"
-        tail_proc = subprocess.Popen(tail_cmd, shell=True)
+        tail_proc = tail_log_file(log_file)
+        if tail_proc is None:
+            return False
         while not is_qlever_server_alive(args.endpoint_url):
             time.sleep(1)
 
@@ -329,6 +344,11 @@ class StartCommand(QleverCommand):
                 process.wait()
             except KeyboardInterrupt:
                 process.terminate()
+                # Stop the container process manually
+                if args.system in Containerize.supported_systems():
+                    args.cmdline_regex = "qlever-server.* -i [^ ]*%%NAME%%"
+                    args.no_containers = False
+                    StopCommand().execute(args)
             tail_proc.terminate()
 
         return True
