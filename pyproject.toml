@@ -30,7 +30,13 @@ repository = "https://github.com/ad-freiburg/qlever.git"
 bugtracker = "https://github.com/ad-freiburg/qlever/issues"
 
 [project.scripts]
+"qblazegraph" = "qlever.qlever_main:main"
+"qgraphdb" = "qlever.qlever_main:main"
+"qjena" = "qlever.qlever_main:main"
 "qlever" = "qlever.qlever_main:main"
+"qmdb" = "qlever.qlever_main:main"
+"qoxigraph" = "qlever.qlever_main:main"
+"qvirtuoso" = "qlever.qlever_main:main"
 
 [tool.setuptools]
 package-data = { "qlever" = ["Qleverfiles/*"] }
