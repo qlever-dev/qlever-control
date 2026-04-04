@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import subprocess
 import time
 from pathlib import Path
 
@@ -78,14 +77,15 @@ def wrap_command_in_container(args, start_cmd) -> str:
         volumes=[("$(pwd)", "/index")],
         ports=[(args.port, args.port)],
         working_directory="/index",
+        disable_selinux=args.disable_selinux == "yes",
     )
     return start_cmd
 
 
 # Set the index description.
-def set_index_description(access_arg, port, desc) -> bool:
+def set_index_description(access_arg, endpoint_url, desc) -> bool:
     curl_cmd = (
-        f"curl -Gs http://localhost:{port}/api"
+        f"curl -Gs {endpoint_url}/api"
         f' --data-urlencode "index-description={desc}"'
         f" {access_arg} > /dev/null"
     )
@@ -99,9 +99,9 @@ def set_index_description(access_arg, port, desc) -> bool:
 
 
 # Set the text description.
-def set_text_description(access_arg, port, text_desc) -> bool:
+def set_text_description(access_arg, endpoint_url, text_desc) -> bool:
     curl_cmd = (
-        f"curl -Gs http://localhost:{port}/api"
+        f"curl -Gs {endpoint_url}/api"
         f' --data-urlencode "text-description={text_desc}"'
         f" {access_arg} > /dev/null"
     )
@@ -151,7 +151,8 @@ class StartCommand(QleverCommand):
                 "use_text_index",
                 "warmup_cmd",
             ],
-            "runtime": ["system", "image", "server_container"],
+            "runtime": ["system", "image", "server_container",
+                        "disable_selinux"],
         }
 
     def additional_arguments(self, subparser) -> None:
@@ -304,13 +305,13 @@ class StartCommand(QleverCommand):
         access_arg = f'--data-urlencode "access-token={args.access_token}"'
         if args.description:
             ret = set_index_description(
-                access_arg, args.port, args.description
+                access_arg, args.endpoint_url, args.description
             )
             if not ret:
                 return False
         if args.text_description:
             ret = set_text_description(
-                access_arg, args.port, args.text_description
+                access_arg, args.endpoint_url, args.text_description
             )
             if not ret:
                 return False

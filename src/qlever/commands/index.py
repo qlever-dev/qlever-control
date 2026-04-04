@@ -8,6 +8,7 @@ import shlex
 from qlever.command import QleverCommand
 from qlever.containerize import Containerize
 from qlever.log import log
+from qlever.memory_monitor import MemoryMonitor
 from qlever.util import (
     binary_exists,
     get_existing_index_files,
@@ -52,7 +53,12 @@ class IndexCommand(QleverCommand):
                 "stxxl_memory",
                 "parser_buffer_size",
             ],
-            "runtime": ["system", "image", "index_container"],
+            "runtime": [
+                "system",
+                "image",
+                "index_container",
+                "disable_selinux",
+            ],
         }
 
     def additional_arguments(self, subparser) -> None:
@@ -266,6 +272,7 @@ class IndexCommand(QleverCommand):
                 args.index_container,
                 volumes=[("$(pwd)", "/index")],
                 working_directory="/index",
+                disable_selinux=args.disable_selinux == "yes",
             )
 
         # Command for writing the settings JSON to a file.
@@ -322,7 +329,14 @@ class IndexCommand(QleverCommand):
 
         # Run the index command.
         try:
-            run_command(index_cmd, show_output=True)
+            with MemoryMonitor(
+                engine="qlever",
+                dataset=args.name,
+                cmdline_regex=args.index_binary,
+                container=args.index_container,
+                system=args.system,
+            ):
+                run_command(index_cmd, show_output=True)
         except Exception as e:
             log.error(f"Building the index failed: {e}")
             return False

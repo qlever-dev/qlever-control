@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import socket
 import subprocess
 from configparser import ConfigParser, ExtendedInterpolation, RawConfigParser
 from importlib import import_module
@@ -381,6 +380,16 @@ class Qleverfile:
             type=str,
             help=f"The name of the container used by `{script_name} start`",
         )
+        runtime_args["disable_selinux"] = arg(
+            "--disable-selinux",
+            choices=["yes", "no"],
+            default="no",
+            help=(
+                "Disable SELinux confinement for the container, "
+                "use this if you get permission errors on "
+                "bind-mounted files (e.g. on Fedora or RHEL)"
+            ),
+        )
 
         ui_args["ui_port"] = arg(
             "--ui-port",
@@ -502,15 +511,12 @@ class Qleverfile:
         if index.get("use_patterns", None) == "no":
             server["use_patterns"] = "no"
 
-        # Add other non-trivial default values.
-        try:
-            if config["server"].get("host_name") is None:
-                config["server"]["host_name"] = socket.gethostname()
-        except Exception:
-            log.warning(
-                "Could not get the hostname, using `localhost` as default"
-            )
-            pass
+        # Add other non-trivial default values. We use 127.0.0.1 as the
+        # default host name because it avoids IPv6 resolution issues with
+        # container port forwarding (podman/docker rootless only forward on
+        # IPv4). Users who need remote access should set HOST_NAME explicitly.
+        if config["server"].get("host_name") is None:
+            config["server"]["host_name"] = "127.0.0.1"
 
         # Return the parsed Qleverfile with the added inherited values.
         return config
