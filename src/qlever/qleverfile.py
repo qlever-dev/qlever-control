@@ -28,6 +28,7 @@ class Qleverfile:
         "cache-max-size-single-entry",
         "cache-service-results",
         "default-query-timeout",
+        "disable-caching",
         "division-by-zero-is-undef",
         "enable-distributive-union",
         "enable-prefilter-on-index-scans",
