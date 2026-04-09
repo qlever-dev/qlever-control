@@ -113,6 +113,7 @@ def test_wrap_command_in_container(mock_containerize_command):
         volumes=[("$(pwd)", "/index")],
         ports=[(args.port, args.port)],
         working_directory="/index",
+        disable_selinux=args.disable_selinux == "yes",
     )
     # check start command was successfully returned
     start_command = "Test_Container_Command"
@@ -179,17 +180,19 @@ def test_set_index_description_success(mock_log, mock_run_cmd):
     # Setup args
     args = MagicMock()
     args.access_token = True
+    args.host_name = "localhost"
     args.port = 1234
     args.description = "TestDescription"
     access_arg = f'--data-urlencode "access-token={args.access_token}"'
+    endpoint_url = f"http://{args.host_name}:{args.port}"
 
     # Execute the function
     qlever.commands.start.set_index_description(
-        access_arg, args.port, args.description
+        access_arg, endpoint_url, args.description
     )
     # Asserts
     curl_cmd = (
-        f"curl -Gs http://localhost:{args.port}/api"
+        f"curl -Gs {endpoint_url}/api"
         f' --data-urlencode "index-description={args.description}"'
         f" {access_arg} > /dev/null"
     )
@@ -207,21 +210,23 @@ def test_set_index_description_exception(mock_log, mock_run_cmd):
     # Setup args
     args = MagicMock()
     args.access_token = True
+    args.host_name = "localhost"
     args.port = 1234
     args.description = "ErrorDescription"
     access_arg = f'--data-urlencode "access-token={args.access_token}"'
+    endpoint_url = f"http://{args.host_name}:{args.port}"
 
     # Simulate an exception when run_command is called
     mock_run_cmd.side_effect = Exception("Mocked command failure")
 
     # Execute the function
     qlever.commands.start.set_index_description(
-        access_arg, args.port, args.description
+        access_arg, endpoint_url, args.description
     )
 
     # Asserts
     curl_cmd = (
-        f"curl -Gs http://localhost:{args.port}/api"
+        f"curl -Gs {endpoint_url}/api"
         f' --data-urlencode "index-description={args.description}"'
         f" {access_arg} > /dev/null"
     )
@@ -243,17 +248,19 @@ def test_set_text_description_success(mock_log, mock_run_cmd):
     # Setup args
     args = MagicMock()
     args.access_token = True
+    args.host_name = "localhost"
     args.port = 1234
     args.description = "TestDescription"
     access_arg = f'--data-urlencode "access-token={args.access_token}"'
+    endpoint_url = f"http://{args.host_name}:{args.port}"
 
     # Execute the function
     qlever.commands.start.set_text_description(
-        access_arg, args.port, args.description
+        access_arg, endpoint_url, args.description
     )
     # Asserts
     curl_cmd = (
-        f"curl -Gs http://localhost:{args.port}/api"
+        f"curl -Gs {endpoint_url}/api"
         f' --data-urlencode "text-description={args.description}"'
         f" {access_arg} > /dev/null"
     )
@@ -271,21 +278,23 @@ def test_set_text_description_exception(mock_log, mock_run_cmd):
     # Setup args
     args = MagicMock()
     args.access_token = True
+    args.host_name = "localhost"
     args.port = 1234
     args.description = "ErrorDescription"
     access_arg = f'--data-urlencode "access-token={args.access_token}"'
+    endpoint_url = f"http://{args.host_name}:{args.port}"
 
     # Simulate an exception when run_command is called
     mock_run_cmd.side_effect = Exception("Mocked command failure")
 
     # Execute the function
     qlever.commands.start.set_text_description(
-        access_arg, args.port, args.description
+        access_arg, endpoint_url, args.description
     )
 
     # Asserts
     curl_cmd = (
-        f"curl -Gs http://localhost:{args.port}/api"
+        f"curl -Gs {endpoint_url}/api"
         f' --data-urlencode "text-description={args.description}"'
         f" {access_arg} > /dev/null"
     )
@@ -619,6 +628,7 @@ class TestStartCommand(unittest.TestCase):
         # Setup args
         args = MagicMock()
         args.kill_existing_with_same_port = True
+        args.host_name = "localhost"
         args.port = 1234
         args.server_binary = "/test/path/server_binary"
         args.name = "TestName"
@@ -671,13 +681,14 @@ class TestStartCommand(unittest.TestCase):
         run_call_1 = f"{args.system} rm -f {args.server_container}"
         run_call_2 = "TestStart2"
         access_arg = f'--data-urlencode "access-token={args.access_token}"'
+        endpoint_url = f"http://{args.host_name}:{args.port}"
         run_call_3 = (
-            f"curl -Gs http://localhost:{args.port}/api"
+            f"curl -Gs {endpoint_url}/api"
             f' --data-urlencode "index-description={args.description}"'
             f" {access_arg} > /dev/null"
         )
         run_call_4 = (
-            f"curl -Gs http://localhost:{args.port}/api"
+            f"curl -Gs {endpoint_url}/api"
             f' --data-urlencode "text-description='
             f'{args.text_description}"'
             f" {access_arg} > /dev/null"

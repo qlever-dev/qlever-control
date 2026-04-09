@@ -31,7 +31,12 @@ class AddTextIndexCommand(QleverCommand):
                 "text_words_file",
                 "text_docs_file",
             ],
-            "runtime": ["system", "image", "index_container"],
+            "runtime": [
+                "system",
+                "image",
+                "index_container",
+                "disable_selinux",
+            ],
         }
 
     def additional_arguments(self, subparser) -> None:
@@ -54,7 +59,7 @@ class AddTextIndexCommand(QleverCommand):
             "from_text_records_and_literals",
         ]:
             add_text_index_cmd += (
-                f" -w {args.text_words_file}" f" -d {args.text_docs_file}"
+                f" -w {args.text_words_file} -d {args.text_docs_file}"
             )
         if args.text_index in [
             "from_literals",
@@ -73,6 +78,7 @@ class AddTextIndexCommand(QleverCommand):
                 args.index_container,
                 volumes=[("$(pwd)", "/index")],
                 working_directory="/index",
+                disable_selinux=args.disable_selinux == "yes",
             )
 
         # Show the command line.

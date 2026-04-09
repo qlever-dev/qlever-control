@@ -336,6 +336,7 @@ def binary_exists(binary: str, cmd_arg: str, args) -> bool:
 
     is_containerized = args.system in Containerize.supported_systems()
     cmd = f"{binary} --help"
+    disable_selinux = getattr(args, "disable_selinux", "no") == "yes"
     if is_containerized and script_name == "qlever":
         cmd = Containerize().containerize_command(
             cmd,
@@ -345,6 +346,7 @@ def binary_exists(binary: str, cmd_arg: str, args) -> bool:
             "qlever.check-binary",
             volumes=[("$(pwd)", "/index")],
             working_directory="/index",
+            disable_selinux=disable_selinux,
         )
 
     try:
@@ -398,6 +400,15 @@ def input_files_exist(input_files: str) -> bool:
             )
             return False
     return True
+
+
+def selinux_enforcing() -> bool:
+    """Check if SELinux is in enforcing mode by reading the kernel interface."""
+    try:
+        with open("/sys/fs/selinux/enforce") as f:
+            return f.read().strip() == "1"
+    except (FileNotFoundError, PermissionError):
+        return False
 
 
 def build_image(build_cmd: str, system: str, image: str) -> bool:
