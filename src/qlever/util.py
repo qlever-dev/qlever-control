@@ -440,18 +440,95 @@ def get_container_image_id(system: str, image: str) -> str:
     return image_id
 
 
-def get_ini_sed_cmd(
-    section: str, option: str, new_value: str, is_suffix: bool = False
-) -> str:
+def update_ini_values(
+    lines: list[str],
+    updates: dict[str, dict[str, tuple[str, bool]]],
+):
     """
-    Generates a cross-platform sed command to update the value of a
-    key = value pair or append to one (by using is_suffix = True) in an INI file.
+    Update values in INI-style file content, preserving comments and
+    formatting. Takes lines as input and returns modified lines.
+
+    updates: {section: {option: (new_value, is_suffix)}}
+    1. If the section and option exist, replace the value
+    2. If the section exists, but the option doesn't: add the new option and
+       value at the end of the section
+    3. If the section doesn't exist: add the section at the end of the file
+       with the option and new_value
+    is_suffix: bool decides whether the new value is appended to existing value
+    and only applies to case 1 above. For other cases, is_suffix is neglected.
     """
-    if is_suffix:
-        pattern = f"s/(^{option}.*)/\\1{new_value}/"
-    else:
-        pattern = f"s/(^{option}[[:space:]]*=[[:space:]]*).*/\\1{new_value}/"
-    return f"sed -E '/^\\[{section}\\]/,/^\\[/ {pattern}'"
+    sections_visited = set()
+    options_applied: dict[str, set[str]] = {sec: set() for sec in updates}
+    result_lines = []
+    skip_section = False
+    current_section = ""
+
+    def missing_option_lines(section: str) -> list[str]:
+        """
+        Return formatted lines for options in the given section that
+        were not found (and thus not yet applied). Suffix-only options
+        are skipped since appending to a non-existent line doesn't make sense.
+        """
+        return [
+            f"{opt} = {val}"
+            for opt, (val, is_suffix) in updates[section].items()
+            if opt not in options_applied[section] and not is_suffix
+        ]
+
+    for line in lines:
+        line = line.strip()
+
+        # Detect section headers like [Index] or [Server]
+        if line.startswith("[") and line.endswith("]"):
+            # Before moving to a new section, add any options that
+            # were missing from the section we're leaving (case 2).
+            if current_section in updates:
+                result_lines.extend(missing_option_lines(current_section))
+
+            skip_section = False
+            current_section = line[1:-1]
+            result_lines.append(line)
+
+            if current_section not in updates:
+                skip_section = True
+            else:
+                sections_visited.add(current_section)
+            continue
+
+        # Lines before any section or in sections we don't need to touch
+        if skip_section or current_section not in updates:
+            result_lines.append(line)
+            continue
+
+        # Check if this line matches an option we need to update
+        update_dict = updates[current_section]
+        match = re.match(r"^(\S+)\s*=\s*", line)
+        if not match or match.group(1) not in update_dict:
+            result_lines.append(line)
+            continue
+
+        # Case 1: option exists — replace its value or append suffix
+        option_name = match.group(1)
+        new_value, is_suffix = update_dict[option_name]
+        if is_suffix:
+            result_lines.append(line + new_value)
+        else:
+            # Keep everything up to and including "= " then replace the value
+            prefix = line[: match.end()]
+            result_lines.append(prefix + new_value)
+        options_applied[current_section].add(option_name)
+
+    # Case 2: Add missing options for the last section in the file
+    if current_section in updates:
+        result_lines.extend(missing_option_lines(current_section))
+
+    # Case 3: Append entirely new sections that were never found
+    for sec in updates:
+        if sec not in sections_visited:
+            result_lines.append(f"\n[{sec}]")
+            result_lines.extend(missing_option_lines(sec))
+
+    return result_lines
 
 
 def parse_memory(value: str) -> str:
