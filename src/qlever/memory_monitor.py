@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import json
 import re
+import sys
 import threading
 import time
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -14,10 +18,45 @@ from qlever.containerize import Containerize
 from qlever.log import log
 from qlever.util import format_size, run_command
 
+IS_LINUX = sys.platform.startswith("linux")
+IS_MACOS = sys.platform == "darwin"
+
+libc = ctypes.CDLL(ctypes.util.find_library("c")) if IS_MACOS else None
+
+
+def phys_footprint(pid: int) -> int:
+    """
+    Return `ri_phys_footprint` from `proc_pid_rusage` on macOS, the
+    closest available analog to Linux PSS. Returns 0 on any other
+    platform or on error.
+    """
+    if IS_MACOS:
+        buf = (ctypes.c_uint64 * 24)()
+        if libc.proc_pid_rusage(pid, 2, buf) == 0:
+            return buf[9]
+    return 0
+
+
+@dataclass
+class MemorySample:
+    """
+    One memory measurement. `rss` is always populated (native or
+    container). `uss` is populated in native mode on both Linux and
+    macOS. `pss` is Linux-only; `phys_footprint` is macOS-only.
+    Unavailable fields stay `None` and are dropped from the JSON
+    output.
+    """
+
+    elapsed_s: float = 0.0
+    rss: int = 0
+    pss: int | None = None
+    uss: int | None = None
+    phys_footprint: int | None = None
+
 
 def parse_container_mem_usage(usage: str) -> int:
     """
-    Parse a memory usage string from ``docker stats`` or ``podman stats``
+    Parse a memory usage string from `docker stats` or `podman stats`
     into bytes.  Docker reports binary units (GiB, MiB) while Podman
     reports decimal units (GB, MB).
     """
@@ -75,8 +114,8 @@ class MemoryMonitor:
                             lines to identify the index process (native
                             mode only).
             container:      Container name to query for memory stats.
-                            When set together with ``system``, sampling
-                            uses ``docker/podman stats`` instead of
+                            When set together with `system`, sampling
+                            uses `docker/podman stats` instead of
                             psutil.
             system:         Container runtime ("docker" or "podman").
             interval:       Seconds between samples (default 1.0).
@@ -101,18 +140,24 @@ class MemoryMonitor:
         self.thread = None
         self.start_time = 0
 
-    def sample_native(self) -> int:
+    def sample_native(self) -> MemorySample:
         """
-        Find the index process among ``self.parent_pid`` and its
-        descendants by matching its command line, then sum RSS of that
-        process and all of its descendants. Returns 0 if the target
-        has disappeared.
+        Find the index process among `self.parent_pid` and its
+        descendants by matching its command line, then read its memory
+        usage via psutil.
+
+        No descendant walking: all engines in src/ are single-process
+        multi-threaded, so threads share one address space and are
+        already accounted for in the process's own RSS. Summing RSS
+        across a process tree would also double-count pages shared via
+        COW between parent and children, so the extra logic would be
+        both unneeded and subtly incorrect if ever exercised.
         """
         try:
             parent = psutil.Process(self.parent_pid)
             candidates = [parent] + parent.children(recursive=True)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
-            return 0
+            return MemorySample()
         for proc in candidates:
             try:
                 cmdline = " ".join(proc.cmdline())
@@ -120,21 +165,22 @@ class MemoryMonitor:
                 continue
             if re.search(self.cmdline_regex, cmdline):
                 try:
-                    rss = proc.memory_info().rss
-                    for descendant in proc.children(recursive=True):
-                        try:
-                            rss += descendant.memory_info().rss
-                        except (psutil.NoSuchProcess, psutil.AccessDenied):
-                            pass
-                    return rss
+                    info = proc.memory_full_info()
+                    sample = MemorySample(rss=info.rss, uss=info.uss)
+                    if IS_LINUX:
+                        sample.pss = info.pss
+                    elif IS_MACOS:
+                        sample.phys_footprint = phys_footprint(proc.pid)
+                    return sample
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    return 0
-        return 0
+                    return MemorySample()
+        return MemorySample()
 
-    def sample_container(self) -> int:
+    def sample_container(self) -> MemorySample:
         """
         Query the container runtime for the memory usage of the
-        index container.
+        index container. Only `rss` is populated; cgroup stats do
+        not expose a PSS/USS equivalent per process.
         """
         try:
             output = run_command(
@@ -143,15 +189,15 @@ class MemoryMonitor:
                 return_output=True,
             )
             usage = output.strip().split("/")[0].strip()
-            return parse_container_mem_usage(usage)
+            return MemorySample(rss=parse_container_mem_usage(usage))
         except Exception:
-            return 0
+            return MemorySample()
 
     def run_loop(self):
         """
         Polling loop that runs on a background thread. Selects the
         appropriate sampling method (native or container) and collects
-        (elapsed_seconds, rss_bytes) tuples until the stop event is set.
+        `MemorySample` entries until the stop event is set.
         """
         sample = (
             self.sample_container
@@ -159,16 +205,18 @@ class MemoryMonitor:
             else self.sample_native
         )
         while not self.stop_event.is_set():
-            rss = sample()
-            self.peak_rss = max(self.peak_rss, rss)
-            elapsed = time.monotonic() - self.start_time
-            self.samples.append((elapsed, rss))
+            ms = sample()
+            ms.elapsed_s = round(time.monotonic() - self.start_time, 1)
+            self.peak_rss = max(self.peak_rss, ms.rss)
+            self.samples.append(ms)
             self.stop_event.wait(self.interval)
 
     def save(self):
         """
         Write all collected samples and metadata to a JSON file at
-        ``<output_dir>/<engine>.<dataset>.memory-log.json``.
+        `<output_dir>/<dataset>.memory-log.json`. Fields that are
+        unavailable on the current platform (e.g. pss on macOS,
+        phys_footprint on Linux) are omitted from each sample.
         """
         path = self.output_dir / f"{self.dataset}.memory-log.json"
         data = {
@@ -179,12 +227,10 @@ class MemoryMonitor:
             ).isoformat(timespec="seconds"),
             "peak_rss_bytes": self.peak_rss,
             "peak_rss_human": format_size(self.peak_rss),
-            "elapsed_s": (
-                round(self.samples[-1][0], 1) if self.samples else 0
-            ),
+            "elapsed_s": (self.samples[-1].elapsed_s if self.samples else 0),
             "samples": [
-                {"elapsed_s": round(t, 1), "rss_bytes": r}
-                for t, r in self.samples
+                {k: v for k, v in asdict(s).items() if v is not None}
+                for s in self.samples
             ],
         }
         with open(path, "w") as f:
