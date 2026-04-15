@@ -3,7 +3,6 @@ from __future__ import annotations
 import ctypes
 import ctypes.util
 import json
-import re
 import sys
 import threading
 import time
@@ -86,12 +85,12 @@ class MemoryMonitor:
 
     Usage as a context manager:
 
-        with MemoryMonitor(dataset="wikidata", cmdline_regex="qlever-index"):
+        with MemoryMonitor(dataset="wikidata", binary="qlever-index"):
             run_command(cmd, show_output=True)
 
         # For container mode:
         with MemoryMonitor(dataset="wikidata",
-                           cmdline_regex="qlever-index",
+                           binary="qlever-index",
                            container="qlever.index.wikidata",
                            system="docker"):
             run_command(cmd, show_output=True)
@@ -100,7 +99,7 @@ class MemoryMonitor:
     def __init__(
         self,
         dataset: str,
-        cmdline_regex: str,
+        binary: str,
         container: str | None = None,
         system: str | None = None,
         interval: float = 1.0,
@@ -110,9 +109,10 @@ class MemoryMonitor:
         """
         Args:
             dataset:        Name of the dataset being indexed.
-            cmdline_regex:  Regex matched against child process command
-                            lines to identify the index process (native
-                            mode only).
+            binary:         Name of the index executable. Its basename
+                            is matched against `Path(argv[0]).name` of
+                            each process in the descendant tree to find
+                            the worker (native mode only).
             container:      Container name to query for memory stats.
                             When set together with `system`, sampling
                             uses `docker/podman stats` instead of
@@ -128,7 +128,7 @@ class MemoryMonitor:
         """
         self.engine = engine_name
         self.dataset = dataset
-        self.cmdline_regex = cmdline_regex
+        self.binary = binary
         self.container = container
         self.system = system
         self.interval = interval
@@ -142,28 +142,22 @@ class MemoryMonitor:
 
     def sample_native(self) -> MemorySample:
         """
-        Find the index process among `self.parent_pid` and its
-        descendants by matching its command line, then read its memory
-        usage via psutil.
-
-        No descendant walking: all engines in src/ are single-process
-        multi-threaded, so threads share one address space and are
-        already accounted for in the process's own RSS. Summing RSS
-        across a process tree would also double-count pages shared via
-        COW between parent and children, so the extra logic would be
-        both unneeded and subtly incorrect if ever exercised.
+        Read memory usage of the index worker found among
+        `self.parent_pid` and its descendants. The worker is the
+        process whose `Path(argv[0]).name` equals `self.binary`.
         """
         try:
-            parent = psutil.Process(self.parent_pid)
-            candidates = [parent] + parent.children(recursive=True)
+            root = psutil.Process(self.parent_pid)
+            candidates = [root] + root.children(recursive=True)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return MemorySample()
+        target = Path(self.binary).name
         for proc in candidates:
             try:
-                cmdline = " ".join(proc.cmdline())
+                cmdline = proc.cmdline()
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
-            if re.search(self.cmdline_regex, cmdline):
+            if cmdline and Path(cmdline[0]).name == target:
                 try:
                     info = proc.memory_full_info()
                     sample = MemorySample(rss=info.rss, uss=info.uss)

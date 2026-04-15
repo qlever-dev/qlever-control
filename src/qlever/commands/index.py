@@ -325,7 +325,7 @@ class IndexCommand(QleverCommand):
         try:
             with MemoryMonitor(
                 dataset=args.name,
-                cmdline_regex=args.index_binary,
+                binary=args.index_binary,
                 container=args.index_container,
                 system=args.system,
             ):
