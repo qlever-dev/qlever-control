@@ -399,11 +399,10 @@ class Qleverfile:
         ui_args["ui_system"] = arg(
             "--ui-system",
             type=str,
-            choices=Containerize.supported_systems(),
+            choices=Containerize.supported_systems() + ["native"],
             default="docker",
-            help="Which container system to use for `qlever ui`"
-            " (unlike for `qlever index` and `qlever start`, "
-            ' "native" is not yet supported here)',
+            help="Whether to the ui natively or in a container, and if"
+                 "in a container, which system to use",
         )
         ui_args["ui_image"] = arg(
             "--ui-image",
