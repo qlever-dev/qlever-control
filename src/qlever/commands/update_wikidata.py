@@ -464,12 +464,13 @@ class UpdateWikidataCommand(QleverCommand):
             # Optionally wait before processing the next batch (make sure that
             # the wait is interruptible by Ctrl+C).
             if wait_before_next_batch:
-                log.info(
-                    f"Waiting {args.wait_between_batches} "
-                    f"second{'s' if args.wait_between_batches > 1 else ''} "
-                    f"before processing the next batch"
-                )
-                log.info("")
+                if args.verbose == "yes":
+                    log.info(
+                        f"Waiting {args.wait_between_batches} "
+                        f"second{'s' if args.wait_between_batches > 1 else ''} "
+                        f"before processing the next batch"
+                    )
+                    log.info("")
                 wait_before_next_batch = False
                 self.ctrl_c_pressed.wait(args.wait_between_batches)
             if self.ctrl_c_pressed.is_set():
