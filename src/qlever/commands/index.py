@@ -8,6 +8,7 @@ import shlex
 from qlever.command import QleverCommand
 from qlever.containerize import Containerize
 from qlever.log import log
+from qlever.memory_monitor import MemoryMonitor
 from qlever.util import (
     binary_exists,
     get_existing_index_files,
@@ -322,7 +323,13 @@ class IndexCommand(QleverCommand):
 
         # Run the index command.
         try:
-            run_command(index_cmd, show_output=True)
+            with MemoryMonitor(
+                dataset=args.name,
+                binary=args.index_binary,
+                container=args.index_container,
+                system=args.system,
+            ):
+                run_command(index_cmd, show_output=True)
         except Exception as e:
             log.error(f"Building the index failed: {e}")
             return False
