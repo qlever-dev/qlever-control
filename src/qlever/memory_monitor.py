@@ -41,15 +41,16 @@ class MemorySample:
     """
     One memory measurement. `rss` is always populated (native or
     container). `uss` is populated in native mode on both Linux and
-    macOS. `pss` is Linux-only; `phys_footprint` is macOS-only.
-    Unavailable fields stay `None` and are dropped from the JSON
-    output.
+    macOS. `pss` and `swap` are Linux-only; `phys_footprint` is
+    macOS-only. Unavailable fields stay `None` and are dropped from
+    the JSON output.
     """
 
     elapsed_s: float = 0.0
     rss: int = 0
     pss: int | None = None
     uss: int | None = None
+    swap: int | None = None
     phys_footprint: int | None = None
 
 
@@ -163,6 +164,7 @@ class MemoryMonitor:
                     sample = MemorySample(rss=info.rss, uss=info.uss)
                     if IS_LINUX:
                         sample.pss = info.pss
+                        sample.swap = info.swap
                     elif IS_MACOS:
                         sample.phys_footprint = phys_footprint(proc.pid)
                     return sample
