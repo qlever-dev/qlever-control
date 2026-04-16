@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import textwrap
 
@@ -102,9 +103,11 @@ class MonitorQueriesCommand(QleverCommand):
         log.info(f"  {'#':<{col_index}}  {'Query ID':<{col_qid}}  SPARQL")
 
         for i, (qid, sparql) in enumerate(queries, 1):
+            # Collapse whitespace for compact display.
+            sparql_oneline = re.sub(r"\s+", " ", sparql).strip()
             if args.detailed:
                 wrapped = textwrap.fill(
-                    sparql,
+                    sparql_oneline,
                     width=100,
                     initial_indent="",
                     subsequent_indent=indent,
@@ -112,7 +115,9 @@ class MonitorQueriesCommand(QleverCommand):
                 log.info(f"  {i:<{col_index}}  {qid:<{col_qid}}  {wrapped}")
             else:
                 short_sparql = (
-                    sparql[:80] + "..." if len(sparql) > 80 else sparql
+                    sparql_oneline[:80] + "..."
+                    if len(sparql_oneline) > 80
+                    else sparql_oneline
                 )
                 log.info(
                     f"  {i:<{col_index}}  {qid:<{col_qid}}  {short_sparql}"
