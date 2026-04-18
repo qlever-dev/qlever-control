@@ -20,37 +20,8 @@ from qlever import command_objects, engine_name, script_name
 from qlever.command import QleverCommand
 from qlever.commands.clear_cache import ClearCacheCommand
 from qlever.commands.ui import dict_to_yaml
-from qlever.containerize import Containerize
 from qlever.log import log, mute_log
-from qlever.util import run_command, run_curl_command
-
-
-def pretty_printed_query(
-    query: str, show_prefixes: bool, system: str = "docker"
-) -> str:
-    """
-    Pretty-print a SPARQL query using the sparql-formatter Docker image.
-    Optionally strips PREFIX declarations from the output.
-    Argument `system` can either be docker or podman.
-    """
-    if system not in Containerize.supported_systems():
-        system = "docker"
-    remove_prefixes_cmd = " | sed '/^PREFIX /Id'" if not show_prefixes else ""
-    pretty_print_query_cmd = (
-        f"echo {shlex.quote(query)}"
-        f" | {system} run -i --rm docker.io/sparqling/sparql-formatter"
-        f"{remove_prefixes_cmd} | grep -v '^$'"
-    )
-    try:
-        query_pretty_printed = run_command(
-            pretty_print_query_cmd, return_output=True
-        )
-        return query_pretty_printed.rstrip()
-    except Exception as e:
-        log.debug(
-            f"Failed to pretty-print query, returning original query: {e}"
-        )
-        return query.rstrip()
+from qlever.util import pretty_printed_query, run_command, run_curl_command
 
 
 def sparql_query_type(query: str) -> str:
