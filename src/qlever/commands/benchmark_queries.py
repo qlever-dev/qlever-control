@@ -474,7 +474,7 @@ def get_result_yml_query_record(
     if result_size is None and isinstance(result, dict):
         results = f"{result['short']}: {result['long']}"
         headers = []
-    if result_size and isinstance(result, str):
+    if result_size is not None and isinstance(result, str):
         record["result_size"] = result_size
         result_size = (
             max_result_size if result_size > max_result_size else result_size

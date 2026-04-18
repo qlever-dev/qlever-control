@@ -67,8 +67,8 @@ function getQueryDetails(performanceData, kb, engine) {
         const runtime = Number(queryData.runtime_info.client_time.toFixed(2));
         queryDetails.runtime.push(runtime);
 
-        // A query is considered failed if results is a string (error message) or no headers
-        const failed = typeof queryData.results === "string" || (queryData.headers?.length ?? 0) === 0;
+        // A query is considered failed if results is a string (error message) and no headers
+        const failed = typeof queryData.results === "string" && (queryData.headers?.length ?? 0) === 0;
         queryDetails.failed.push(failed);
 
         const resultSize = queryData.result_size ?? 0;
@@ -212,12 +212,16 @@ let exec_tree_listener = null;
  */
 function updateExecTreeTab(rowData) {
     const runtime_info = rowData?.runtime_info;
+    document.querySelector("#result-tree").innerHTML = "";
+    document.querySelector("#meta-info").innerHTML = "";
+    const treeDiv = document.querySelector("#result-tree-div");
+    document.querySelector("#exec-tree-tab-pane > div.alert-info").classList.add("d-none");
+    treeDiv.classList.remove("d-none");
     if (runtime_info?.query_execution_tree) {
-        for (const div of document.querySelectorAll("#exec-tree-tab-pane div")) {
+        for (const div of treeDiv.querySelectorAll("div")) {
             if (div.classList.contains("alert-info")) div.classList.add("d-none");
             else div.classList.remove("d-none");
         }
-        document.querySelector("#result-tree").innerHTML = "";
         const exec_tree_tab = document.querySelector("#exec-tree-tab");
 
         // Remove previous listener if exists
@@ -230,10 +234,11 @@ function updateExecTreeTab(rowData) {
         };
         exec_tree_tab.addEventListener("shown.bs.tab", exec_tree_listener, { once: true });
     } else {
-        // No execution tree available - show appropriate message
-        document.querySelector("#exec-tree-tab-pane div.alert-info").classList.add("d-none");
-        document.querySelector("#result-tree-div").classList.remove("d-none");
-        document.querySelector("#result-tree-div div.alert-info").classList.remove("d-none");
+        // No execution tree available - show only the alert message
+        for (const div of treeDiv.querySelectorAll("div")) {
+            if (div.classList.contains("alert-info")) div.classList.remove("d-none");
+            else div.classList.add("d-none");
+        }
     }
 }
 
@@ -408,7 +413,7 @@ function updateDetailsPage(performanceData, kb, engine, kbAdditionalData) {
         onRowSelected: (event) => {
             // Prevent re-processing if same row is selected
             const query = Array.isArray(selectedRow) ? selectedRow[0].query : null;
-            if (event.api.getSelectedRows()[0].query === query) return;
+            if (event.api.getSelectedRows()[0]?.query === query) return;
             selectedRow = event.api.getSelectedRows();
             onRuntimeRowSelected(event, performanceData, kb, engine);
         },
