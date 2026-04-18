@@ -33,7 +33,7 @@ bugtracker = "https://github.com/ad-freiburg/qlever/issues"
 "qlever" = "qlever.qlever_main:main"
 
 [tool.setuptools]
-package-data = { "qlever" = ["Qleverfiles/*"] }
+package-data = { "qlever" = ["Qleverfiles/*", "evaluation/www/*"] }
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
