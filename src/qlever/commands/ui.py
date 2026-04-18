@@ -8,7 +8,7 @@ import yaml
 from qlever.command import QleverCommand
 from qlever.containerize import Containerize
 from qlever.log import log
-from qlever.util import is_port_used, run_command
+from qlever.util import is_port_used, run_command, stop_process_with_regex
 
 
 # Return a YAML string for the given dictionary. Format values with
@@ -111,47 +111,61 @@ class UiCommand(QleverCommand):
                 log.info("")
 
         # Construct commands and show them.
-        pull_latest_image = "/" in args.ui_image and not args.no_pull_latest
+        is_native = args.ui_system == "native"
+        pull_latest_image = (
+            "/" in args.ui_image and not args.no_pull_latest and not is_native
+        )
         ui_config_name = args.ui_config
         ui_db_file = args.ui_db_file or f"{args.name}.ui-db.sqlite3"
         ui_db_file_from_image = "qleverui.sqlite3"
         ui_config_file = args.ui_config_file
         sparql_endpoint = f"http://{args.host_name}:{args.port}"
         ui_url = f"http://{args.host_name}:{args.ui_port}"
-        pull_cmd = f"{args.ui_system} pull -q {args.ui_image}"
-        get_db_cmd = (
-            f"{args.ui_system} create "
-            f"--name {args.ui_container} "
-            f"{args.ui_image} "
-            f"&& {args.ui_system} cp "
-            f"{args.ui_container}:/app/db/{ui_db_file_from_image} {ui_db_file} "
-            f"&& {args.ui_system} rm -f {args.ui_container}"
-        )
-        start_ui_cmd = (
-            f"{args.ui_system} run -d "
-            f"--volume $(pwd):/app/db "
-            f"--env QLEVERUI_DATABASE_URL=sqlite:////app/db/{ui_db_file} "
-            f"--publish {args.ui_port}:7000 "
-            f"--name {args.ui_container} "
-            f"{args.ui_image}"
-        )
-        get_config_cmd = (
-            f"{args.ui_system} exec -i "
-            f"{args.ui_container} "
-            f'bash -c "python manage.py config {ui_config_name}"'
-        )
-        set_config_cmd = (
-            f"{args.ui_system} exec -i "
-            f"{args.ui_container} "
-            f'bash -c "python manage.py config {ui_config_name} '
-            f'/app/db/{ui_config_file} --hide-all-other-backends"'
-        )
+        if is_native:
+            pull_cmd = ""
+            get_db_cmd = ""
+            start_ui_cmd = f"nohup qlever-ui dev {args.ui_port} > qlever-ui.log 2>&1 &"
+            get_config_cmd = f"qlever-ui manage config {ui_config_name}"
+            set_config_cmd = (
+                f"qlever-ui manage config {ui_config_name} "
+                f"{ui_config_file} --hide-all-other-backends"
+            )
+        else:
+            pull_cmd = f"{args.ui_system} pull -q {args.ui_image}"
+            get_db_cmd = (
+                f"{args.ui_system} create "
+                f"--name {args.ui_container} "
+                f"{args.ui_image} "
+                f"&& {args.ui_system} cp "
+                f"{args.ui_container}:/app/db/{ui_db_file_from_image} {ui_db_file} "
+                f"&& {args.ui_system} rm -f {args.ui_container}"
+            )
+            start_ui_cmd = (
+                f"{args.ui_system} run -d "
+                f"--volume $(pwd):/app/db "
+                f"--env QLEVERUI_DATABASE_URL=sqlite:////app/db/{ui_db_file} "
+                f"--publish {args.ui_port}:7000 "
+                f"--name {args.ui_container} "
+                f"{args.ui_image}"
+            )
+            get_config_cmd = (
+                f"{args.ui_system} exec -i "
+                f"{args.ui_container} "
+                f'bash -c "python manage.py config {ui_config_name}"'
+            )
+            set_config_cmd = (
+                f"{args.ui_system} exec -i "
+                f"{args.ui_container} "
+                f'bash -c "python manage.py config {ui_config_name} '
+                f'/app/db/{ui_config_file} --hide-all-other-backends"'
+            )
         commands_to_show = []
         if not args.stop:
-            if pull_latest_image:
-                commands_to_show.append(pull_cmd)
-            if not Path(ui_db_file).exists():
-                commands_to_show.append(get_db_cmd)
+            if not is_native:
+                if pull_latest_image:
+                    commands_to_show.append(pull_cmd)
+                if not Path(ui_db_file).exists():
+                    commands_to_show.append(get_db_cmd)
             commands_to_show.append(start_ui_cmd)
             if not Path(ui_config_file).exists():
                 commands_to_show.append(get_config_cmd)
@@ -163,16 +177,29 @@ class UiCommand(QleverCommand):
         if args.show:
             return True
 
-        # Stop running containers.
-        was_found_and_stopped = False
-        for container_system in Containerize.supported_systems():
-            was_found_and_stopped |= Containerize.stop_and_remove_container(
-                container_system, args.ui_container
-            )
-        if was_found_and_stopped:
-            log.debug(f"Stopped and removed container `{args.ui_container}`")
+        # Stop running UI (native process or container).
+        if is_native:
+            # The bash script doesn't/can't forward the signal -> kill the children directly.
+            results = stop_process_with_regex(f"/opt/venvs/qlever-ui/bin/python -m django runserver 0.0.0.0:{args.ui_port}")
+            was_found_and_stopped = results is not None and len(results) > 0
+            if was_found_and_stopped:
+                log.debug("Stopped native qlever-ui process")
+            else:
+                log.debug("No native qlever-ui process found")
         else:
-            log.debug(f"No container with name `{args.ui_container}` found")
+            was_found_and_stopped = False
+            for container_system in Containerize.supported_systems():
+                was_found_and_stopped |= Containerize.stop_and_remove_container(
+                    container_system, args.ui_container
+                )
+            if was_found_and_stopped:
+                log.debug(
+                    f"Stopped and removed container `{args.ui_container}`"
+                )
+            else:
+                log.debug(
+                    f"No container with name `{args.ui_container}` found"
+                )
         if args.stop:
             return True
 
@@ -190,27 +217,41 @@ class UiCommand(QleverCommand):
             )
 
         # Get the QLever UI database from the image, unless it already exists.
-        if Path(ui_db_file).exists():
-            log.debug(f"Found QLever UI database `{ui_db_file}`, reusing it")
-        else:
-            log.debug(f"Getting QLever UI database `{ui_db_file}` from image")
-            try:
-                run_command(get_db_cmd)
-            except Exception as e:
-                log.error(
-                    f"Failed to get {ui_db_file} from {args.ui_image} "
-                    f"({e})"
+        # (Skipped for native: qlever-ui dev handles DB creation automatically.)
+        if not is_native:
+            if Path(ui_db_file).exists():
+                log.debug(
+                    f"Found QLever UI database `{ui_db_file}`, reusing it"
                 )
-                return False
+            else:
+                log.debug(
+                    f"Getting QLever UI database `{ui_db_file}` from image"
+                )
+                try:
+                    run_command(get_db_cmd)
+                except Exception as e:
+                    log.error(
+                        f"Failed to get {ui_db_file} from {args.ui_image} "
+                        f"({e})"
+                    )
+                    return False
 
         # Start the QLever UI.
         try:
-            log.debug(
-                f"Starting new container with name `{args.ui_container}`"
-            )
+            if is_native:
+                log.debug("Starting qlever-ui natively")
+            else:
+                log.debug(
+                    f"Starting new container with name `{args.ui_container}`"
+                )
             run_command(start_ui_cmd)
         except Exception as e:
-            log.error(f"Failed to start container `{args.ui_container}` ({e})")
+            if is_native:
+                log.error(f"Failed to start qlever-ui ({e})")
+            else:
+                log.error(
+                    f"Failed to start container `{args.ui_container}` ({e})"
+                )
             return False
 
         # Check if config file with name `ui_config_file` exists. If not, try
@@ -219,10 +260,16 @@ class UiCommand(QleverCommand):
             log.info(f"Found config file `{ui_config_file}` and reusing it")
         else:
             try:
-                log.info(
-                    f"Get default config file `{ui_config_file}` from image "
-                    f"`{args.ui_image}` and set endpoint to `{sparql_endpoint}`"
-                )
+                if is_native:
+                    log.info(
+                        f"Get default config file `{ui_config_file}` "
+                        f"and set endpoint to `{sparql_endpoint}`"
+                    )
+                else:
+                    log.info(
+                        f"Get default config file `{ui_config_file}` from image "
+                        f"`{args.ui_image}` and set endpoint to `{sparql_endpoint}`"
+                    )
                 config_yaml = run_command(get_config_cmd, return_output=True)
                 config_dict = yaml.safe_load(config_yaml)
             except Exception as e:
