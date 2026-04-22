@@ -69,3 +69,11 @@ class EngineManager(ABC):
         """
         pass
 
+    def protocol_update_endpoint(self) -> str:
+        """
+        Returns the endpoint for protocol update requests.
+
+        Engines with a dedicated update route can override this.
+        Default is to reuse the query protocol endpoint.
+        """
+        return self.protocol_endpoint()

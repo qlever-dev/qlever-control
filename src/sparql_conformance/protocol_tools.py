@@ -1,8 +1,9 @@
-import re
 import json
+import re
 import socket
 import time
 from typing import Tuple
+from urllib.parse import urlsplit, urlunsplit
 
 from sparql_conformance.engines.engine_manager import EngineManager
 from sparql_conformance.test_object import TestObject, Status, ErrorMessage
@@ -11,6 +12,14 @@ from sparql_conformance.rdf_tools import compare_ttl
 
 def prepare_request(engine_manager: EngineManager, test: TestObject, request_with_reponse: str, newpath: str) -> Tuple[str, str]:
     request = request_with_reponse.split('#### Response')[0]
+    request_lower = request.lower()
+    is_update_request = (
+        'update=' in request_lower
+        or 'application/sparql-update' in request_lower
+    )
+    protocol_endpoint = engine_manager.protocol_endpoint()
+    if is_update_request:
+        protocol_endpoint = engine_manager.protocol_update_endpoint()
     # Quick fix: change the x-www-url-form-urlencoded content type to x-www-form-urlencoded
     request = request.replace('application/x-www-url-form-urlencoded', 'application/x-www-form-urlencoded')
     if test.type_name == 'GraphStoreProtocolTest':
@@ -31,29 +40,86 @@ def prepare_request(engine_manager: EngineManager, test: TestObject, request_wit
                 'PUT') or line.startswith('DELETE') or line.startswith('HEAD'):
             before_header = False
             index_header = index
-            line = line.replace('sparql', engine_manager.protocol_endpoint())
+            line = _replace_endpoint_in_request_line(
+                line,
+                protocol_endpoint,
+            )
             request_lines[index] = line
         if line.startswith('GET') and not line.endswith('HTTP/1.1'):
             request_lines[index] = line + ' HTTP/1.1'
-    request_header_lines = request_lines[index_header:index_line_between]
-    if len([l for l in request_header_lines if "Content-Length" in l]) == 0:
-        request_header_lines.append("Content-Length: XXX")
+    request_header_lines = [
+        header_line
+        for header_line in request_lines[index_header:index_line_between]
+        if not header_line.lower().startswith("content-length:")
+    ]
     request_body_lines = [
         x for x in request_lines[index_line_between + 1:] if x]
-    request_header = '\r\n'.join(request_header_lines)
     request_body = '\r\n'.join(request_body_lines)
-    request_header = request_header + '\r\n' + 'Authorization: Bearer abc'
+    request_header = '\r\n'.join(request_header_lines)
     if test.type_name == 'GraphStoreProtocolTest':
+        # Replace only the first occurrence with leading slash (in the request header),
+        # then replace remaining occurrences in header and body without the slash.
         request_header = request_header.replace(
-            '$GRAPHSTORE$', '/' + test.config.GRAPHSTORE)
+            '$GRAPHSTORE$', '/' + test.config.GRAPHSTORE, 1)
+        request_header = request_header.replace(
+            '$GRAPHSTORE$', test.config.GRAPHSTORE)
         request_body = request_body.replace(
             '$GRAPHSTORE$', test.config.GRAPHSTORE)
-    request_header = request_header.replace('XXX', str(len(request_body)))
-    return request_header + '\r\n\r\n', request_body + '\r\n'
+    if 'authorization:' not in request_header.lower():
+        request_header = request_header + '\r\n' + 'Authorization: Bearer abc'
+    body_encoding = 'utf-8'
+    if 'charset=utf-16' in request_header.lower():
+        body_encoding = 'utf-16'
+    content_length = len(request_body.encode(body_encoding))
+    request_header = request_header + '\r\n' + f'Content-Length: {content_length}'
+    return request_header + '\r\n\r\n', request_body
+
+
+def _replace_endpoint_in_request_line(
+        request_line: str,
+        endpoint: str,
+) -> str:
+    parts = request_line.split(' ', 2)
+    if len(parts) < 2:
+        return request_line
+    if len(parts) == 2:
+        method, target = parts
+        version = ''
+    else:
+        method, target, version = parts
+    parsed = urlsplit(target)
+    path_parts = parsed.path.split('/')
+    endpoint_parts = endpoint.strip('/').split('/')
+    if endpoint_parts == ['']:
+        return request_line
+    changed = False
+    replaced_at_end = False
+    for i, path_part in enumerate(path_parts):
+        if path_part == 'sparql':
+            replaced_at_end = i == len(path_parts) - 2 and path_parts[-1] == ''
+            path_parts = path_parts[:i] + endpoint_parts + path_parts[i + 1:]
+            changed = True
+            break
+    if not changed:
+        return request_line
+    if replaced_at_end and path_parts and path_parts[-1] == '':
+        path_parts = path_parts[:-1]
+    new_path = '/'.join(path_parts)
+    new_target = urlunsplit((
+        parsed.scheme,
+        parsed.netloc,
+        new_path,
+        parsed.query,
+        parsed.fragment,
+    ))
+    if not version:
+        return f'{method} {new_target}'
+    return f'{method} {new_target} {version}'
 
 
 def prepare_response(test: TestObject, request_with_reponse: str, newpath: str) -> dict[str, str | list[str]]:
     response: dict[str, str | list[str]] = {'status_codes': [], 'content_types': []}
+    request_string = request_with_reponse.split('#### Response')[0]
     response_string = request_with_reponse.split('#### Response')[1]
     if test.type_name == 'GraphStoreProtocolTest':
         response_string = response_string.replace(
@@ -63,6 +129,7 @@ def prepare_response(test: TestObject, request_with_reponse: str, newpath: str) 
         response_string = response_string.replace(
             '$NEWPATH$', newpath)
     response_lines = [x.strip() for x in response_string.splitlines() if x]
+    is_put_request = 'PUT ' in request_string
     for line in response_lines:
         if line.endswith('response') or re.search(r'\dxx', line) is not None:
             line = line.replace('response', '')
@@ -70,8 +137,12 @@ def prepare_response(test: TestObject, request_with_reponse: str, newpath: str) 
             for status_code in status_codes:
                 response['status_codes'].append(status_code.strip())
         if re.search(r'^\d\d\d ', line) is not None:
-            response['status_codes'].append(
-                re.search(r'^\d\d\d ', line).group(0))
+            status_code = re.search(r'^\d\d\d ', line).group(0)
+            response['status_codes'].append(status_code)
+            # PUT modifying existing content can return 200 or 204
+            # https://www.w3.org/TR/sparql11-http-rdf-update/#http-put
+            if is_put_request and status_code.strip() == '204':
+                response['status_codes'].append('200')
         if line.startswith('Content-Type:'):
             line = line.replace('Content-Type:', '')
             content_types = line.strip().split('or')
@@ -111,10 +182,11 @@ def send_raw_http(
         request_body: str,
         encoding: str,
         connect_timeout: float = 5.0,
-        idle_timeout: float = 5.0,
+        idle_timeout: float = 10.0,
         total_timeout: float = 30.0) -> str:
-    request_bytes = request_head.encode('utf-8') + request_body.encode(
-        encoding)
+    body_bytes = request_body.encode(encoding)
+    request_head = _set_content_length(request_head, len(body_bytes))
+    request_bytes = request_head.encode('utf-8') + body_bytes
     try:
         with socket.create_connection(
                 (server_address, port), timeout=connect_timeout) as sock:
@@ -128,15 +200,29 @@ def send_raw_http(
                 try:
                     chunk = sock.recv(4096)
                 except socket.timeout:
-                    if response_chunks:
-                        break
-                    return 'timed out waiting for response'
+                    continue
                 if not chunk:
                     break
                 response_chunks.append(chunk)
+            if not response_chunks:
+                return 'timed out waiting for response'
             return b''.join(response_chunks).decode('utf-8')
     except Exception as e:
         return str(e)
+
+
+def _set_content_length(request_head: str, content_length: int) -> str:
+    stripped_head = request_head
+    if stripped_head.endswith('\r\n\r\n'):
+        stripped_head = stripped_head[:-4]
+    lines = [line for line in stripped_head.split('\r\n') if line != '']
+    lines = [
+        line
+        for line in lines
+        if not line.lower().startswith('content-length:')
+    ]
+    lines.append(f'Content-Length: {content_length}')
+    return '\r\n'.join(lines) + '\r\n\r\n'
 
 def parse_chunked_body(response_body: str) -> str:
     """
@@ -254,7 +340,7 @@ def run_protocol_test(
         requests.append(request_head + request_body)
         response = prepare_response(test, request_with_reponse, newpath)
         responses.append(response)
-        if 'charset=UTF-16' in request_head:
+        if 'charset=utf-16' in request_head.lower():
             encoding = 'utf-16'
         else:
             encoding = 'utf-8'
@@ -267,6 +353,7 @@ def run_protocol_test(
         got_responses.append(tn_response)
         matching, newpath = compare_response(response, tn_response, 'SELECT' in request_with_reponse)
         status.append(matching)
+    print(status)
     if all(status):
         result = Status.PASSED
         error_type = ''
@@ -279,4 +366,5 @@ def run_protocol_test(
     got_responses_string = ''
     for response in got_responses:
         got_responses_string += response + '\n'
+    print(result)
     return result, error_type, extracted_expected_responses, extracted_sent_requests, got_responses_string, newpath

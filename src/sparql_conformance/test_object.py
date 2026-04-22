@@ -8,32 +8,32 @@ import json
 
 class Status(str, Enum):
     PASSED = "Passed"
-    INTENDED = "Failed: Intended"
+    INTENDED = "Intended deviation"
     FAILED = "Failed"
     NOT_TESTED = "Not tested"
 
 class ErrorMessage(str, Enum):
-    QUERY_EXCEPTION = "QUERY EXCEPTION"
-    REQUEST_ERROR = "REQUEST ERROR"
-    QUERY_ERROR = "QUERY RESULT ERROR"
-    INDEX_BUILD_ERROR = "INDEX BUILD ERROR"
-    SERVER_ERROR = "SERVER ERROR"
-    NOT_TESTED = "NOT TESTED"
-    RESULTS_NOT_THE_SAME = "RESULTS NOT THE SAME"
-    INTENDED_MSG = "Known, intended behaviour that does not comply with SPARQL standard"
-    EXPECTED_EXCEPTION = "EXPECTED: QUERY EXCEPTION ERROR"
-    FORMAT_ERROR = "QUERY RESULT FORMAT ERROR"
-    NOT_SUPPORTED = "QUERY NOT SUPPORTED"
-    CONTENT_TYPE_NOT_SUPPORTED = "CONTENT TYPE NOT SUPPORTED"
+    QUERY_EXCEPTION = 'Query error'
+    REQUEST_ERROR = 'Request error'
+    UNDEFINED_ERROR = 'Undefined error'
+    INDEX_BUILD_ERROR = 'Indexing error'
+    SERVER_ERROR = 'Server error'
+    NOT_TESTED = 'Not tested'
+    RESULTS_NOT_THE_SAME = 'Results differ'
+    INTENDED_MSG = 'Intended deviation from SPARQL standard'
+    EXPECTED_EXCEPTION = 'Expected error response from query'
+    FORMAT_ERROR = 'Result format error'
+    NOT_SUPPORTED = 'Not supported'
+    CONTENT_TYPE_NOT_SUPPORTED = "Content type not supported"
 
     @classmethod
     def is_query_error(cls, error: str) -> bool:
         """Subset of query-related errors."""
         return error in [
             cls.QUERY_EXCEPTION,
-            cls.QUERY_ERROR,
             cls.REQUEST_ERROR,
             cls.NOT_SUPPORTED,
+            cls.UNDEFINED_ERROR,
             cls.CONTENT_TYPE_NOT_SUPPORTED,
         ]
 

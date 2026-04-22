@@ -211,7 +211,7 @@ class TestSuite:
                 error_type = ErrorMessage.CONTENT_TYPE_NOT_SUPPORTED
             query_log = query_response[1]
         else:
-            error_type = ErrorMessage.QUERY_ERROR
+            error_type = ErrorMessage.UNDEFINED_ERROR
             query_log = query_response[1]
         setattr(test, "query_log", query_log)
         self.update_test_status(test, Status.FAILED, error_type)

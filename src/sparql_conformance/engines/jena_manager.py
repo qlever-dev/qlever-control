@@ -52,7 +52,10 @@ class JenaManager(EngineManager):
     """Manager for Jena using qjena commands."""
 
     def protocol_endpoint(self) -> str:
-        return f"{DEFAULT_NAME}/sparql"
+        return f"{DEFAULT_NAME}/query"
+
+    def protocol_update_endpoint(self) -> str:
+        return f"{DEFAULT_NAME}/update"
 
     def setup(
         self,

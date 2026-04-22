@@ -92,7 +92,22 @@ def compare_ttl(expected_ttl: str, query_ttl: str) -> tuple:
             expected_ttl), escaped_query, escaped_expected, f'<label class="red">{e}</label>'
 
     is_isomorphic = expected_graph.isomorphic(query_graph)
-
+    test = '''_:bn442302852101219001 <http://www.w3.org/2006/vcard/ns#fn> "Jane Doe" .
+_:bn442302852101219001 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2006/vcard/ns#VCard> .
+<http://localhost/http-graph-store/person/1> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://xmlns.com/foaf/0.1/Person> .
+<http://localhost/http-graph-store/person/1> <http://xmlns.com/foaf/0.1/businessCard> _:bn442302852101219001 .'''
+    test_graph = rdflib.Graph().parse(data=test, format="turtle")
+    print(test_graph.serialize(format="turtle"))
+    print(expected_graph.isomorphic(test_graph))
+    print(test_graph.isomorphic(expected_graph))
+    print('######################')
+    print(expected_ttl)
+    print('---')
+    print(expected_graph.serialize(format="turtle"))
+    print('xxxxxxxxXXXXXXxxxxxxxxxxx')
+    print(query_graph.serialize(format="turtle"))
+    print('---')
+    print(query_ttl)
     if is_isomorphic:
         status = Status.PASSED
         error_type = ""

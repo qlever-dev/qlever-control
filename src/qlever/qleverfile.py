@@ -501,7 +501,7 @@ class Qleverfile:
         qlever_args["qlever_image"] = arg(
             "--qlever-image",
             type=str,
-            default="docker.io/adfreiburg/qlever",
+            default="docker.io/adfreiburg/qlever:commit-5c6a72a",
             help="The name of the image when running in a container",
         )
 
