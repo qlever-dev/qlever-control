@@ -9,6 +9,7 @@ import rdflib
 import sparql_conformance.util as util
 from qlever.log import log
 from sparql_conformance.config import Config
+from sparql_conformance.engines.blazegraph_manager import BlazegraphManager
 from sparql_conformance.engines.engine_manager import EngineManager
 from sparql_conformance.engines.qlever import QLeverManager
 from sparql_conformance.engines.graphdb_manager import GraphdbManager
@@ -274,6 +275,18 @@ class TestSuite:
                         default_graph_query = (
                             "CONSTRUCT {?s ?p ?o} WHERE { "
                             "GRAPH ql:default-graph {?s ?p ?o}}"
+                        )
+                    elif (
+                        isinstance(self.engine_manager, BlazegraphManager)
+                        and any(
+                            graph_name not in ("", "-", None)
+                            for _graph_path, graph_name in graph
+                        )
+                    ):
+                        default_graph_query = (
+                            "CONSTRUCT {?s ?p ?o} WHERE { "
+                            "GRAPH <http://www.bigdata.com/rdf#nullGraph> "
+                            "{?s ?p ?o}}"
                         )
                     else:
                         default_graph_query = (
