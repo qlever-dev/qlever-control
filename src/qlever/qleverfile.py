@@ -79,11 +79,23 @@ class Qleverfile:
             required=True,
             help="Name of the graph store endpoint used for graph store protocol tests.",
         )
-        args["testsuite_dir"] = arg(
-            "--testsuite-dir",
+        args["sparql11_dir"] = arg(
+            "--sparql11-dir",
             type=str,
             default=None,
-            help="Path to the directory of the testsuite.",
+            help="Path to the SPARQL 1.1 test suite directory.",
+        )
+        args["sparql10_dir"] = arg(
+            "--sparql10-dir",
+            type=str,
+            default=None,
+            help="Path to the SPARQL 1.0 test suite directory.",
+        )
+        args["custom_dir"] = arg(
+            "--custom-dir",
+            type=str,
+            default=None,
+            help="Path to a custom test suite directory.",
         )
         args["type_alias"] = arg(
             "--type-alias",

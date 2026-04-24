@@ -488,26 +488,21 @@ class TestSuite:
                 json.dump(input_data, zipfile, indent=4)
         log.info("Done writing result file: " + output_filename)
 
-    def generate_json_file(self):
-        """
-        Generates a JSON file with the test results.
-        """
-        os.makedirs("./results", exist_ok=True)
-        file_path = f"./results/{self.name}.json.bz2"
+    def build_results_dict(self) -> tuple[dict, dict]:
+        """Returns (tests_data, info) for the suite without writing to disk."""
         data = {}
+        passed = failed = passed_failed = 0
 
         for test_format in self.tests:
             for graph in self.tests[test_format]:
                 for test in self.tests[test_format][graph]:
                     match test.status:
                         case Status.PASSED:
-                            self.passed += 1
+                            passed += 1
                         case Status.FAILED:
-                            self.failed += 1
+                            failed += 1
                         case Status.INTENDED:
-                            self.passed_failed += 1
-                    # This will add a number behind the name if the name is not
-                    # unique
+                            passed_failed += 1
                     if test.name in data:
                         i = 1
                         while True:
@@ -521,16 +516,20 @@ class TestSuite:
                                 break
                     else:
                         data[test.name] = test.to_dict()
-        data["info"] = {
-            "name": "info",
-            "passed": self.passed,
+
+        info = {
+            "passed": passed,
             "tests": self.test_count,
-            "failed": self.failed,
-            "passedFailed": self.passed_failed,
-            "notTested": (
-                self.test_count -
-                self.passed -
-                self.failed -
-                self.passed_failed)}
+            "failed": failed,
+            "passedFailed": passed_failed,
+            "notTested": self.test_count - passed - failed - passed_failed,
+        }
+        return data, info
+
+    def generate_json_file(self):
+        """Generates a JSON file with the test results (single-suite v1 format)."""
+        os.makedirs("./results", exist_ok=True)
+        data, info = self.build_results_dict()
+        data["info"] = {"name": "info", **info}
         log.info("Writing file...")
-        self.compress_json_bz2(data, file_path)
+        self.compress_json_bz2(data, f"./results/{self.name}.json.bz2")

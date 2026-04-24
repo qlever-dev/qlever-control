@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from qlever.command import QleverCommand
@@ -61,7 +62,7 @@ class TestCommand(QleverCommand):
     def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {
             "conformance": ["name", "port", "engine",
-                            "graph_store", "testsuite_dir",
+                            "graph_store", "sparql11_dir", "sparql10_dir", "custom_dir",
                             "type_alias", "exclude", "include", "binaries_directory"],
             "runtime": ["system"],
             "qlever": ["qlever_image"],
@@ -91,21 +92,54 @@ class TestCommand(QleverCommand):
 
         warn_if_missing_image(args.system, image, args.engine)
 
-        if args.testsuite_dir is None or not Path(args.testsuite_dir).is_dir():
-            log.error("Could not find testsuite directory. Use `sparql_conformance setup` to download it.")
+        suite_dirs = [
+            ("sparql11", args.sparql11_dir),
+            ("sparql10", args.sparql10_dir),
+            ("custom",   args.custom_dir),
+        ]
+        active_suites = [(key, d) for key, d in suite_dirs if d is not None]
+
+        if not active_suites:
+            log.error("Provide at least one of --sparql11-dir, --sparql10-dir, --custom-dir.")
             return False
+
+        for _, d in active_suites:
+            if not Path(d).is_dir():
+                log.error(f"Test suite directory not found: {d}. Use `sparql_conformance setup` to download it.")
+                return False
+
         if args.engine == "blazegraph" and args.graph_store == "sparql":
             args.graph_store = "blazegraph/namespace/kb/sparql"
         if args.engine == "jena" and args.graph_store == "sparql":
             args.graph_store = "qlever-sparql-conformance/data"
+
         alias = [tuple(x) for x in args.type_alias] if args.type_alias else []
-        config = Config(image, args.system, args.port, args.graph_store, args.testsuite_dir, alias,
-                        args.binaries_directory, args.exclude, args.include)
-        print("Running testsuite...")
-        tests, test_count = extract_tests(config)
-        test_suite = TestSuite(name=args.name, tests=tests, test_count=test_count, config=config,
-                               engine_manager=get_engine_manager(args.engine))
-        test_suite.run()
-        test_suite.generate_json_file()
+
+        suites_data = {}
+        total_info = {"passed": 0, "tests": 0, "failed": 0, "passedFailed": 0, "notTested": 0}
+        last_suite = None
+
+        for suite_key, suite_dir in active_suites:
+            print(f"Running suite '{suite_key}' from {suite_dir}...")
+            config = Config(image, args.system, args.port, args.graph_store, suite_dir, alias,
+                            args.binaries_directory, args.exclude, args.include)
+            tests, test_count = extract_tests(config)
+            suite = TestSuite(name=args.name, tests=tests, test_count=test_count,
+                              config=config, engine_manager=get_engine_manager(args.engine))
+            suite.run()
+            tests_dict, info_dict = suite.build_results_dict()
+            suites_data[suite_key] = {"tests": tests_dict, "info": info_dict}
+            for key in total_info:
+                total_info[key] += info_dict[key]
+            last_suite = suite
+
+        output = {
+            "version": 2,
+            "suites": suites_data,
+            "info": {"name": "info", **total_info},
+        }
+
+        os.makedirs("./results", exist_ok=True)
+        last_suite.compress_json_bz2(output, f"./results/{args.name}.json.bz2")
         print("Finished!")
         return True
