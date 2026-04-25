@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 from qlever.command import QleverCommand
@@ -18,36 +17,59 @@ class VisualizeCommand(QleverCommand):
 
     def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {"runtime": ["system"],
-                "conformance_ui": ["result_directory", "port"]
+                "conformance_ui": ["result_directory", "port", "ui_branch"]
                 }
 
     def additional_arguments(self, subparser):
         pass
 
     def execute(self, args) -> bool:
-        dockerfile_dir = Path(__file__).parent.parent
-        dockerfile_path = dockerfile_dir / "Dockerfile"
+        compose_file = Path(__file__).parent.parent / "docker-compose.yml"
         system = args.system
-        uid = f"UID={os.getuid()}" if hasattr(os, "getuid") else "UID=1000"
-        gid = f"GID={os.getgid()}" if hasattr(os, "getuid") else "GID=1000"
-        build_cmd = f"docker build -f {dockerfile_path} -t visualize-results \
-                            --build-arg {uid} --build-arg {gid} {dockerfile_dir}"
-        start_server_cmd = f"docker run -it --rm \
-                            -p {args.port}:3000 \
-                            -v {args.result_directory}:/app/public/results \
-                            visualize-results"
-        image_id = run_command(
-            f"{system} images -q visualize-results", return_output=True
+        result_dir = (
+            Path.cwd() if args.result_directory == "$(pwd)"
+            else Path(args.result_directory).resolve()
         )
-        if not image_id:
+        port = args.port
+        branch = args.ui_branch
+
+        compose_cmd = (
+            f'LOCAL_RESULTS_DIR="{result_dir}" '
+            f'PRIVATE_WEB_PORT="{port}" '
+            f'SPARQL_CONFORMANCE_UI_BRANCH="{branch}" '
+            f'{system} compose -f {compose_file}'
+        )
+
+        # Remove any previous run's DB volume for a clean start.
+        run_command(f"{compose_cmd} down -v", show_stderr=True)
+
+        # Images are tagged by branch; build only when the tag is missing.
+        web_id = run_command(
+            f"{system} images -q sparql-conformance-web:{branch}",
+            return_output=True
+        )
+        api_id = run_command(
+            f"{system} images -q sparql-conformance-api:{branch}",
+            return_output=True
+        )
+        if not web_id or not api_id:
+            log.info(
+                f"Building sparql-conformance-ui images from branch '{branch}' "
+                "(first run for this branch, may take a few minutes)..."
+            )
             try:
-                run_command(build_cmd, show_output=True)
+                run_command(f"{compose_cmd} build", show_output=True)
             except Exception as e:
-                log.error(f"Building the {system} image visualize-results failed: {e}")
+                log.error(f"Building the images failed: {e}")
                 return False
+
+        log.info(f"Starting visualization at http://localhost:{port}")
         try:
-            run_command(start_server_cmd, show_output=True)
+            run_command(f"{compose_cmd} up", show_output=True)
         except Exception as e:
-            log.error(f"Building the index failed: {e}")
+            log.error(f"Starting visualization failed: {e}")
             return False
+        finally:
+            run_command(f"{compose_cmd} down -v", show_stderr=True)
+
         return True

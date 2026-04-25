@@ -1,0 +1,38 @@
+services:
+  web:
+    image: sparql-conformance-web:${SPARQL_CONFORMANCE_UI_BRANCH:-main}
+    build:
+      context: https://github.com/SIRDNARch/sparql-conformance-ui.git#${SPARQL_CONFORMANCE_UI_BRANCH:-main}
+      dockerfile: Dockerfile.web
+      args:
+        VITE_BASE_PATH: /
+        VITE_API_BASE_URL: /api
+    ports:
+      - "${PRIVATE_WEB_PORT:-3000}:80"
+    depends_on:
+      - api
+
+  api:
+    image: sparql-conformance-api:${SPARQL_CONFORMANCE_UI_BRANCH:-main}
+    build:
+      context: https://github.com/SIRDNARch/sparql-conformance-ui.git#${SPARQL_CONFORMANCE_UI_BRANCH:-main}
+      dockerfile: Dockerfile.api
+    environment:
+      APP_MODE: private
+      API_SURFACE: read
+      PORT: 3000
+      HOST: 0.0.0.0
+      DB_PATH: /data/conformance.db
+      LOCAL_RESULTS_DIR: /results
+      PRIVATE_AUTO_IMPORT: "true"
+      WEBSITE_ORIGIN: http://localhost:${PRIVATE_WEB_PORT:-3000}
+    volumes:
+      - db_data:/data
+      - ${LOCAL_RESULTS_DIR}:/results:ro
+    networks:
+      default:
+        aliases:
+          - api
+
+volumes:
+  db_data:

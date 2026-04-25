@@ -285,8 +285,14 @@ class StartCommand(QleverCommand):
         if not called_from_conformance_test:
             tail_cmd = f"exec tail -f {args.name}.server-log.txt"
             tail_proc = subprocess.Popen(tail_cmd, shell=True)
+        max_wait = 120
+        elapsed = 0
         while not is_qlever_server_alive(args.endpoint_url):
             time.sleep(1)
+            elapsed += 1
+            if elapsed >= max_wait:
+                log.error(f"Server did not respond within {max_wait} seconds")
+                return False
 
         # Set the description for the index and text.
         access_arg = f'--data-urlencode "access-token={args.access_token}"'

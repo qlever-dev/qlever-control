@@ -79,6 +79,12 @@ class Qleverfile:
             required=True,
             help="Name of the graph store endpoint used for graph store protocol tests.",
         )
+        args["testsuite_dir"] = arg(
+            "--testsuite-dir",
+            type=str,
+            default=None,
+            help="Path to the test suite directory (used by the analyze command).",
+        )
         args["sparql11_dir"] = arg(
             "--sparql11-dir",
             type=str,
@@ -575,6 +581,12 @@ class Qleverfile:
             required=False,
             help='Directory containing the results of the SPARQL conformance tests (default: current directory)',
             default='$(pwd)'
+        )
+        conformance_ui_args["ui_branch"] = arg(
+            '--ui-branch',
+            required=False,
+            help='Branch of sparql-conformance-ui to build the visualization from (default: main)',
+            default='main'
         )
 
         engine_args_module_path = f"{script_name}.qleverfile"

@@ -1,0 +1,1 @@
+# empty graph — fallback for tests with no qt:data

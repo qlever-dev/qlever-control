@@ -138,6 +138,19 @@ class QLeverManager(EngineManager):
             index_log = util.read_file("./qlever-sparql-conformance.index-log.txt")
         return result, index_log
 
+    _FORMAT_BY_EXTENSION = {
+        '.ttl': 'ttl',
+        '.trig': 'trig',
+        '.nt': 'nt',
+        '.nq': 'nq',
+        '.rdf': 'rdf',
+        '.xml': 'rdf',
+    }
+
+    def _format_for_file(self, path: str) -> str:
+        ext = Path(path).suffix.lower()
+        return self._FORMAT_BY_EXTENSION.get(ext, 'ttl')
+
     def _generate_multi_input_json(self, graph_paths: List[Tuple[str, str]]) -> str:
         """Generate the JSON input for multi_input_json in IndexCommand.execute()"""
         input_list = []
@@ -145,7 +158,7 @@ class QLeverManager(EngineManager):
             entry = {
                 'cmd': f'cat {graph_path}',
                 'graph': graph_name if graph_name else '-',
-                'format': 'ttl'
+                'format': self._format_for_file(graph_path)
             }
             input_list.append(entry)
         return json.dumps(input_list)

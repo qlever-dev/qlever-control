@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from rdflib import Graph, Namespace, RDF, URIRef
 from typing import Union, Dict, Any, List, Tuple, Optional, Set
 
@@ -25,6 +26,8 @@ def collect_tests_by_graph(tests: List[TestObject]) -> Dict[str, Dict[Tuple[Tupl
         'QueryEvaluationTest': 'query',
         'CSVResultFormatTest': 'format',
         'UpdateEvaluationTest': 'update',
+        'PositiveSyntaxTest': 'syntax',
+        'NegativeSyntaxTest': 'syntax',
         'PositiveSyntaxTest11': 'syntax',
         'NegativeSyntaxTest11': 'syntax',
         'PositiveUpdateSyntaxTest11': 'syntax',
@@ -44,7 +47,7 @@ def collect_tests_by_graph(tests: List[TestObject]) -> Dict[str, Dict[Tuple[Tupl
         'service': dict(),
     }
 
-    fallback_graph = (os.path.join(tests[0].config.path_to_test_suite, 'property-path', 'empty.ttl'), '-')
+    fallback_graph = (str(Path(__file__).parent / 'empty.ttl'), '-')
 
     for test in tests:
         if isinstance(test.action_node, dict):
@@ -209,6 +212,7 @@ def extract_tests(config: Config) -> Tuple[Dict[str, Dict[Tuple[Tuple[str, str],
         - A dictionary grouped by categories
         - Number of tests
     """
-    path_to_manifest = os.path.join(config.path_to_test_suite, 'manifest-all.ttl')
+    manifest_all = os.path.join(config.path_to_test_suite, 'manifest-all.ttl')
+    path_to_manifest = manifest_all if os.path.exists(manifest_all) else os.path.join(config.path_to_test_suite, 'manifest.ttl')
     tests = load_tests_from_manifest(path_to_manifest, config)
     return collect_tests_by_graph(tests), len(tests)
