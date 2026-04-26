@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 from rdflib import Graph, Namespace, RDF, URIRef
 from typing import Union, Dict, Any, List, Tuple, Optional, Set
@@ -6,12 +7,97 @@ from typing import Union, Dict, Any, List, Tuple, Optional, Set
 from .config import Config
 from .util import uri_to_path, local_name
 from .test_object import TestObject
+from .protocol_request import ProtocolHeader, ProtocolRequest, ProtocolResponse
 
 # Namespaces
 MF = Namespace("http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#")
 DAWGT = Namespace("http://www.w3.org/2001/sw/DataAccess/tests/test-dawg#")
 SD = Namespace("http://www.w3.org/ns/sparql-service-description#")
 RDFS = Namespace("http://www.w3.org/2000/01/rdf-schema#")
+HT = Namespace("http://www.w3.org/2011/http#")
+CNT = Namespace("http://www.w3.org/2011/content#")
+
+
+def extract_protocol_requests(graph: Graph, action_node: Any) -> Optional[List[ProtocolRequest]]:
+    """
+    Extract structured protocol requests from a ht:Connection RDF node.
+    Returns None when the action node is not a ht:Connection (old-style manifest).
+    """
+    if action_node is None:
+        return None
+    connection_type = graph.value(action_node, RDF.type)
+    if str(connection_type) != str(HT.Connection):
+        return None
+
+    authority = str(graph.value(action_node, HT.connectionAuthority) or "")
+    requests_head = graph.value(action_node, HT.requests)
+    if requests_head is None:
+        return None
+
+    protocol_requests: List[ProtocolRequest] = []
+    for req_node in graph.items(requests_head):
+        method = str(graph.value(req_node, HT.methodName) or "GET")
+        absolute_path = str(graph.value(req_node, HT.absolutePath) or "/")
+        http_version = str(graph.value(req_node, HT.httpVersion) or "1.1")
+
+        body: Optional[str] = None
+        character_encoding = "UTF-8"
+        body_node = graph.value(req_node, HT.body)
+        if body_node is not None:
+            chars = graph.value(body_node, CNT.chars)
+            if chars is not None:
+                body = str(chars)
+            enc = graph.value(body_node, CNT.characterEncoding)
+            if enc is not None:
+                character_encoding = str(enc)
+
+        headers: List[ProtocolHeader] = []
+        headers_head = graph.value(req_node, HT.headers)
+        if headers_head is not None:
+            for header_node in graph.items(headers_head):
+                name = graph.value(header_node, HT.fieldName)
+                value = graph.value(header_node, HT.fieldValue)
+                if name is not None and value is not None:
+                    headers.append(ProtocolHeader(name=str(name), value=str(value)))
+
+        status_codes: List[str] = []
+        expected_boolean: Optional[bool] = None
+        expected_format: Optional[str] = None
+        expectation: Optional[str] = None
+        resp_node = graph.value(req_node, HT.resp)
+        if resp_node is not None:
+            for status_uri in graph.objects(resp_node, MF.expectedStatus):
+                lname = local_name(str(status_uri))
+                m = re.match(r'StatusCode(\w+)', lname)
+                if m:
+                    status_codes.append(m.group(1))
+            bool_val = graph.value(resp_node, MF.expectedBoolean)
+            if bool_val is not None:
+                expected_boolean = bool(bool_val)
+            fmt = graph.value(resp_node, MF.expectedFormat)
+            if fmt is not None:
+                expected_format = str(fmt)
+            exp = graph.value(resp_node, MF.expectation)
+            if exp is not None:
+                expectation = str(exp)
+
+        protocol_requests.append(ProtocolRequest(
+            method=method,
+            absolute_path=absolute_path,
+            http_version=http_version,
+            connection_authority=authority,
+            headers=headers,
+            body=body,
+            character_encoding=character_encoding,
+            expected_response=ProtocolResponse(
+                status_codes=status_codes,
+                expected_boolean=expected_boolean,
+                expected_format=expected_format,
+                expectation=expectation,
+            ),
+        ))
+
+    return protocol_requests if protocol_requests else None
 
 
 def collect_tests_by_graph(tests: List[TestObject]) -> Dict[str, Dict[Tuple[Tuple[str, str], ...], List[TestObject]]]:
@@ -170,6 +256,11 @@ def load_tests_from_manifest(
                 continue
             if config.include and str(name) not in config.include and group not in config.include:
                 continue
+
+            protocol_requests = None
+            if test_type in ('ProtocolTest', 'GraphStoreProtocolTest'):
+                protocol_requests = extract_protocol_requests(g, action_node)
+
             tests.append(TestObject(
                 test=str(test_uri),
                 name=str(name),
@@ -185,6 +276,7 @@ def load_tests_from_manifest(
                 entailment_profile=str(entailment_profile) if entailment_profile else None,
                 feature=feature,
                 config=config,
+                protocol_requests=protocol_requests,
             ))
 
     for include_list in g.objects(None, MF.include):

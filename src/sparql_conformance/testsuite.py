@@ -14,7 +14,7 @@ from sparql_conformance.engines.engine_manager import EngineManager
 from sparql_conformance.engines.qlever import QLeverManager
 from sparql_conformance.engines.graphdb_manager import GraphdbManager
 from sparql_conformance.json_tools import compare_json
-from sparql_conformance.protocol_tools import run_protocol_test
+from sparql_conformance.protocol_tools import run_protocol_test, run_protocol_test_from_action
 from sparql_conformance.rdf_tools import compare_ttl
 from sparql_conformance.test_object import TestObject, Status, ErrorMessage
 from sparql_conformance.tsv_csv_tools import compare_sv
@@ -389,7 +389,19 @@ class TestSuite:
                 if not self.prepare_test_environment(
                         graph_paths, graphs_list_of_tests[graph_path]):
                     break
-                if test.comment:
+                if test.protocol_requests:
+                    status, error_type, extracted_expected_responses, extracted_sent_requests, got_responses, newpath = run_protocol_test_from_action(
+                        self.engine_manager, test, test.protocol_requests, '')
+                    if os.path.exists("./TestSuite.server-log.txt"):
+                        server_log = util.read_file(
+                            "./TestSuite.server-log.txt")
+                        self.log_for_all_tests(
+                            graphs_list_of_tests[graph_path],
+                            "server_log",
+                            util.remove_date_time_parts(server_log))
+                    self.engine_manager.cleanup(self.config)
+                    self.update_test_status(test, status, error_type)
+                elif test.comment:
                     status, error_type, extracted_expected_responses, extracted_sent_requests, got_responses, newpath = run_protocol_test(
                         self.engine_manager, test, test.comment, '')
 
@@ -426,7 +438,13 @@ class TestSuite:
             newpath = '/newpath-not-set'
             for test in graphs_list_of_tests[graph_path]:
                 log.info(f"Running: {test.name}")
-                if test.comment:
+                if test.protocol_requests:
+                    status, error_type, extracted_expected_responses, extracted_sent_requests, got_responses, new_newpath = run_protocol_test_from_action(
+                        self.engine_manager, test, test.protocol_requests, newpath)
+                    if new_newpath != '':
+                        newpath = new_newpath
+                    self.update_test_status(test, status, error_type)
+                elif test.comment:
                     status, error_type, extracted_expected_responses, extracted_sent_requests, got_responses, new_newpath = run_protocol_test(
                         self.engine_manager, test, test.comment, newpath)
                     if new_newpath != '':

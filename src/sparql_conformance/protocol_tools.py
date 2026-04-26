@@ -2,10 +2,11 @@ import json
 import re
 import socket
 import time
-from typing import Tuple
+from typing import List, Tuple
 from urllib.parse import urlsplit, urlunsplit
 
 from sparql_conformance.engines.engine_manager import EngineManager
+from sparql_conformance.protocol_request import ProtocolRequest
 from sparql_conformance.test_object import TestObject, Status, ErrorMessage
 from sparql_conformance.rdf_tools import compare_ttl
 
@@ -366,5 +367,88 @@ def run_protocol_test(
     got_responses_string = ''
     for response in got_responses:
         got_responses_string += response + '\n'
+    print(result)
+    return result, error_type, extracted_expected_responses, extracted_sent_requests, got_responses_string, newpath
+
+
+def prepare_request_from_action(
+        engine_manager: EngineManager,
+        test: TestObject,
+        req: ProtocolRequest,
+        newpath: str) -> Tuple[str, str]:
+    is_update_request = any(
+        h.name.lower() == 'content-type' and 'sparql-update' in h.value.lower()
+        for h in req.headers
+    )
+    protocol_endpoint = (
+        engine_manager.protocol_update_endpoint()
+        if is_update_request
+        else engine_manager.protocol_endpoint()
+    )
+
+    first_line = _replace_endpoint_in_request_line(
+        f'{req.method} {req.absolute_path} HTTP/{req.http_version}',
+        protocol_endpoint,
+    )
+
+    header_lines = [first_line, f'Host: {req.connection_authority}']
+    for h in req.headers:
+        if h.name.lower() != 'content-length':
+            header_lines.append(f'{h.name}: {h.value}')
+
+    if 'authorization:' not in '\n'.join(header_lines).lower():
+        header_lines.append('Authorization: Bearer abc')
+
+    request_body = req.body or ''
+    body_encoding = 'utf-16' if req.character_encoding.lower() == 'utf-16' else 'utf-8'
+    content_length = len(request_body.encode(body_encoding))
+    header_lines.append(f'Content-Length: {content_length}')
+
+    return '\r\n'.join(header_lines) + '\r\n\r\n', request_body
+
+
+def prepare_response_from_action(req: ProtocolRequest) -> dict:
+    response: dict = {'status_codes': list(req.expected_response.status_codes), 'content_types': []}
+    if req.expected_response.expected_boolean is not None:
+        response['result'] = 'true' if req.expected_response.expected_boolean else 'false'
+    return response
+
+
+def run_protocol_test_from_action(
+        engine_manager: EngineManager,
+        test: TestObject,
+        protocol_requests: List[ProtocolRequest],
+        newpath: str) -> tuple:
+    server_address = 'localhost'
+    port = test.config.port
+    result = Status.FAILED
+    error_type = ErrorMessage.RESULTS_NOT_THE_SAME
+    status = []
+    requests = []
+    responses = []
+    got_responses = []
+    for req in protocol_requests:
+        request_head, request_body = prepare_request_from_action(engine_manager, test, req, newpath)
+        requests.append(request_head + request_body)
+        response = prepare_response_from_action(req)
+        responses.append(response)
+        body_encoding = 'utf-16' if req.character_encoding.lower() == 'utf-16' else 'utf-8'
+        tn_response = send_raw_http(
+            server_address,
+            int(port),
+            request_head,
+            request_body,
+            body_encoding)
+        got_responses.append(tn_response)
+        is_select = req.expected_response.expected_format == 'tabular'
+        matching, newpath = compare_response(response, tn_response, is_select)
+        status.append(matching)
+    print(status)
+    if all(status):
+        result = Status.PASSED
+        error_type = ''
+    extracted_expected_responses = ''.join(str(r) + '\n' for r in responses)
+    extracted_sent_requests = ''.join(r + '\n' for r in requests)
+    got_responses_string = ''.join(r + '\n' for r in got_responses)
     print(result)
     return result, error_type, extracted_expected_responses, extracted_sent_requests, got_responses_string, newpath

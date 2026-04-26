@@ -21,6 +21,7 @@ def get_engine_manager(engine_type: str) -> EngineManager:
     """Get the appropriate engine manager for the given engine type"""
     managers = {
         'qlever': QLeverManager,
+        'qlever-binaries': QLeverManager,
         'blazegraph': BlazegraphManager,
         'graphdb': GraphdbManager,
         'jena': JenaManager,

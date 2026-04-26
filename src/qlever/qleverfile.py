@@ -667,12 +667,12 @@ class Qleverfile:
             if "text_docs_file" not in index:
                 index["text_docs_file"] = f"{name}.docsfile.tsv"
             server = config["server"]
-        if index.get("text_index", "none") != "none":
-            server["use_text_index"] = "yes"
-        if index.get("only_pso_and_pos_permutations", "false") == "true":
-            index["use_patterns"] = "no"
-        if index.get("use_patterns", None) == "no":
-            server["use_patterns"] = "no"
+            if index.get("text_index", "none") != "none":
+                server["use_text_index"] = "yes"
+            if index.get("only_pso_and_pos_permutations", "false") == "true":
+                index["use_patterns"] = "no"
+            if index.get("use_patterns", None) == "no":
+                server["use_patterns"] = "no"
 
         # Add other non-trivial default values.
         try:

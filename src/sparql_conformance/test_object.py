@@ -1,10 +1,13 @@
 from enum import Enum
-from typing import Optional, List, Union, Dict, Any
+from typing import Optional, List, Union, Dict, Any, TYPE_CHECKING
 
 from sparql_conformance.config import Config
 from sparql_conformance.util import local_name, read_file, escape
 import os
 import json
+
+if TYPE_CHECKING:
+    from sparql_conformance.protocol_request import ProtocolRequest
 
 class Status(str, Enum):
     PASSED = "Passed"
@@ -83,6 +86,7 @@ class TestObject:
             entailment_profile: Optional[str],
             feature: List[str],
             config: Config,
+            protocol_requests: Optional[List['ProtocolRequest']] = None,
     ):
         """
         Initialize a test object with all its properties.
@@ -117,6 +121,7 @@ class TestObject:
         self.entailment_profile = entailment_profile
         self.feature = feature
         self.config = config
+        self.protocol_requests = protocol_requests
 
         self.status = Status.NOT_TESTED
         self.index_files: Dict[str, str] = {}
