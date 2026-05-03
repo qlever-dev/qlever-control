@@ -46,6 +46,14 @@ def validate_index(args, index_dir: str) -> bool:
     validation_args.timeout = "1s"
     validation_args.warmup_cmd = ""
     validation_args.show = False
+    # Additional arguments expected by StartCommand and StopCommand
+    # (normally set by argparse, but we call execute() directly).
+    validation_args.kill_existing_with_same_port = False
+    validation_args.no_warmup = True
+    validation_args.run_in_foreground = False
+    validation_args.runtime_parameters = []
+    validation_args.cmdline_regex = "qlever-server.* -i [^ ]*%%NAME%%"
+    validation_args.no_containers = False
 
     log.info(f"Validating new index in \"{index_dir}\" (port"
              f" {validation_port}) ...")
