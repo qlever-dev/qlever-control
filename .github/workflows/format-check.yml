@@ -9,24 +9,15 @@ on:
 
 jobs:
   format-check:
-    runs-on: ${{matrix.os}}
-    strategy:
-      fail-fast: true
-      matrix:
-        os: [ubuntu-22.04]
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout the repository for the qlever script
-        uses: actions/checkout@v3
-        with:
-          path: qlever-control
+        uses: actions/checkout@v6
 
-      - name: Install dependencies needed for checking
-        run: |
-          sudo apt update && sudo apt install flake8
-          pip install isort
-
-      - name: Check format, compilation, and imports
-        working-directory: ${{github.workspace}}/qlever-control
-        run: |
-          for PY in $(find src test -name "*.py"); do printf "$PY ... "; flake8 $PY && python3 -m py_compile $PY && isort -c $PY && echo "OK"; done
+      - name: Setup linter and formatter
+        uses: astral-sh/ruff-action@v4.0.0
+      - name: lint
+        run: ruff check
+      - name: format
+        run: ruff format --diff
