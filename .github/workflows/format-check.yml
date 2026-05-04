@@ -19,5 +19,12 @@ jobs:
         uses: astral-sh/ruff-action@v4.0.0
       - name: lint
         run: ruff check
+        id: lint
+        continue-on-error: true
       - name: format
         run: ruff format --diff
+        id: format
+        continue-on-error: true
+      - name: fail if any check failed
+        if: steps.lint.outcome == 'failure' || steps.format.outcome == 'failure'
+        run: exit 1
