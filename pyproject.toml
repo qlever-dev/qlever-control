@@ -23,6 +23,9 @@ classifiers = [
 
 dependencies = [ "psutil", "termcolor", "argcomplete", "pyyaml", "rdflib", "requests-sse", "tqdm>=4.60.0" ]
 
+[project.optional-dependencies]
+dev = [ "ruff" ]
+
 [project.urls]
 homepage = "https://github.com/ad-freiburg/qlever"
 documentation = "https://docs.qlever.dev"
