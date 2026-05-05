@@ -382,6 +382,15 @@ class Qleverfile:
             type=str,
             help=f"The name of the container used by `{script_name} start`",
         )
+        runtime_args["restart_policy"] = arg(
+            "--restart-policy",
+            type=str,
+            choices=["no", "always", "unless-stopped", "on-failure"],
+            default="unless-stopped",
+            help="Restart policy for the server container"
+            " (only applies when running in a container)"
+            " (default: unless-stopped)",
+        )
 
         ui_args["ui_port"] = arg(
             "--ui-port",

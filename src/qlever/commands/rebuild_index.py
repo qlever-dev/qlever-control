@@ -40,9 +40,9 @@ def validate_index(args, index_dir: str) -> bool:
     validation_args = copy.copy(args)
     validation_args.port = validation_port
     validation_args.server_container = validation_container
-    validation_args.memory_for_queries = "1M"
-    validation_args.cache_max_size = "1M"
-    validation_args.cache_max_size_single_entry = "1M"
+    validation_args.memory_for_queries = "100M"
+    validation_args.cache_max_size = "10M"
+    validation_args.cache_max_size_single_entry = "10M"
     validation_args.timeout = "1s"
     validation_args.warmup_cmd = ""
     validation_args.show = False
@@ -54,6 +54,7 @@ def validate_index(args, index_dir: str) -> bool:
     validation_args.runtime_parameters = []
     validation_args.cmdline_regex = "qlever-server.* -i [^ ]*%%NAME%%"
     validation_args.no_containers = False
+    validation_args.restart_policy = "no"
 
     log.info(f"Validating new index in \"{index_dir}\" (port"
              f" {validation_port}) ...")
@@ -136,7 +137,8 @@ class RebuildIndexCommand(QleverCommand):
                 "use_text_index",
                 "warmup_cmd",
             ],
-            "runtime": ["system", "image", "server_container"],
+            "runtime": ["system", "image", "server_container",
+                        "restart_policy"],
         }
 
     def additional_arguments(self, subparser) -> None:

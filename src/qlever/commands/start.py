@@ -66,7 +66,7 @@ def kill_existing_server(args) -> bool:
 def wrap_command_in_container(args, start_cmd) -> str:
     if not args.server_container:
         args.server_container = f"qlever.server.{args.name}"
-    run_subcmd = "run --restart=unless-stopped"
+    run_subcmd = f"run --restart={args.restart_policy}"
     if not args.run_in_foreground:
         run_subcmd += " -d"
     start_cmd = Containerize().containerize_command(
@@ -151,7 +151,8 @@ class StartCommand(QleverCommand):
                 "use_text_index",
                 "warmup_cmd",
             ],
-            "runtime": ["system", "image", "server_container"],
+            "runtime": ["system", "image", "server_container",
+                        "restart_policy"],
         }
 
     def additional_arguments(self, subparser) -> None:
@@ -298,6 +299,19 @@ class StartCommand(QleverCommand):
         if tail_proc is None:
             return False
         while not is_qlever_server_alive(args.endpoint_url):
+            # Check if the server process/container is still running.
+            # If it exited (e.g. due to a corrupt index), stop waiting.
+            if args.system in Containerize.supported_systems():
+                still_running = Containerize.is_running(
+                    args.system, args.server_container)
+            elif args.run_in_foreground:
+                still_running = process.poll() is None
+            else:
+                still_running = True  # nohup: can't easily check
+            if not still_running:
+                log.error("Server process exited before becoming ready")
+                tail_proc.terminate()
+                return False
             time.sleep(1)
 
         # Set the description for the index and text.

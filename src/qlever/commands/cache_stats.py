@@ -75,15 +75,18 @@ class CacheStatsCommand(QleverCommand):
 
         # Brief version.
         if not args.detailed:
-            cache_size = cache_settings_dict["cache-max-size"]
-            if not cache_size.endswith(" GB"):
-                log.error(
-                    f"Cache size {cache_size} is not in GB, "
-                    f"QLever should return bytes instead"
-                )
+            cache_size_str = cache_settings_dict["cache-max-size"]
+            unit_to_gb = {"B": 1e-9, "KB": 1e-6, "MB": 1e-3,
+                          "GB": 1, "TB": 1e3}
+            cache_size = None
+            for unit, factor in unit_to_gb.items():
+                if cache_size_str.endswith(f" {unit}"):
+                    cache_size = float(
+                        cache_size_str[:-len(unit) - 1]) * factor
+                    break
+            if cache_size is None:
+                log.error(f"Cannot parse cache size: \"{cache_size_str}\"")
                 return False
-            else:
-                cache_size = float(cache_size[:-3])
             pinned_size = cache_stats_dict["cache-size-pinned"] / 1e9
             non_pinned_size = cache_stats_dict["cache-size-unpinned"] / 1e9
             cached_size = pinned_size + non_pinned_size
