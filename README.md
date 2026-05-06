@@ -57,6 +57,6 @@ Please lint and format your files with `ruff`:
 # manually
 ruff format
 ruff check
-# runs automatically before every commits
+# runs automatically before every commit
 pre-commit install
 ```
