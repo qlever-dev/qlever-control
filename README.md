@@ -50,8 +50,8 @@ any of the `*.py` files and not even when you add new commands in
 to the files in your working copy.
 
 If you have bug fixes or new useful features or commands, please open a pull
-request. If you have questions or suggestions, please open an issue.
-Please lint and format your files with `ruff`:
+request. If you have questions or suggestions, please open an issue. Files have
+to be formatted and linted with `ruff`:
 
 ```bash
 # manually
