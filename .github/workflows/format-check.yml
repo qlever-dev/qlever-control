@@ -12,21 +12,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout the repository for the qlever script
+      - name: Checkout
         uses: actions/checkout@v6
 
-      - name: lint
+      - name: Lint
         uses: astral-sh/ruff-action@v4.0.0
         id: lint
         continue-on-error: true
         with:
           args: "check"
-      - name: format
+      - name: Format
         uses: astral-sh/ruff-action@v4.0.0
         id: format
         continue-on-error: true
         with:
           args: "format --diff"
-      - name: fail if any check failed
+      - name: Fail if any check failed
         if: steps.lint.outcome == 'failure' || steps.format.outcome == 'failure'
         run: exit 1
