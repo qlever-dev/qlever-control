@@ -44,8 +44,12 @@ class TestStartCommand(unittest.TestCase):
                     "use_text_index",
                     "warmup_cmd",
                 ],
-                "runtime": ["system", "image", "server_container",
-                            "restart_policy"],
+                "runtime": [
+                    "system",
+                    "image",
+                    "server_container",
+                    "restart_policy",
+                ],
             },
         )
 

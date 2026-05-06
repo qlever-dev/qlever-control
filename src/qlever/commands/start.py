@@ -150,8 +150,12 @@ class StartCommand(QleverCommand):
                 "use_text_index",
                 "warmup_cmd",
             ],
-            "runtime": ["system", "image", "server_container",
-                        "restart_policy"],
+            "runtime": [
+                "system",
+                "image",
+                "server_container",
+                "restart_policy",
+            ],
         }
 
     def additional_arguments(self, subparser) -> None:
@@ -302,7 +306,8 @@ class StartCommand(QleverCommand):
             # If it exited (e.g. due to a corrupt index), stop waiting.
             if args.system in Containerize.supported_systems():
                 still_running = Containerize.is_running(
-                    args.system, args.server_container)
+                    args.system, args.server_container
+                )
             elif args.run_in_foreground:
                 still_running = process.poll() is None
             else:
