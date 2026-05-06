@@ -79,11 +79,7 @@ class SetupConfigCommand(QleverCommand):
         qleverfile_path = (
             self.qleverfiles_path / f"Qleverfile.{args.config_name}"
         )
-        setup_config_cmd = f"cat {qleverfile_path} | {
-            util.get_ini_sed_cmd(
-                'server', 'ACCESS_TOKEN', util.get_random_string(12), True
-            )
-        }"
+        setup_config_cmd = f"cat {qleverfile_path} | {util.get_ini_sed_cmd('server', 'ACCESS_TOKEN', util.get_random_string(12), True)}"
         if qlever_is_running_in_container:
             setup_config_cmd += (
                 f" | {util.get_ini_sed_cmd('runtime', 'SYSTEM', 'native')}"
@@ -91,11 +87,7 @@ class SetupConfigCommand(QleverCommand):
         else:
             for section, arg_name in self.override_args:
                 if arg_value := getattr(args, arg_name, None):
-                    setup_config_cmd += f" | {
-                        util.get_ini_sed_cmd(
-                            section, arg_name.upper(), arg_value
-                        )
-                    }"
+                    setup_config_cmd += f" | {util.get_ini_sed_cmd(section, arg_name.upper(), arg_value)}"
 
         setup_config_cmd += "> Qleverfile"
         self.show(setup_config_cmd, only_show=args.show)

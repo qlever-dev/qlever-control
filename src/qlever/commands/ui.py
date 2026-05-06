@@ -198,8 +198,7 @@ class UiCommand(QleverCommand):
                 run_command(get_db_cmd)
             except Exception as e:
                 log.error(
-                    f"Failed to get {ui_db_file} from {args.ui_image} "
-                    f"({e})"
+                    f"Failed to get {ui_db_file} from {args.ui_image} ({e})"
                 )
                 return False
 
