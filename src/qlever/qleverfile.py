@@ -432,7 +432,9 @@ class Qleverfile:
                 module = import_module(engine_args_module_path)
                 module.qleverfile_args(all_args)
         except (ImportError, AttributeError) as e:
-            log.debug(f"Could not import module {engine_args_module_path}: {e}")
+            log.debug(
+                f"Could not import module {engine_args_module_path}: {e}"
+            )
 
         return all_args
 
