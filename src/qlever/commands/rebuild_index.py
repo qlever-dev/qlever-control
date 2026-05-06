@@ -17,7 +17,6 @@ from qlever.commands.stop import StopCommand
 from qlever.log import log
 from qlever.util import (
     get_existing_index_files,
-    is_qlever_server_alive,
     run_command,
 )
 
@@ -30,7 +29,7 @@ def validate_index(args, index_dir: str) -> bool:
     """
     # Find a free port and set the container name accordingly.
     s = socket.socket()
-    s.bind(('', 0))
+    s.bind(("", 0))
     validation_port = s.getsockname()[1]
     s.close()
     validation_container = f"qlever-server.validate.{validation_port}"
@@ -56,8 +55,9 @@ def validate_index(args, index_dir: str) -> bool:
     validation_args.no_containers = False
     validation_args.restart_policy = "no"
 
-    log.info(f"Validating new index in \"{index_dir}\" (port"
-             f" {validation_port}) ...")
+    log.info(
+        f'Validating new index in "{index_dir}" (port {validation_port}) ...'
+    )
 
     # Start the validation server from the new index directory.
     original_dir = Path.cwd()
@@ -77,9 +77,9 @@ def validate_index(args, index_dir: str) -> bool:
         endpoint = f"{args.host_name}:{validation_port}"
         query_cmd = (
             f"curl -s {endpoint}"
-            f" --data-urlencode \"query=SELECT * WHERE"
-            f" {{ ?s ?p ?o }} LIMIT 1\""
-            f" -o /dev/null -w \"%{{http_code}}\""
+            f' --data-urlencode "query=SELECT * WHERE'
+            f' {{ ?s ?p ?o }} LIMIT 1"'
+            f' -o /dev/null -w "%{{http_code}}"'
         )
         result = run_command(query_cmd, return_output=True)
         query_ok = result.strip() == "200"
@@ -137,8 +137,12 @@ class RebuildIndexCommand(QleverCommand):
                 "use_text_index",
                 "warmup_cmd",
             ],
-            "runtime": ["system", "image", "server_container",
-                        "restart_policy"],
+            "runtime": [
+                "system",
+                "image",
+                "server_container",
+                "restart_policy",
+            ],
         }
 
     def additional_arguments(self, subparser) -> None:
@@ -171,8 +175,13 @@ class RebuildIndexCommand(QleverCommand):
         )
         subparser.add_argument(
             "--keep-previous-index-dirs",
-            choices=["all", "none", "original-only", "most-recent-only",
-                     "original-and-most-recent"],
+            choices=[
+                "all",
+                "none",
+                "original-only",
+                "most-recent-only",
+                "original-and-most-recent",
+            ],
             default="original-and-most-recent",
             help="Which previous index directories to keep: "
             "all (keep all), "
@@ -293,7 +302,7 @@ class RebuildIndexCommand(QleverCommand):
             f"cp -a Qleverfile {new_index_dir_name}"
         )
         rebuild_index_cmd = (
-            f"curl -s {args.host_name}:{args.port} "
+            f"curl -s -w '\\n%{{http_code}}' {args.host_name}:{args.port} "
             f"-d cmd=rebuild-index "
             f"-d index-name={new_index_dir_name}/{args.index_name} "
             f"-d access-token={args.access_token}"
@@ -337,8 +346,9 @@ class RebuildIndexCommand(QleverCommand):
         # being processed at the same time. It would be better if QLever
         # logged the rebuild-index output to a separate log file.
         tail_cmd = (
-            f"touch {new_index_dir_name}/{log_file_name} && "
-            f"exec tail -n 0 -f {new_index_dir_name}/{log_file_name}"
+            f"while [ ! -f {new_index_dir_name}/{log_file_name} ]; "
+            f"do sleep 0.1; done && "
+            f"exec tail -f {new_index_dir_name}/{log_file_name}"
         )
         tail_proc = subprocess.Popen(tail_cmd, shell=True)
 
@@ -346,7 +356,13 @@ class RebuildIndexCommand(QleverCommand):
         try:
             time_start = time.monotonic()
             try:
-                run_command(rebuild_index_cmd, show_output=False)
+                result = run_command(rebuild_index_cmd, return_output=True)
+                lines = result.rstrip("\n").rsplit("\n", 1)
+                http_code = lines[-1].strip() if len(lines) >= 2 else ""
+                response_body = lines[0] if len(lines) >= 2 else result
+                if http_code != "200":
+                    log.error(f"Rebuilding the index failed: {response_body}")
+                    return False
             except Exception as e:
                 log.error(f"Rebuilding the index failed: {e}")
                 return False
@@ -365,8 +381,10 @@ class RebuildIndexCommand(QleverCommand):
 
         # Validate the new index before moving anything.
         if not validate_index(args, new_index_dir_name):
-            log.error("The new index is dysfunctional, aborting. "
-                      f"Files are in \"{new_index_dir_name}\"")
+            log.error(
+                "The new index is dysfunctional, aborting. "
+                f'Files are in "{new_index_dir_name}"'
+            )
             return False
 
         # Move the old index to the specified directory, if needed.
@@ -437,8 +455,11 @@ class RebuildIndexCommand(QleverCommand):
                     elif policy == "most-recent-only":
                         action = "KEEP" if is_most_recent else "DELETE"
                     elif policy == "original-and-most-recent":
-                        action = ("KEEP" if is_original or is_most_recent
-                                  else "DELETE")
+                        action = (
+                            "KEEP"
+                            if is_original or is_most_recent
+                            else "DELETE"
+                        )
 
                     log.info(f"  {dir.name:<50} {action}")
 
