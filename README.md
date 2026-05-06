@@ -51,7 +51,7 @@ to the files in your working copy.
 
 If you have bug fixes or new useful features or commands, please open a pull
 request. If you have questions or suggestions, please open an issue.
-Please format your files with `ruff`:
+Please lint and format your files with `ruff`:
 
 ```bash
 # manually
