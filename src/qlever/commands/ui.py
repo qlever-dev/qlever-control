@@ -56,6 +56,7 @@ class UiCommand(QleverCommand):
         return {
             "data": ["name"],
             "server": ["host_name", "port"],
+            "runtime": ["disable_selinux"],
             "ui": [
                 "ui_port",
                 "ui_config",
@@ -130,6 +131,7 @@ class UiCommand(QleverCommand):
         start_ui_cmd = (
             f"{args.ui_system} run -d "
             f"--volume $(pwd):/app/db "
+            f"{'--security-opt label=disable ' if args.disable_selinux == 'yes' else ''}"
             f"--env QLEVERUI_DATABASE_URL=sqlite:////app/db/{ui_db_file} "
             f"--publish {args.ui_port}:7000 "
             f"--name {args.ui_container} "

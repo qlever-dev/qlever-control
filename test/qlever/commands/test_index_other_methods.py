@@ -48,7 +48,12 @@ class TestIndexCommand(unittest.TestCase):
                     "stxxl_memory",
                     "parser_buffer_size",
                 ],
-                "runtime": ["system", "image", "index_container"],
+                "runtime": [
+                    "system",
+                    "image",
+                    "index_container",
+                    "disable_selinux",
+                ],
             },
         )
 

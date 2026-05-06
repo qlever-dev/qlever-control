@@ -49,7 +49,14 @@ class SystemInfoCommand(QleverCommand):
         return True
 
     def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
-        return {"runtime": ["system", "image", "server_container"]}
+        return {
+            "runtime": [
+                "system",
+                "image",
+                "server_container",
+                "disable_selinux",
+            ]
+        }
 
     def additional_arguments(self, subparser) -> None:
         pass
