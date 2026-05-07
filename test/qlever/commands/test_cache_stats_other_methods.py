@@ -7,7 +7,7 @@ from qlever.commands.cache_stats import CacheStatsCommand
 class TestStartCommand(unittest.TestCase):
     def test_description(self):
         self.assertEqual(
-            "Show how much of the cache is currently being " "used",
+            "Show how much of the cache is currently being used",
             CacheStatsCommand().description(),
         )
 

@@ -124,7 +124,9 @@ class UiCommand(QleverCommand):
         if is_native:
             pull_cmd = ""
             get_db_cmd = ""
-            start_ui_cmd = f"nohup qlever-ui dev {args.ui_port} > qlever-ui.log 2>&1 &"
+            start_ui_cmd = (
+                f"nohup qlever-ui dev {args.ui_port} > qlever-ui.log 2>&1 &"
+            )
             get_config_cmd = f"qlever-ui manage config {ui_config_name}"
             set_config_cmd = (
                 f"qlever-ui manage config {ui_config_name} "
@@ -180,7 +182,9 @@ class UiCommand(QleverCommand):
         # Stop running UI (native process or container).
         if is_native:
             # The bash script doesn't/can't forward the signal -> kill the children directly.
-            results = stop_process_with_regex(f"/opt/venvs/qlever-ui/bin/python -m django runserver 0.0.0.0:{args.ui_port}")
+            results = stop_process_with_regex(
+                f"/opt/venvs/qlever-ui/bin/python -m django runserver 0.0.0.0:{args.ui_port}"
+            )
             was_found_and_stopped = results is not None and len(results) > 0
             if was_found_and_stopped:
                 log.debug("Stopped native qlever-ui process")
@@ -189,8 +193,10 @@ class UiCommand(QleverCommand):
         else:
             was_found_and_stopped = False
             for container_system in Containerize.supported_systems():
-                was_found_and_stopped |= Containerize.stop_and_remove_container(
-                    container_system, args.ui_container
+                was_found_and_stopped |= (
+                    Containerize.stop_and_remove_container(
+                        container_system, args.ui_container
+                    )
                 )
             if was_found_and_stopped:
                 log.debug(

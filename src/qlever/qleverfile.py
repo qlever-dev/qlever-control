@@ -402,7 +402,7 @@ class Qleverfile:
             choices=Containerize.supported_systems() + ["native"],
             default="docker",
             help="Whether to the ui natively or in a container, and if"
-                 "in a container, which system to use",
+            "in a container, which system to use",
         )
         ui_args["ui_image"] = arg(
             "--ui-image",
@@ -422,7 +422,9 @@ class Qleverfile:
                 module = import_module(engine_args_module_path)
                 module.qleverfile_args(all_args)
         except (ImportError, AttributeError) as e:
-            log.debug(f"Could not import module {engine_args_module_path}: {e}")
+            log.debug(
+                f"Could not import module {engine_args_module_path}: {e}"
+            )
 
         return all_args
 

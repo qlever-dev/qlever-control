@@ -39,27 +39,35 @@ class StopCommand(QleverCommand):
         return True
 
     def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
-        return {"data": ["name"],
-                "server": ["port"],
-                "runtime": ["server_container"]}
+        return {
+            "data": ["name"],
+            "server": ["port"],
+            "runtime": ["server_container"],
+        }
 
     def additional_arguments(self, subparser) -> None:
-        subparser.add_argument("--cmdline-regex",
-                               default="qlever-server.* -i [^ ]*%%NAME%%",
-                               help="Show only processes where the command "
-                                    "line matches this regex")
-        subparser.add_argument("--no-containers", action="store_true",
-                               default=False,
-                               help="Do not look for containers, only for "
-                                    "native processes")
+        subparser.add_argument(
+            "--cmdline-regex",
+            default="qlever-server.* -i [^ ]*%%NAME%%",
+            help="Show only processes where the command "
+            "line matches this regex",
+        )
+        subparser.add_argument(
+            "--no-containers",
+            action="store_true",
+            default=False,
+            help="Do not look for containers, only for native processes",
+        )
 
     def execute(self, args) -> bool:
         # Show action description.
         cmdline_regex = args.cmdline_regex.replace("%%NAME%%", args.name)
-        description = f"Checking for processes matching \"{cmdline_regex}\""
+        description = f'Checking for processes matching "{cmdline_regex}"'
         if not args.no_containers:
-            description += (f" and for Docker container with name "
-                            f"\"{args.server_container}\"")
+            description += (
+                f" and for Docker container with name "
+                f'"{args.server_container}"'
+            )
         self.show(description, only_show=args.show)
         if args.show:
             return True
@@ -81,8 +89,11 @@ class StopCommand(QleverCommand):
 
         # If no matching process found, show a message and the output of the
         # status command.
-        message = "No matching process found" if args.no_containers else \
-            "No matching process or container found"
+        message = (
+            "No matching process found"
+            if args.no_containers
+            else "No matching process or container found"
+        )
         log.error(message)
         args.cmdline_regex = "^qlever-server.* -i [^ ]*"
         log.info("")
