@@ -45,6 +45,8 @@ def construct_command(args) -> str:
         start_cmd += " --no-patterns"
     if args.use_text_index == "yes":
         start_cmd += " -t"
+    if args.enable_metrics:
+        start_cmd += " --enable-metrics"
     start_cmd += f" > {args.name}.server-log.txt 2>&1"
     return start_cmd
 
@@ -149,6 +151,7 @@ class StartCommand(QleverCommand):
                 "use_patterns",
                 "use_text_index",
                 "warmup_cmd",
+                "enable_metrics",
             ],
             "runtime": ["system", "image", "server_container"],
         }
