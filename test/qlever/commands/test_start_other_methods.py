@@ -43,6 +43,7 @@ class TestStartCommand(unittest.TestCase):
                     "use_patterns",
                     "use_text_index",
                     "warmup_cmd",
+                    "enable_metrics",
                 ],
                 "runtime": ["system", "image", "server_container"],
             },

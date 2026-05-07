@@ -24,6 +24,7 @@ def test_construct_command_with_if():
     args.only_pso_and_pos_permutations = True
     args.use_patterns = "no"
     args.use_text_index = "yes"
+    args.enable_metrics = False
 
     # Execute the function
     result = qlever.commands.start.construct_command(args)
@@ -65,6 +66,7 @@ def test_construct_command_without_if():
     args.only_pso_and_pos_permutations = False
     args.use_patterns = True
     args.use_text_index = "no"
+    args.enable_metrics = False
 
     # Execute the function
     result = qlever.commands.start.construct_command(args)
@@ -350,6 +352,7 @@ class TestStartCommand(unittest.TestCase):
         args.only_pso_and_pos_permutations = True
         args.use_patterns = "no"
         args.use_text_index = "yes"
+        args.enable_metrics = False
 
         # Configure Path mock so the log file wait loop is skipped
         self._mock_log_file(mock_path_cls, args.name)
