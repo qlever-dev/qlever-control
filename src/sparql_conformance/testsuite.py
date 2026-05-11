@@ -339,7 +339,8 @@ class TestSuite:
                 else:
                     setattr(test, "query_log", query_result[1])
                     self.update_test_status(test, Status.PASSED, "")
-                if test.type_name == "NegativeSyntaxTest11" or test.type_name == "NegativeUpdateSyntaxTest11":
+                if test.type_name in ("NegativeSyntaxTest11", "NegativeUpdateSyntaxTest11",
+                                     "NegativeSyntaxTest", "NegativeUpdateSyntaxTest"):
                     if ErrorMessage.is_query_error(test.error_type):
                         status = Status.PASSED
                         error_type = ""

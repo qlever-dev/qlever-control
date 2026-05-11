@@ -63,7 +63,7 @@ class TestCommand(QleverCommand):
     def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {
             "conformance": ["name", "port", "engine",
-                            "graph_store", "sparql11_dir", "sparql10_dir", "custom_dir",
+                            "graph_store", "sparql11_dir", "sparql10_dir", "custom",
                             "type_alias", "exclude", "include", "binaries_directory"],
             "runtime": ["system"],
             "qlever": ["qlever_image"],
@@ -93,15 +93,16 @@ class TestCommand(QleverCommand):
 
         warn_if_missing_image(args.system, image, args.engine)
 
-        suite_dirs = [
+        standard_suites = [
             ("sparql11", args.sparql11_dir),
             ("sparql10", args.sparql10_dir),
-            ("custom",   args.custom_dir),
         ]
-        active_suites = [(key, d) for key, d in suite_dirs if d is not None]
+        active_suites = [(key, d) for key, d in standard_suites if d is not None]
+        if args.custom:
+            active_suites.extend(args.custom.items())
 
         if not active_suites:
-            log.error("Provide at least one of --sparql11-dir, --sparql10-dir, --custom-dir.")
+            log.error("Provide at least one of --sparql11-dir, --sparql10-dir, --custom.")
             return False
 
         for _, d in active_suites:

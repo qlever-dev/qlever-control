@@ -144,7 +144,7 @@ class JenaManager(EngineManager):
         graph_paths: tuple[tuple[str, str], ...],
     ) -> tuple[bool, bool, str, str]:
         server_success = False
-        graph_files, cleanup_paths = self._prepare_graphs(graph_paths)
+        graph_files, cleanup_paths = self._prepare_graphs(graph_paths, config)
         index_success, index_log = self._index(config, graph_files)
         self._cleanup_graph_copies(cleanup_paths)
         if not index_success:
@@ -160,8 +160,23 @@ class JenaManager(EngineManager):
         with mute_log():
             run_command(
                 f"rm -rf index {DEFAULT_NAME}.index-log.txt "
-                f"{DEFAULT_NAME}.server-log.txt"
+                f"{DEFAULT_NAME}.server-log.txt "
+                f"{DEFAULT_NAME}-fuseki.ttl"
             )
+
+    def _add_base_if_missing(self, config: Config, query: str) -> str:
+        """Prepend BASE <endpoint_root/> if the query has no BASE declaration.
+
+        This ensures relative IRIs in GRAPH clauses (e.g. <ng-01.ttl>) resolve
+        against the same root as the named graph URIs stored during bulk loading.
+        """
+        if re.search(r'\bBASE\b', query, re.IGNORECASE):
+            return query
+        base_uri = (
+            f"http://{config.server_address}:{config.port}"
+            f"/{DEFAULT_NAME}/"
+        )
+        return f"BASE <{base_uri}>\n{query}"
 
     def query(
         self,
@@ -169,6 +184,7 @@ class JenaManager(EngineManager):
         query: str,
         result_format: str,
     ) -> tuple[int, str]:
+        query = self._add_base_if_missing(config, query)
         if result_format == "ttl" and _is_select_or_ask(query):
             # Fuseki ignores Accept: text/turtle for SELECT/ASK and returns XML.
             # Fetch as SPARQL results XML and convert to rs: Turtle vocabulary.
@@ -254,19 +270,60 @@ class JenaManager(EngineManager):
         except Exception as e:
             return False, str(e)
 
+        # tdb2.xloader crashes with "0 / 0: division by zero" when loading an
+        # empty dataset (it computes a rate at the end). The index itself IS
+        # created before that point, so we treat it as success if the index
+        # directory exists.
+        if not result and Path("index/Data-0001").exists():
+            result = True
+
         index_log = _read_file(f"./{DEFAULT_NAME}.index-log.txt")
         return result, index_log
+
+    def _write_fuseki_config(self, config: Config) -> str:
+        """Write a Fuseki config enabling path-based (direct-naming) GSP.
+
+        Returns the path usable in the fuseki-server --conf argument (inside
+        the Docker container for docker mode, or the local absolute path for
+        native mode).
+        """
+        conf = (
+            f'@prefix fuseki: <http://jena.apache.org/fuseki#> .\n'
+            f'@prefix rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n'
+            f'@prefix tdb2:   <http://jena.apache.org/2016/tdb#> .\n\n'
+            f'<#service> rdf:type fuseki:Service ;\n'
+            f'    fuseki:name "{DEFAULT_NAME}" ;\n'
+            f'    fuseki:endpoint [ fuseki:operation fuseki:query ;\n'
+            f'                      fuseki:name "query" ] ;\n'
+            f'    fuseki:endpoint [ fuseki:operation fuseki:query ;\n'
+            f'                      fuseki:name "sparql" ] ;\n'
+            f'    fuseki:endpoint [ fuseki:operation fuseki:update ;\n'
+            f'                      fuseki:name "update" ] ;\n'
+            f'    fuseki:endpoint [ fuseki:operation fuseki:gsp-rw ;\n'
+            f'                      fuseki:name "data" ] ;\n'
+            f'    fuseki:dataset <#dataset> ;\n'
+            f'    .\n\n'
+            f'<#dataset> rdf:type tdb2:DatasetTDB2 ;\n'
+            f'    tdb2:location "index" ;\n'
+            f'    .\n'
+        )
+        local_path = Path(os.getcwd()) / f"{DEFAULT_NAME}-fuseki.ttl"
+        local_path.write_text(conf, encoding="utf-8")
+        if config.system != "native":
+            return f"/opt/data/{DEFAULT_NAME}-fuseki.ttl"
+        return str(local_path)
 
     def _start_server(self, config: Config) -> tuple[bool, str]:
         server_binary = "fuseki-server"
         if config.system == "native":
             server_binary = str(Path(config.path_to_binaries, server_binary))
+        conf_path = self._write_fuseki_config(config)
         args = _make_args(
             config,
             server_binary=server_binary,
             jvm_args="-Xms4G -Xmx4G",
             extra_env_args="",
-            extra_args="--update",
+            extra_args=f"--conf {conf_path}",
             run_in_foreground=False,
             timeout="60s",
         )
@@ -296,8 +353,24 @@ class JenaManager(EngineManager):
     def _prepare_graphs(
         self,
         graph_paths: tuple[tuple[str, str], ...],
+        config: Config,
     ) -> tuple[list[str], list[Path]]:
         workdir = Path(os.getcwd()).resolve()
+        # rdflib resolves <> in data= strings against CWD + "/", so match that
+        cwd_uri = workdir.as_uri() + "/"
+        # Pre-pass: build a map from filename → HTTP named-graph URI for every
+        # relative named-graph name.  When the same file is used as BOTH the
+        # default graph and a named graph, <> in the default-graph data must
+        # resolve to the stored named-graph URI (not the CWD) so that SPARQL
+        # GRAPH variable bindings can match.
+        file_to_named_uri: dict[str, str] = {}
+        for gp, gn in graph_paths:
+            if gn and gn != "-" and "://" not in gn:
+                fname = Path(gp).resolve().name
+                file_to_named_uri[fname] = (
+                    f"http://{config.server_address}:{config.port}"
+                    f"/{DEFAULT_NAME}/{gn}"
+                )
         graph_files: list[str] = []
         cleanup_paths: list[Path] = []
         for graph_path, graph_name in graph_paths:
@@ -307,7 +380,16 @@ class JenaManager(EngineManager):
                     turtle_data = rdf_xml_to_turtle(str(src), graph_name)
                 else:
                     turtle_data = src.read_text(encoding="utf-8")
-                trig_data = _graph_to_trig(turtle_data, graph_name)
+                # For relative graph names (no URI scheme), resolve against
+                # the Fuseki query endpoint URL so that SPARQL queries using
+                # relative IRIs in GRAPH clauses resolve to the same URI.
+                resolved_name = graph_name
+                if "://" not in graph_name:
+                    resolved_name = (
+                        f"http://{config.server_address}:{config.port}"
+                        f"/{DEFAULT_NAME}/{graph_name}"
+                    )
+                trig_data = _graph_to_trig(turtle_data, resolved_name)
                 graph_path_new = f"{src.stem}.trig"
                 (workdir / graph_path_new).write_text(
                     trig_data, encoding="utf-8"
@@ -322,6 +404,23 @@ class JenaManager(EngineManager):
                 graph_files.append(graph_path_new)
                 cleanup_paths.append(workdir / graph_path_new)
                 continue
+            # For default graph files: replace <> so the stored URI is
+            # consistent with what the comparison framework expects.
+            # • If this file is also loaded as a named graph (relative name),
+            #   use that named graph's HTTP URI so GRAPH ?g bindings match.
+            # • Otherwise use the CWD dir URI, which matches how rdflib
+            #   resolves <> when parsing the expected-result TTL for comparison.
+            if src.suffix in (".ttl", ".trig", ".n3"):
+                raw = src.read_text(encoding="utf-8")
+                if "<>" in raw:
+                    replacement = file_to_named_uri.get(src.name, cwd_uri)
+                    processed = raw.replace("<>", f"<{replacement}>")
+                    temp_name = f"_jena_{src.name}"
+                    temp_path = workdir / temp_name
+                    temp_path.write_text(processed, encoding="utf-8")
+                    graph_files.append(temp_name)
+                    cleanup_paths.append(temp_path)
+                    continue
             if src.parent == workdir:
                 graph_file = src.name
             else:

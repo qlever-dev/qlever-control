@@ -89,7 +89,9 @@ class VirtuosoManager(EngineManager):
             run_command(
                 f"rm -f {DEFAULT_NAME}.index-log.txt "
                 f"{DEFAULT_NAME}.server-log.txt "
-                "virtuoso.db virtuoso.trx virtuoso.pxa"
+                "virtuoso.db virtuoso.trx virtuoso.pxa "
+                "virtuoso-temp.db virtuoso.cpt-after-recov "
+                "virtuoso.trx-after-recov"
             )
 
     def query(
@@ -300,6 +302,13 @@ class VirtuosoManager(EngineManager):
             f"DB.DBA.USER_CREATE('{escaped_user}', '{escaped_password}');",
             f"DB.DBA.USER_SET_OPTION('{escaped_user}', 'SQL_ENABLE', '1');",
             f"DB.DBA.USER_SET_OPTION('{escaped_user}', 'DAV_ENABLE', '1');",
+            # Grant execute on procedures needed for INSERT/UPDATE queries
+            f"GRANT EXECUTE ON DB.DBA.RDF_MAKE_LONG_OF_LITERAL TO \"{escaped_user}\";",
+            f"GRANT EXECUTE ON DB.DBA.L_O_LOOK TO \"{escaped_user}\";",
+            # Grant SELECT/EXECUTE on objects needed for SERVICE federation.
+            # Use PUBLIC to avoid issues with SPARQL being a Virtuoso keyword.
+            "GRANT SELECT ON DB.DBA.SPARQL_SINV_2 TO PUBLIC;",
+            "GRANT EXECUTE ON DB.DBA.SPARQL_SINV_IMP TO PUBLIC;",
             "whenever sqlerror exit;",
             f"ADD USER GROUP \"{escaped_user}\" \"SPARQL_UPDATE\";",
             f"DB.DBA.RDF_DEFAULT_USER_PERMS_SET('{escaped_user}', 3, 0);",
@@ -345,11 +354,15 @@ class VirtuosoManager(EngineManager):
 
     @staticmethod
     def _should_set_default_graph_uri(query: str, content_type: str) -> bool:
-        if content_type == "update=":
-            return True
         query_lower = query.lower()
         if "define input:default-graph-uri" in query_lower:
             return False
+        if content_type == "update=":
+            # WITH sets the active graph context; injecting the default graph
+            # URI causes Virtuoso to also read from the pre-loaded default graph.
+            if re.search(r"\bwith\b", query_lower):
+                return False
+            return True
         if re.search(r"\bgraph\b", query_lower):
             return False
         return True

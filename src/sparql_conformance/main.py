@@ -86,10 +86,15 @@ def main():
         help="Path to the SPARQL 1.0 test suite directory.",
     )
     parser.add_argument(
-        "--custom-dir",
+        "--custom",
         default=None,
-        dest="custom_dir",
-        help="Path to a custom test suite directory.",
+        dest="custom",
+        type=json.loads,
+        metavar="NAME_TO_DIR_JSON",
+        help=(
+            "JSON object mapping suite names to directories.\n"
+            "Example: --custom '{\"my-suite\": \"/path/to/dir\", \"proto\": \"/path/to/proto\"}'"
+        ),
     )
     parser.add_argument(
         "--binaries-directory",
@@ -122,15 +127,16 @@ def main():
 
     args = parser.parse_args()
 
-    suite_dirs = [
+    standard_suites = [
         ("sparql11", args.sparql11_dir),
         ("sparql10", args.sparql10_dir),
-        ("custom",   args.custom_dir),
     ]
-    active_suites = [(key, d) for key, d in suite_dirs if d is not None]
+    active_suites = [(key, d) for key, d in standard_suites if d is not None]
+    if args.custom:
+        active_suites.extend(args.custom.items())
 
     if not active_suites:
-        parser.error("Provide at least one of --sparql11-dir, --sparql10-dir, --custom-dir.")
+        parser.error("Provide at least one of --sparql11-dir, --sparql10-dir, --custom.")
 
     for _, d in active_suites:
         if not os.path.isdir(d):

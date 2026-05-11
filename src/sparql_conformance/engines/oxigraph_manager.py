@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import json
 import os
+import re
+import xml.etree.ElementTree as ET
 from pathlib import Path
+
+import rdflib
 
 from qlever.log import mute_log
 from qlever.util import run_command
@@ -16,6 +21,137 @@ from sparql_conformance.rdf_tools import rdf_xml_to_turtle, write_ttl_file
 
 
 DEFAULT_NAME = "qlever-sparql-conformance"
+
+_SPARQL_RESULTS_NS = "http://www.w3.org/2005/sparql-results#"
+_RS = rdflib.Namespace("http://www.w3.org/2001/sw/DataAccess/tests/result-set#")
+
+
+def _sparql_xml_to_result_set_ttl(xml_str: str) -> str:
+    """Convert SPARQL results XML to SPARQL result-set Turtle vocabulary.
+
+    Oxigraph rejects Accept: text/turtle for SELECT/ASK queries.
+    We fetch XML instead and convert here so that compare_ttl() can
+    compare the result against .ttl expected-result files.
+    """
+    g = rdflib.Graph()
+    g.bind("rs", _RS)
+
+    root = ET.fromstring(xml_str)
+    ns = _SPARQL_RESULTS_NS
+
+    result_set = rdflib.BNode()
+    g.add((result_set, rdflib.RDF.type, _RS.ResultSet))
+
+    boolean_elem = root.find(f"{{{ns}}}boolean")
+    if boolean_elem is not None:
+        val = (boolean_elem.text or "").strip().lower() == "true"
+        g.add((result_set, _RS.boolean,
+               rdflib.Literal(val, datatype=rdflib.XSD.boolean)))
+        return g.serialize(format="turtle")
+
+    head = root.find(f"{{{ns}}}head")
+    if head is not None:
+        for var in head.findall(f"{{{ns}}}variable"):
+            g.add((result_set, _RS.resultVariable,
+                   rdflib.Literal(var.get("name"))))
+
+    results_elem = root.find(f"{{{ns}}}results")
+    if results_elem is not None:
+        for result_elem in results_elem.findall(f"{{{ns}}}result"):
+            solution = rdflib.BNode()
+            g.add((result_set, _RS.solution, solution))
+            for binding_elem in result_elem.findall(f"{{{ns}}}binding"):
+                name = binding_elem.get("name")
+                binding_node = rdflib.BNode()
+                g.add((solution, _RS.binding, binding_node))
+                g.add((binding_node, _RS.variable, rdflib.Literal(name)))
+
+                uri_elem = binding_elem.find(f"{{{ns}}}uri")
+                lit_elem = binding_elem.find(f"{{{ns}}}literal")
+                bnode_elem = binding_elem.find(f"{{{ns}}}bnode")
+
+                if uri_elem is not None:
+                    text = (uri_elem.text or "").strip()
+                    g.add((binding_node, _RS.value, rdflib.URIRef(text)))
+                elif lit_elem is not None:
+                    text = lit_elem.text or ""
+                    datatype = lit_elem.get("datatype")
+                    lang = lit_elem.get(
+                        "{http://www.w3.org/XML/1998/namespace}lang")
+                    if datatype:
+                        g.add((binding_node, _RS.value,
+                               rdflib.Literal(text,
+                                              datatype=rdflib.URIRef(datatype))))
+                    elif lang:
+                        g.add((binding_node, _RS.value,
+                               rdflib.Literal(text, lang=lang)))
+                    else:
+                        g.add((binding_node, _RS.value, rdflib.Literal(text)))
+                elif bnode_elem is not None:
+                    text = (bnode_elem.text or "").strip()
+                    g.add((binding_node, _RS.value, rdflib.BNode(text)))
+
+    return g.serialize(format="turtle")
+
+
+def _sparql_json_to_result_set_ttl(json_str: str) -> str:
+    """Convert SPARQL results JSON to SPARQL result-set Turtle vocabulary.
+
+    Used as an intermediate step because this version of Oxigraph only
+    supports application/sparql-results+json (not XML) for SELECT/ASK.
+    """
+    data = json.loads(json_str)
+    g = rdflib.Graph()
+    g.bind("rs", _RS)
+
+    result_set = rdflib.BNode()
+    g.add((result_set, rdflib.RDF.type, _RS.ResultSet))
+
+    if "boolean" in data:
+        val = bool(data["boolean"])
+        g.add((result_set, _RS.boolean,
+               rdflib.Literal(val, datatype=rdflib.XSD.boolean)))
+        return g.serialize(format="turtle")
+
+    head = data.get("head", {})
+    for var in head.get("vars", []):
+        g.add((result_set, _RS.resultVariable, rdflib.Literal(var)))
+
+    for binding_dict in data.get("results", {}).get("bindings", []):
+        solution = rdflib.BNode()
+        g.add((result_set, _RS.solution, solution))
+        for name, value_obj in binding_dict.items():
+            binding_node = rdflib.BNode()
+            g.add((solution, _RS.binding, binding_node))
+            g.add((binding_node, _RS.variable, rdflib.Literal(name)))
+
+            vtype = value_obj.get("type", "")
+            vvalue = value_obj.get("value", "")
+
+            if vtype == "uri":
+                g.add((binding_node, _RS.value, rdflib.URIRef(vvalue)))
+            elif vtype == "literal":
+                datatype = value_obj.get("datatype")
+                lang = value_obj.get("xml:lang")
+                if datatype:
+                    g.add((binding_node, _RS.value,
+                           rdflib.Literal(vvalue, datatype=rdflib.URIRef(datatype))))
+                elif lang:
+                    g.add((binding_node, _RS.value,
+                           rdflib.Literal(vvalue, lang=lang)))
+                else:
+                    g.add((binding_node, _RS.value, rdflib.Literal(vvalue)))
+            elif vtype == "bnode":
+                g.add((binding_node, _RS.value, rdflib.BNode(vvalue)))
+
+    return g.serialize(format="turtle")
+
+
+def _is_select_or_ask(query: str) -> bool:
+    """Return True for SELECT/ASK queries; CONSTRUCT/DESCRIBE return RDF so False."""
+    no_comments = re.sub(r'#[^\n]*', '', query)
+    m = re.search(r'\b(SELECT|ASK|CONSTRUCT|DESCRIBE)\b', no_comments, re.IGNORECASE)
+    return m is not None and m.group(1).upper() in ('SELECT', 'ASK')
 
 
 def _make_args(config: Config, **overrides):
@@ -75,10 +211,31 @@ class OxigraphManager(EngineManager):
         query: str,
         result_format: str,
     ) -> tuple[int, str]:
+        if result_format == "ttl" and _is_select_or_ask(query):
+            # Oxigraph rejects Accept: text/turtle for SELECT/ASK and also
+            # rejects application/sparql-results+xml — only JSON is supported.
+            # Fetch as JSON and convert to rs: Turtle vocabulary.
+            status, body = self._query(config, query, "query=", "json")
+            if status != 200:
+                return status, body
+            try:
+                return 200, _sparql_json_to_result_set_ttl(body)
+            except Exception as e:
+                return 1, str(e)
+        # DESCRIBE/CONSTRUCT return RDF — Oxigraph rejects sparql-results+xml.
+        # Syntax tests set result_format="srx" for non-CONSTRUCT queries, but
+        # DESCRIBE also returns RDF, so we override to ttl for those queries.
+        if result_format == "srx" and not _is_select_or_ask(query):
+            result_format = "ttl"
         return self._query(config, query, "query=", result_format)
 
     def update(self, config: Config, query: str) -> tuple[int, str]:
-        return self._query(config, query, "update=", "json")
+        status, body = self._query(config, query, "update=", "json")
+        # Oxigraph returns HTTP 204 No Content for successful updates;
+        # normalize to 200 so the conformance harness treats it as success.
+        if status == 204:
+            status = 200
+        return status, body
 
     def _query(
         self,

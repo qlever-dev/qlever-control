@@ -97,11 +97,14 @@ class Qleverfile:
             default=None,
             help="Path to the SPARQL 1.0 test suite directory.",
         )
-        args["custom_dir"] = arg(
-            "--custom-dir",
-            type=str,
+        args["custom"] = arg(
+            "--custom",
+            type=json.loads,
             default=None,
-            help="Path to a custom test suite directory.",
+            help=(
+                "JSON object mapping suite names to directories.\n"
+                "Example: --custom '{\"my-suite\": \"/path/to/dir\"}'"
+            ),
         )
         args["type_alias"] = arg(
             "--type-alias",

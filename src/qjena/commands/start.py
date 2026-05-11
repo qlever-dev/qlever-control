@@ -74,11 +74,20 @@ class StartCommand(QleverCommand):
             log.error(f"Invalid timeout value {args.timeout}. Error: {e}")
             return False
 
-        start_cmd = (
-            f'env JVM_ARGS="{args.jvm_args}" {args.extra_env_args} '
-            f"{args.server_binary} --port {args.port} --timeout {timeout_ms} "
-            f"--loc index {args.extra_args} /{args.name}"
-        )
+        if "--conf" in args.extra_args:
+            # When a config file is given, --loc and the positional dataset
+            # name must be omitted (Fuseki rejects both at once).
+            start_cmd = (
+                f'env JVM_ARGS="{args.jvm_args}" {args.extra_env_args} '
+                f"{args.server_binary} --port {args.port} --timeout {timeout_ms} "
+                f"{args.extra_args}"
+            )
+        else:
+            start_cmd = (
+                f'env JVM_ARGS="{args.jvm_args}" {args.extra_env_args} '
+                f"{args.server_binary} --port {args.port} --timeout {timeout_ms} "
+                f"--loc index {args.extra_args} /{args.name}"
+            )
 
         if args.system == "native":
             if not args.run_in_foreground:
