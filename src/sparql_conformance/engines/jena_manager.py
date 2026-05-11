@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import re
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import rdflib
@@ -18,6 +20,85 @@ from sparql_conformance.rdf_tools import rdf_xml_to_turtle, write_ttl_file
 
 
 DEFAULT_NAME = "qlever-sparql-conformance"
+
+_SPARQL_RESULTS_NS = "http://www.w3.org/2005/sparql-results#"
+_RS = rdflib.Namespace("http://www.w3.org/2001/sw/DataAccess/tests/result-set#")
+
+
+def _sparql_xml_to_result_set_ttl(xml_str: str) -> str:
+    """Convert SPARQL results XML to SPARQL result-set Turtle vocabulary.
+
+    Fuseki returns SPARQL Results XML when Accept: text/turtle is sent for
+    SELECT/ASK queries.  We fetch XML instead and convert here so that
+    compare_ttl() in rdf_tools.py can compare the result against the
+    .ttl expected-result files from the SPARQL 1.0 test suite.
+    """
+    g = rdflib.Graph()
+    g.bind("rs", _RS)
+
+    root = ET.fromstring(xml_str)
+    ns = _SPARQL_RESULTS_NS
+
+    result_set = rdflib.BNode()
+    g.add((result_set, rdflib.RDF.type, _RS.ResultSet))
+
+    boolean_elem = root.find(f"{{{ns}}}boolean")
+    if boolean_elem is not None:
+        val = (boolean_elem.text or "").strip().lower() == "true"
+        g.add((result_set, _RS.boolean,
+               rdflib.Literal(val, datatype=rdflib.XSD.boolean)))
+        return g.serialize(format="turtle")
+
+    head = root.find(f"{{{ns}}}head")
+    if head is not None:
+        for var in head.findall(f"{{{ns}}}variable"):
+            g.add((result_set, _RS.resultVariable,
+                   rdflib.Literal(var.get("name"))))
+
+    results_elem = root.find(f"{{{ns}}}results")
+    if results_elem is not None:
+        for result_elem in results_elem.findall(f"{{{ns}}}result"):
+            solution = rdflib.BNode()
+            g.add((result_set, _RS.solution, solution))
+            for binding_elem in result_elem.findall(f"{{{ns}}}binding"):
+                name = binding_elem.get("name")
+                binding_node = rdflib.BNode()
+                g.add((solution, _RS.binding, binding_node))
+                g.add((binding_node, _RS.variable, rdflib.Literal(name)))
+
+                uri_elem = binding_elem.find(f"{{{ns}}}uri")
+                lit_elem = binding_elem.find(f"{{{ns}}}literal")
+                bnode_elem = binding_elem.find(f"{{{ns}}}bnode")
+
+                if uri_elem is not None:
+                    text = (uri_elem.text or "").strip()
+                    g.add((binding_node, _RS.value, rdflib.URIRef(text)))
+                elif lit_elem is not None:
+                    text = lit_elem.text or ""
+                    datatype = lit_elem.get("datatype")
+                    lang = lit_elem.get(
+                        "{http://www.w3.org/XML/1998/namespace}lang")
+                    if datatype:
+                        g.add((binding_node, _RS.value,
+                               rdflib.Literal(text,
+                                              datatype=rdflib.URIRef(datatype))))
+                    elif lang:
+                        g.add((binding_node, _RS.value,
+                               rdflib.Literal(text, lang=lang)))
+                    else:
+                        g.add((binding_node, _RS.value, rdflib.Literal(text)))
+                elif bnode_elem is not None:
+                    text = (bnode_elem.text or "").strip()
+                    g.add((binding_node, _RS.value, rdflib.BNode(text)))
+
+    return g.serialize(format="turtle")
+
+
+def _is_select_or_ask(query: str) -> bool:
+    """Return True for SELECT/ASK queries; CONSTRUCT/DESCRIBE return RDF so False."""
+    no_comments = re.sub(r'#[^\n]*', '', query)
+    m = re.search(r'\b(SELECT|ASK|CONSTRUCT|DESCRIBE)\b', no_comments, re.IGNORECASE)
+    return m is not None and m.group(1).upper() in ('SELECT', 'ASK')
 
 
 def _make_args(config: Config, **overrides):
@@ -88,6 +169,17 @@ class JenaManager(EngineManager):
         query: str,
         result_format: str,
     ) -> tuple[int, str]:
+        if result_format == "ttl" and _is_select_or_ask(query):
+            # Fuseki ignores Accept: text/turtle for SELECT/ASK and returns XML.
+            # Fetch as SPARQL results XML and convert to rs: Turtle vocabulary.
+            status, body = self._query(config, query, "query=", "srx",
+                                       endpoint_suffix="/query")
+            if status != 200:
+                return status, body
+            try:
+                return 200, _sparql_xml_to_result_set_ttl(body)
+            except Exception as e:
+                return 1, str(e)
         return self._query(
             config,
             query,
