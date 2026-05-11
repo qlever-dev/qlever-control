@@ -163,6 +163,9 @@ class QLeverManager(EngineManager):
             input_list.append(entry)
         return json.dumps(input_list)
 
+    def default_graph_construct_query(self) -> str:
+        return "CONSTRUCT {?s ?p ?o} WHERE { GRAPH ql:default-graph {?s ?p ?o}}"
+
     def activate_syntax_test_mode(self, server_address, port):
         url = f'http://{server_address}:{port}'
         params = {

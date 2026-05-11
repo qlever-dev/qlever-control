@@ -6,8 +6,13 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse, unquote
 
-from qlever.log import log
-from qlever.util import get_container_image_id
+try:
+    from qlever.log import log
+    from qlever.util import get_container_image_id
+except ImportError:
+    import logging
+    log = logging.getLogger(__name__)
+    get_container_image_id = None
 from sparql_conformance.config import Config
 
 
@@ -180,7 +185,7 @@ def get_accept_header(result_format: str) -> str:
 
 
 def warn_if_missing_image(system: str, image: str | None, engine: str) -> None:
-    if system == "native" or not image:
+    if system == "native" or not image or get_container_image_id is None:
         return
     image_id = get_container_image_id(system, image)
     if image_id:

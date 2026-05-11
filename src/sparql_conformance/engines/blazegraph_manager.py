@@ -41,15 +41,27 @@ class BlazegraphManager(EngineManager):
     _CONFORMANCE_RWSTORE_TEMPLATE = "RWStore.conformance.properties"
     _DEFAULT_RWSTORE_TEMPLATE = "RWStore.properties"
 
+    def __init__(self):
+        self._quads_mode = False
+
     def protocol_endpoint(self) -> str:
         return "blazegraph/namespace/kb/sparql"
+
+    def default_graph_construct_query(self) -> str:
+        if self._quads_mode:
+            return (
+                "CONSTRUCT {?s ?p ?o} WHERE { "
+                "GRAPH <http://www.bigdata.com/rdf#nullGraph> {?s ?p ?o}}"
+            )
+        return "CONSTRUCT {?s ?p ?o} WHERE { ?s ?p ?o }"
 
     def setup(
         self,
         config: Config,
         graph_paths: Tuple[Tuple[str, str], ...],
     ) -> Tuple[bool, bool, str, str]:
-        requires_quads_mode = self._requires_quads_mode(graph_paths)
+        self._quads_mode = self._requires_quads_mode(graph_paths)
+        requires_quads_mode = self._quads_mode
         server_success = False
         try:
             self._ensure_rwstore_properties(graph_paths)

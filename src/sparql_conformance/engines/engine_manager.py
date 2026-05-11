@@ -77,3 +77,22 @@ class EngineManager(ABC):
         Default is to reuse the query protocol endpoint.
         """
         return self.protocol_endpoint()
+
+    def default_graph_construct_query(self) -> str:
+        """
+        Returns a CONSTRUCT query that retrieves all triples from the default graph.
+
+        Engines that store the default graph under a named graph IRI (e.g. QLever's
+        ql:default-graph) must override this to use the appropriate GRAPH clause.
+        """
+        return "CONSTRUCT {?s ?p ?o} WHERE { ?s ?p ?o }"
+
+    def activate_syntax_test_mode(self, server_address: str, port: str):
+        """
+        Called once before syntax tests run, after the server has started.
+
+        Override this if the engine needs a one-time configuration call to return
+        proper error responses for syntactically invalid queries (rather than
+        silently accepting them). Default is a no-op.
+        """
+        pass

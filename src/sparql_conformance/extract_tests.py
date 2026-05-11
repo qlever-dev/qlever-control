@@ -133,7 +133,7 @@ def collect_tests_by_graph(tests: List[TestObject]) -> Dict[str, Dict[Tuple[Tupl
         'service': dict(),
     }
 
-    fallback_graph = (str(Path(__file__).parent / 'empty.ttl'), '-')
+    fallback_graph = (str(Path(__file__).parent / 'data' / 'empty.ttl'), '-')
 
     for test in tests:
         if isinstance(test.action_node, dict):

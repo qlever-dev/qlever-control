@@ -7,12 +7,18 @@ from typing import List, Dict, Tuple
 import rdflib
 
 import sparql_conformance.util as util
-from qlever.log import log
+try:
+    from qlever.log import log
+except ImportError:
+    import logging
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    log = logging.getLogger(__name__)
 from sparql_conformance.config import Config
-from sparql_conformance.engines.blazegraph_manager import BlazegraphManager
+try:
+    from sparql_conformance.engines.graphdb_manager import GraphdbManager
+except ImportError:
+    GraphdbManager = None
 from sparql_conformance.engines.engine_manager import EngineManager
-from sparql_conformance.engines.qlever import QLeverManager
-from sparql_conformance.engines.graphdb_manager import GraphdbManager
 from sparql_conformance.json_tools import compare_json
 from sparql_conformance.protocol_tools import run_protocol_test, run_protocol_test_from_action
 from sparql_conformance.rdf_tools import compare_ttl
@@ -98,7 +104,7 @@ class TestSuite:
             expected_graphs ([str]]): The expected state of each graph.
             graphs ([str]): The actual state of our graphs.
         """
-        if isinstance(self.engine_manager, GraphdbManager):
+        if GraphdbManager and isinstance(self.engine_manager, GraphdbManager):
             union_graph = rdflib.Graph()
             for expected_graph in expected_graphs:
                 union_graph.parse(data=expected_graph, format="turtle")
@@ -191,7 +197,7 @@ class TestSuite:
         if not server_success:
             self.engine_manager.cleanup(self.config)
             self.update_graph_status(list_of_tests, Status.FAILED, ErrorMessage.SERVER_ERROR)
-        if isinstance(self.engine_manager, QLeverManager) and index_success and server_success and "Syntax" in list_of_tests[0].type_name:
+        if index_success and server_success and "Syntax" in list_of_tests[0].type_name:
             self.engine_manager.activate_syntax_test_mode(self.config.server_address, self.config.port)
         self.log_for_all_tests(list_of_tests, "index_log", index_log)
         self.log_for_all_tests(list_of_tests, "server_log", server_log)
@@ -271,27 +277,7 @@ class TestSuite:
                     actual_state_of_graphs = []
                     expected_state_of_graphs = []
                     # Handle default graph that has no uri
-                    if isinstance(self.engine_manager, QLeverManager):
-                        default_graph_query = (
-                            "CONSTRUCT {?s ?p ?o} WHERE { "
-                            "GRAPH ql:default-graph {?s ?p ?o}}"
-                        )
-                    elif (
-                        isinstance(self.engine_manager, BlazegraphManager)
-                        and any(
-                            graph_name not in ("", "-", None)
-                            for _graph_path, graph_name in graph
-                        )
-                    ):
-                        default_graph_query = (
-                            "CONSTRUCT {?s ?p ?o} WHERE { "
-                            "GRAPH <http://www.bigdata.com/rdf#nullGraph> "
-                            "{?s ?p ?o}}"
-                        )
-                    else:
-                        default_graph_query = (
-                            "CONSTRUCT {?s ?p ?o} WHERE { ?s ?p ?o }"
-                        )
+                    default_graph_query = self.engine_manager.default_graph_construct_query()
                     construct_graph = self.engine_manager.query(
                         self.config,
                         default_graph_query,
