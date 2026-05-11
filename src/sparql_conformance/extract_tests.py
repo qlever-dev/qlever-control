@@ -106,8 +106,6 @@ def collect_tests_by_graph(tests: List[TestObject]) -> Dict[str, Dict[Tuple[Tupl
     The resulting dictionary has the following structure:
     {'query': { (('graph_path', 'graph_name'), ...): [Test1, Test2, ...], ...}, ...}
     """
-    if len(tests) == 0:
-        return {}
     type_to_category: Dict[str, str] = {
         'QueryEvaluationTest': 'query',
         'CSVResultFormatTest': 'format',
