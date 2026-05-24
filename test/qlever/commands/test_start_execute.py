@@ -94,6 +94,7 @@ def test_wrap_command_in_container(mock_containerize_command):
     args.system = "native"
     args.image = None
     args.run_in_foreground = False
+    args.restart_policy = "unless-stopped"
 
     # Mock wrap_command_in_container
     mock_containerize_command.return_value = "Test_Container_Command"

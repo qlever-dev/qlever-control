@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "qlever"
 description = "Command-line tool for using the QLever graph database"
-version = "0.5.45"
+version = "0.5.47"
 authors = [
     { name = "Hannah Bast", email = "bast@cs.uni-freiburg.de" }
 ]
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 
 keywords = ["Graph database", "Triplestore", "Knowledge graphs", "SPARQL", "RDF"]
 
@@ -22,6 +22,9 @@ classifiers = [
 ]
 
 dependencies = [ "psutil", "termcolor", "argcomplete", "pyyaml", "rdflib", "requests-sse", "tqdm>=4.60.0" ]
+
+[project.optional-dependencies]
+dev = [ "ruff", "pre-commit" ]
 
 [project.urls]
 homepage = "https://github.com/ad-freiburg/qlever"
@@ -33,7 +36,7 @@ bugtracker = "https://github.com/ad-freiburg/qlever/issues"
 "qlever" = "qlever.qlever_main:main"
 
 [tool.setuptools]
-package-data = { "qlever" = ["Qleverfiles/*"] }
+package-data = { "qlever" = ["Qleverfiles/*", "evaluation/www/*"] }
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

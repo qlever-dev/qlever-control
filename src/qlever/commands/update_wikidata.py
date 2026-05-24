@@ -301,17 +301,41 @@ class UpdateWikidataCommand(QleverCommand):
         else:
             self.ctrl_c_pressed.set()
 
-    def determine_batch_size_for_cached_update(self, offset: int, batch_size: int) -> int | None:
+    @staticmethod
+    def iter_sse_events(source):
+        """
+        Yield events from the SSE stream. If the stream connection drops (e.g.
+        HTTP 503), log a warning and stop the iteration so the caller can
+        reconnect.
+        """
+        try:
+            yield from source
+        except Exception as e:
+            log.warn(f"SSE stream connection lost ({e}), will reconnect ...")
+
+    def determine_batch_size_for_cached_update(
+        self, offset: int, batch_size: int
+    ) -> int | None:
         options = list(Path.cwd().glob(f"update.{offset}.*.sparql"))
         if len(options) == 0:
-            log.warn(f"Found no cached SPARQL update. Continuing with update stream.")
+            log.warn(
+                "Found no cached SPARQL update. Continuing with update stream."
+            )
             return None
         elif len(options) > 1:
-            log.warn(f"Found {len(options)} candidates for cached SPARQL update. Using {options[0].name}.")
-        return int(re.search(r"update\.\d+\.(\d+)\.sparql", options[0].name).group(1))
+            log.warn(
+                f"Found {len(options)} candidates for cached SPARQL update. Using {options[0].name}."
+            )
+        return int(
+            re.search(r"update\.\d+\.(\d+)\.sparql", options[0].name).group(1)
+        )
 
-    def determine_next_cached_update(self, first_offset_in_batch: int, batch_size: int) -> tuple[str, int] | None:
-        batch_size = self.determine_batch_size_for_cached_update(first_offset_in_batch, batch_size)
+    def determine_next_cached_update(
+        self, first_offset_in_batch: int, batch_size: int
+    ) -> tuple[str, int] | None:
+        batch_size = self.determine_batch_size_for_cached_update(
+            first_offset_in_batch, batch_size
+        )
         if batch_size is None:
             return None
         cached_file_name = (
@@ -623,8 +647,9 @@ class UpdateWikidataCommand(QleverCommand):
                 args.use_cached_sparql_queries
                 and first_offset_in_batch is not None
             ):
-                cached_update = self.determine_next_cached_update(first_offset_in_batch,
-                                                                     args.batch_size)
+                cached_update = self.determine_next_cached_update(
+                    first_offset_in_batch, args.batch_size
+                )
                 if cached_update is not None:
                     cached_file_name, current_batch_size = cached_update
                     use_cached_file = True
@@ -638,7 +663,7 @@ class UpdateWikidataCommand(QleverCommand):
                     leave=False,
                     bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}{postfix}",
                 ) as pbar:
-                    for event in source:
+                    for event in self.iter_sse_events(source):
                         # Skip events that are not of type `message` (should not
                         # happen), have no field `data` (should not happen either), or
                         # where the topic is not in `args.topics` (one topic by itself
@@ -901,6 +926,11 @@ class UpdateWikidataCommand(QleverCommand):
                         "offset": first_offset_in_batch + current_batch_size,
                     }
                 ]
+
+            # If the stream died before any events were collected (e.g.,
+            # HTTP 503), skip straight to reconnecting.
+            if not use_cached_file and current_batch_size == 0:
+                continue
 
             # Process the current batch of messages (or skip if using cached).
             batch_count += 1

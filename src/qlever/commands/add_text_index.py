@@ -5,7 +5,7 @@ import subprocess
 from qlever.command import QleverCommand
 from qlever.containerize import Containerize
 from qlever.log import log
-from qlever.util import binary_exists, get_existing_index_files, run_command
+from qlever.util import binary_exists, get_existing_index_files
 
 
 class AddTextIndexCommand(QleverCommand):
@@ -54,7 +54,7 @@ class AddTextIndexCommand(QleverCommand):
             "from_text_records_and_literals",
         ]:
             add_text_index_cmd += (
-                f" -w {args.text_words_file}" f" -d {args.text_docs_file}"
+                f" -w {args.text_words_file} -d {args.text_docs_file}"
             )
         if args.text_index in [
             "from_literals",

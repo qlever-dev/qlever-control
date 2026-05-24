@@ -382,6 +382,15 @@ class Qleverfile:
             type=str,
             help=f"The name of the container used by `{script_name} start`",
         )
+        runtime_args["restart_policy"] = arg(
+            "--restart-policy",
+            type=str,
+            choices=["no", "always", "unless-stopped", "on-failure"],
+            default="unless-stopped",
+            help="Restart policy for the server container"
+            " (only applies when running in a container)"
+            " (default: unless-stopped)",
+        )
 
         ui_args["ui_port"] = arg(
             "--ui-port",
@@ -423,7 +432,9 @@ class Qleverfile:
                 module = import_module(engine_args_module_path)
                 module.qleverfile_args(all_args)
         except (ImportError, AttributeError) as e:
-            log.debug(f"Could not import module {engine_args_module_path}: {e}")
+            log.debug(
+                f"Could not import module {engine_args_module_path}: {e}"
+            )
 
         return all_args
 

@@ -4,6 +4,7 @@ import json
 import statistics
 from functools import partial
 from http.server import HTTPServer, SimpleHTTPRequestHandler
+from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
@@ -12,8 +13,6 @@ import yaml
 
 from qlever.command import QleverCommand
 from qlever.log import log
-
-EVAL_DIR = Path(__file__).parent.parent / "evaluation"
 
 # Default values for the performance statistics returned by the
 # /yaml_data API endpoint and consumed by the evaluation web app.
@@ -228,16 +227,17 @@ class ServeEvaluationAppCommand(QleverCommand):
 
     def execute(self, args) -> bool:
         yaml_dir = Path(args.results_dir)
-        handler = partial(
-            CustomHTTPRequestHandler,
-            directory=EVAL_DIR,
-            yaml_dir=yaml_dir,
-            title=args.title_overview_page,
-        )
-        httpd = HTTPServer((args.host, args.port), handler)
-        log.info(
-            f"Performance Comparison Web App is available at "
-            f"http://{args.host}:{args.port}/www"
-        )
-        httpd.serve_forever()
+        with as_file(files("qlever") / "evaluation") as eval_dir:
+            handler = partial(
+                CustomHTTPRequestHandler,
+                directory=str(eval_dir),
+                yaml_dir=yaml_dir,
+                title=args.title_overview_page,
+            )
+            httpd = HTTPServer((args.host, args.port), handler)
+            log.info(
+                f"Performance Comparison Web App is available at "
+                f"http://{args.host}:{args.port}/www"
+            )
+            httpd.serve_forever()
         return True

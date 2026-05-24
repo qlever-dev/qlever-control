@@ -415,28 +415,48 @@ def test_parse_queries_tsv_command_failure(mock_command):
     "case",
     [
         pytest.param(
-            dict(cli=("CLI", "CLI Desc"), yml=("YML", "YML Desc"),
-                 dataset="wikidata", expected=("CLI", "CLI Desc")),
+            dict(
+                cli=("CLI", "CLI Desc"),
+                yml=("YML", "YML Desc"),
+                dataset="wikidata",
+                expected=("CLI", "CLI Desc"),
+            ),
             id="cli-takes-priority",
         ),
         pytest.param(
-            dict(cli=(None, None), yml=("YML", "YML Desc"),
-                 dataset="wikidata", expected=("YML", "YML Desc")),
+            dict(
+                cli=(None, None),
+                yml=("YML", "YML Desc"),
+                dataset="wikidata",
+                expected=("YML", "YML Desc"),
+            ),
             id="yml-over-default",
         ),
         pytest.param(
-            dict(cli=(None, None), yml=(None, None),
-                 dataset="wikidata", expected=("Wikidata", "auto")),
+            dict(
+                cli=(None, None),
+                yml=(None, None),
+                dataset="wikidata",
+                expected=("Wikidata", "auto"),
+            ),
             id="default-from-dataset",
         ),
         pytest.param(
-            dict(cli=(None, None), yml=(None, None),
-                 dataset=None, expected=(None, None)),
+            dict(
+                cli=(None, None),
+                yml=(None, None),
+                dataset=None,
+                expected=(None, None),
+            ),
             id="all-none",
         ),
         pytest.param(
-            dict(cli=("CLI", None), yml=(None, "YML Desc"),
-                 dataset="wikidata", expected=("CLI", "YML Desc")),
+            dict(
+                cli=("CLI", None),
+                yml=(None, "YML Desc"),
+                dataset="wikidata",
+                expected=("CLI", "YML Desc"),
+            ),
             id="cli-name-yml-desc",
         ),
     ],
