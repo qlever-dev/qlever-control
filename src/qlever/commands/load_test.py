@@ -6,11 +6,11 @@ import re
 import shlex
 import statistics
 import subprocess
+import tempfile
 import threading
 import time
 
 import yaml
-
 from termcolor import colored
 
 from qlever.command import QleverCommand
@@ -25,8 +25,10 @@ def parse_duration(s: str) -> float:
     s = s.strip()
     match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(s|sec|min|m|h|hr)?", s)
     if not match:
-        raise ValueError(f"Cannot parse duration: \"{s}\" (examples: "
-                         f"\"10s\", \"34min\", \"2h\", \"90\")")
+        raise ValueError(
+            f'Cannot parse duration: "{s}" (examples: '
+            f'"10s", "34min", "2h", "90")'
+        )
     value = float(match.group(1))
     unit = match.group(2) or "s"
     if unit in ("s", "sec"):
@@ -36,7 +38,7 @@ def parse_duration(s: str) -> float:
     elif unit in ("h", "hr"):
         return value * 3600
     else:
-        raise ValueError(f"Unknown duration unit: \"{unit}\"")
+        raise ValueError(f'Unknown duration unit: "{unit}"')
 
 
 def read_queries_tsv(path: str) -> list[str]:
@@ -48,8 +50,9 @@ def read_queries_tsv(path: str) -> list[str]:
             if not line or line.startswith("#"):
                 continue
             parts = line.split("\t", 1)
-            queries.append(parts[1].strip() if len(parts) == 2
-                           else parts[0].strip())
+            queries.append(
+                parts[1].strip() if len(parts) == 2 else parts[0].strip()
+            )
     return queries
 
 
@@ -97,7 +100,10 @@ class LoadTestCommand(QleverCommand):
         pass
 
     def description(self) -> str:
-        return ("Send many concurrent queries to a SPARQL endpoint")
+        return (
+            "Send many concurrent queries (from a TSV, YAML, or JSONL "
+            "file) to a SPARQL endpoint"
+        )
 
     def should_have_qleverfile(self) -> bool:
         return False
@@ -106,26 +112,27 @@ class LoadTestCommand(QleverCommand):
         return {"server": ["host_name", "port"]}
 
     def additional_arguments(self, subparser) -> None:
-        subparser.add_argument(
+        queries_group = subparser.add_mutually_exclusive_group(required=True)
+        queries_group.add_argument(
             "--queries-tsv",
             type=str,
             default=None,
             help="Path to a TSV file with queries"
-                 " (short_query_name<TAB>sparql_query)",
+            " (short_query_name<TAB>sparql_query)",
         )
-        subparser.add_argument(
+        queries_group.add_argument(
             "--queries-yml",
             type=str,
             default=None,
             help="Path to a YAML file with queries"
-                 " (same format as for benchmark-queries)",
+            " (same format as for benchmark-queries)",
         )
-        subparser.add_argument(
+        queries_group.add_argument(
             "--queries-jsonl",
             type=str,
             default=None,
             help="Path to a JSONL file with queries"
-                 " (one JSON object per line with a 'sparql' field)",
+            " (one JSON object per line with a 'sparql' field)",
         )
         subparser.add_argument(
             "--query-selection",
@@ -147,6 +154,12 @@ class LoadTestCommand(QleverCommand):
             help="Total number of queries to send (default: 1000)",
         )
         subparser.add_argument(
+            "--query-timeout",
+            type=str,
+            default="300s",
+            help="Per-query timeout (default: 300s)",
+        )
+        subparser.add_argument(
             "--log-frequency",
             type=str,
             default="5s",
@@ -164,7 +177,7 @@ class LoadTestCommand(QleverCommand):
             help="Show query and error message for failed queries",
         )
         subparser.add_argument(
-            "--width-error-message",
+            "--error-message-width",
             type=int,
             default=150,
             help="Truncate error messages to this width (default: 150)",
@@ -177,43 +190,34 @@ class LoadTestCommand(QleverCommand):
             default=None,
             metavar="N",
             help="Show the first N queries (default: 10) and exit"
-                 " without running the load test",
+            " without running the load test (with"
+            " --query-selection=random, a fresh random sample)",
         )
 
     def execute(self, args) -> bool:
-        # Parse log frequency.
+        # Parse durations.
         try:
             log_frequency_secs = parse_duration(args.log_frequency)
+            query_timeout_secs = parse_duration(args.query_timeout)
         except ValueError as e:
             log.error(e)
             return False
 
-        # Exactly one of the three query sources must be specified.
-        sources = {
-            "--queries-tsv": args.queries_tsv,
-            "--queries-yml": args.queries_yml,
-            "--queries-jsonl": args.queries_jsonl,
-        }
-        specified = {k: v for k, v in sources.items() if v is not None}
-        if len(specified) != 1:
-            log.error("Please specify exactly one of --queries-tsv,"
-                      " --queries-yml, or --queries-jsonl")
-            return False
-
-        # Read all queries into memory.
-        source_option, source_path = next(iter(specified.items()))
+        # Read all queries into memory. The mutually exclusive group with
+        # `required=True` guarantees that exactly one source is specified.
+        if args.queries_tsv is not None:
+            source_path, reader = args.queries_tsv, read_queries_tsv
+        elif args.queries_yml is not None:
+            source_path, reader = args.queries_yml, read_queries_yml
+        else:
+            source_path, reader = args.queries_jsonl, read_queries_jsonl
         try:
-            if source_option == "--queries-tsv":
-                queries = read_queries_tsv(source_path)
-            elif source_option == "--queries-yml":
-                queries = read_queries_yml(source_path)
-            else:
-                queries = read_queries_jsonl(source_path)
+            queries = reader(source_path)
         except Exception as e:
             log.error(f"Could not read queries: {e}")
             return False
         if not queries:
-            log.error(f"No queries found in \"{source_path}\"")
+            log.error(f'No queries found in "{source_path}"')
             return False
 
         # Query selection helper.
@@ -228,11 +232,12 @@ class LoadTestCommand(QleverCommand):
                 cycle_index += 1
                 return query
 
-        # If --show-queries is given, show queries and exit.
+        # If `--show-queries` is given, show queries and exit.
         if args.show_queries is not None:
             n = min(args.show_queries, len(queries))
-            log.info(f"Showing {n} of {len(queries)} queries"
-                     f" from \"{source_path}\":")
+            log.info(
+                f'Showing {n} of {len(queries)} queries from "{source_path}":'
+            )
             log.info("")
             for i in range(n):
                 query = next_query()
@@ -250,7 +255,7 @@ class LoadTestCommand(QleverCommand):
 
         # Show what the command will do.
         self.show(
-            f"Send {args.num_queries} queries from \"{source_path}\""
+            f'Send {args.num_queries} queries from "{source_path}"'
             f" ({len(queries)} queries, {args.query_selection} selection)"
             f" to {sparql_endpoint} at {args.request_rate} queries/s"
             f" (log every {log_frequency_secs:.0f}s)",
@@ -268,44 +273,55 @@ class LoadTestCommand(QleverCommand):
         status_codes: dict[str, int] = {}
 
         show_errors = args.show_error_messages
-        max_error_width = args.width_error_message
+        max_error_width = args.error_message_width
 
         def send_query(query: str):
             nonlocal num_done, num_errors
-            result_file = f"/tmp/qlever.load-test.{threading.get_ident()}"
-            curl_cmd = (
-                f"curl -s {sparql_endpoint}"
-                f" -H \"Accept: application/qlever-results+json\""
-                f" --data-urlencode query={shlex.quote(query)}"
-                f" -o {result_file} -w \"%{{http_code}}\""
-            )
+            query_oneline = re.sub(r"\s+", " ", query)
             start = time.time()
             try:
-                result = subprocess.run(
-                    curl_cmd, shell=True, capture_output=True,
-                    text=True, timeout=300,
-                )
-                elapsed = time.time() - start
-                http_code = result.stdout.strip()
+                with tempfile.NamedTemporaryFile(
+                    mode="r", prefix="qlever.load-test.", delete=True
+                ) as result_file:
+                    curl_cmd = (
+                        f"curl -s {sparql_endpoint}"
+                        f' -H "Accept: application/qlever-results+json"'
+                        f" --data-urlencode query={shlex.quote(query)}"
+                        f" --max-time {query_timeout_secs:g}"
+                        f" -o {result_file.name}"
+                        f' -w "%{{http_code}}"'
+                    )
+                    result = subprocess.run(
+                        curl_cmd,
+                        shell=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=query_timeout_secs + 10,
+                    )
+                    elapsed = time.time() - start
+                    http_code = result.stdout.strip() or "000"
+                    body = (
+                        result_file.read()
+                        if show_errors and http_code != "200"
+                        else ""
+                    )
                 with lock:
                     num_done += 1
                     completed_times.append(elapsed)
-                    status_codes[http_code] = \
+                    status_codes[http_code] = (
                         status_codes.get(http_code, 0) + 1
+                    )
                     if http_code != "200":
                         num_errors += 1
                         if show_errors:
-                            try:
-                                with open(result_file) as f:
-                                    body = f.read().strip()
-                                msg = re.sub(r"\s+", " ", body)
-                                if len(msg) > max_error_width:
-                                    msg = msg[:max_error_width] + "..."
-                            except Exception:
-                                msg = "(could not read error response)"
+                            msg = (
+                                re.sub(r"\s+", " ", body).strip()
+                                or "(empty response)"
+                            )
+                            if len(msg) > max_error_width:
+                                msg = msg[:max_error_width] + "..."
                             log.info("")
-                            log.info(colored(re.sub(r"\s+", " ", query),
-                                             "magenta"))
+                            log.info(colored(query_oneline, "magenta"))
                             log.error(f"HTTP {http_code}: {msg}")
             except Exception:
                 elapsed = time.time() - start
@@ -313,12 +329,12 @@ class LoadTestCommand(QleverCommand):
                     num_done += 1
                     num_errors += 1
                     completed_times.append(elapsed)
-                    status_codes["timeout"] = \
+                    status_codes["timeout"] = (
                         status_codes.get("timeout", 0) + 1
+                    )
                     if show_errors:
                         log.info("")
-                        log.info(colored(re.sub(r"\s+", " ", query),
-                                         "magenta"))
+                        log.info(colored(query_oneline, "magenta"))
                         log.error("Request timed out or failed")
 
         # Print status header and status lines.
@@ -356,10 +372,7 @@ class LoadTestCommand(QleverCommand):
                     f"  {p95:>7.2f}s  {max_t:>7.2f}s"
                 )
             else:
-                time_stats = (
-                    f"  {'':>8s}  {'':>8s}"
-                    f"  {'':>8s}  {'':>8s}"
-                )
+                time_stats = f"  {'':>8s}  {'':>8s}  {'':>8s}  {'':>8s}"
             log.info(
                 f"{elapsed:>7.0f}s"
                 f"  {n_launched:>8d}  {n_done:>8d}"
@@ -382,16 +395,22 @@ class LoadTestCommand(QleverCommand):
                 now = time.time()
                 elapsed = now - start_time
 
-                # Launch queries that are due.
-                while next_launch_time <= now \
-                        and num_launched < args.num_queries:
+                # Launch queries that are due. Bump `num_launched` BEFORE
+                # starting the thread so that a fast-completing query cannot
+                # make `num_done > num_launched` and yield a negative
+                # `Running` count in the status line.
+                while (
+                    next_launch_time <= now and num_launched < args.num_queries
+                ):
                     query = next_query()
                     thread = threading.Thread(
-                        target=send_query, args=(query,), daemon=True,
+                        target=send_query,
+                        args=(query,),
+                        daemon=True,
                     )
-                    thread.start()
                     with lock:
                         num_launched += 1
+                    thread.start()
                     next_launch_time += interval
 
                 # Print status line if due.
@@ -421,9 +440,11 @@ class LoadTestCommand(QleverCommand):
 
         # Show HTTP status code histogram.
         http_status_names = {
-            "200": "OK", "400": "Bad Request",
+            "200": "OK",
+            "400": "Bad Request",
             "429": "Too Many Requests",
-            "500": "Internal Server Error", "502": "Bad Gateway",
+            "500": "Internal Server Error",
+            "502": "Bad Gateway",
         }
         with lock:
             codes = dict(status_codes)
