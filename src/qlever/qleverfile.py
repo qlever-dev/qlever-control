@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import socket
 import subprocess
+from argparse import ArgumentTypeError
 from configparser import ConfigParser, ExtendedInterpolation, RawConfigParser
 from importlib import import_module
 from pathlib import Path
@@ -10,6 +11,17 @@ from pathlib import Path
 from qlever import script_name
 from qlever.containerize import Containerize
 from qlever.log import log
+
+
+def bool_type(val: str) -> bool:
+    if val in ["True", "true", "1", "on", "yes"]:
+        return True
+    elif val in ["False", "false", "0", "off", "no"]:
+        return False
+    else:
+        raise ArgumentTypeError(
+            f'"{val}" is not a valid boolean value. Use True/False, true/false, yes/no, 1/0 or on/off.'
+        )
 
 
 class QleverfileException(Exception):
@@ -353,6 +365,12 @@ class Qleverfile:
             help="Command executed after the server has started "
             " (executed as part of `qlever start` unless "
             " `--no-warmup` is specified, or with `qlever warmup`)",
+        )
+        server_args["enable_metrics"] = arg(
+            "--enable-metrics",
+            type=bool_type,
+            default=False,
+            help="Enable the metrics endpoint at `/metrics` (only available with the access token)",
         )
 
         runtime_args["system"] = arg(
