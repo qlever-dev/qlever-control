@@ -129,6 +129,7 @@ def collect_tests_by_graph(tests: List[TestObject]) -> Dict[str, Dict[Tuple[Tupl
         'protocol': dict(),
         'graphstoreprotocol': dict(),
         'service': dict(),
+        'federation': dict(),
     }
 
     fallback_graph = (str(Path(__file__).parent / 'data' / 'empty.ttl'), '-')
@@ -164,6 +165,8 @@ def collect_tests_by_graph(tests: List[TestObject]) -> Dict[str, Dict[Tuple[Tupl
 
         key = tuple(sorted(set(graph_refs)))
         category = type_to_category.get(test.type_name)
+        if category == 'query' and isinstance(test.action_node, dict) and 'serviceData' in test.action_node:
+            category = 'federation'
         if category:
             if key in graph_index[category]:
                 graph_index[category][key].append(test)

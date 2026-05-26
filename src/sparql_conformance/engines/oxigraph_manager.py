@@ -17,7 +17,7 @@ from qoxigraph.commands.stop import StopCommand
 from sparql_conformance import util as conformance_util
 from sparql_conformance.config import Config
 from sparql_conformance.engines.engine_manager import EngineManager
-from sparql_conformance.rdf_tools import rdf_xml_to_turtle, write_ttl_file
+from sparql_conformance.rdf_tools import rdf_xml_to_turtle, write_ttl_file, replace_empty_base_iri
 
 
 DEFAULT_NAME = "qlever-sparql-conformance"
@@ -172,6 +172,16 @@ def _copy_graph_to_workdir(file_path: str, workdir: str) -> str:
     )
 
 
+def _graph_to_trig(turtle_data: str, graph_name: str) -> str:
+    graph = rdflib.Graph()
+    graph.parse(data=turtle_data, format="turtle")
+    dataset = rdflib.ConjunctiveGraph()
+    context = dataset.get_context(rdflib.URIRef(graph_name))
+    for triple in graph:
+        context.add(triple)
+    return str(dataset.serialize(format="trig"))
+
+
 class OxigraphManager(EngineManager):
     """Manager for Oxigraph using qoxigraph commands."""
 
@@ -230,12 +240,7 @@ class OxigraphManager(EngineManager):
         return self._query(config, query, "query=", result_format)
 
     def update(self, config: Config, query: str) -> tuple[int, str]:
-        status, body = self._query(config, query, "update=", "json")
-        # Oxigraph returns HTTP 204 No Content for successful updates;
-        # normalize to 200 so the conformance harness treats it as success.
-        if status == 204:
-            status = 200
-        return status, body
+        return self._query(config, query, "update=", "json")
 
     def _query(
         self,
@@ -337,20 +342,41 @@ class OxigraphManager(EngineManager):
         graph_paths: tuple[tuple[str, str], ...],
     ) -> tuple[list[str], list[Path]]:
         workdir = Path(os.getcwd()).resolve()
+        cwd_uri = workdir.as_uri() + "/"
+        file_to_named_uri: dict[str, str] = {}
+        for gp, gn in graph_paths:
+            if gn and gn not in ("-", ""):
+                fname = Path(gp).resolve().name
+                file_to_named_uri[fname] = gn
         graph_files: list[str] = []
         cleanup_paths: list[Path] = []
         for graph_path, graph_name in graph_paths:
+            is_named = bool(graph_name and graph_name != "-")
             if graph_path.endswith(".rdf"):
-                graph_path_new = Path(graph_path).name
-                graph_path_new = graph_path_new.replace(".rdf", ".ttl")
-                write_ttl_file(
-                    graph_path_new,
-                    rdf_xml_to_turtle(graph_path, graph_name),
-                )
-                graph_files.append(graph_path_new)
-                cleanup_paths.append(workdir / graph_path_new)
+                turtle_data = rdf_xml_to_turtle(graph_path, graph_name)
+                if is_named:
+                    out_name = Path(graph_path).name.replace(".rdf", ".trig")
+                    write_ttl_file(out_name, _graph_to_trig(turtle_data, graph_name))
+                else:
+                    out_name = Path(graph_path).name.replace(".rdf", ".ttl")
+                    write_ttl_file(out_name, turtle_data)
+                graph_files.append(out_name)
+                cleanup_paths.append(workdir / out_name)
                 continue
             src = Path(graph_path).resolve()
+            if is_named:
+                turtle_data = src.read_text(encoding="utf-8")
+                out_name = src.stem + ".trig"
+                write_ttl_file(out_name, _graph_to_trig(turtle_data, graph_name))
+                graph_files.append(out_name)
+                cleanup_paths.append(workdir / out_name)
+                continue
+            replacement = file_to_named_uri.get(src.name, cwd_uri)
+            temp_name, temp_path = replace_empty_base_iri(src, workdir, replacement, "oxigraph")
+            if temp_path is not None:
+                graph_files.append(temp_name)
+                cleanup_paths.append(temp_path)
+                continue
             if src.parent == workdir:
                 graph_files.append(src.name)
                 continue

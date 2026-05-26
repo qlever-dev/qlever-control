@@ -13,7 +13,7 @@ from qvirtuoso.commands.stop import StopCommand
 from sparql_conformance import util as conformance_util
 from sparql_conformance.config import Config
 from sparql_conformance.engines.engine_manager import EngineManager
-from sparql_conformance.rdf_tools import rdf_xml_to_turtle, write_ttl_file
+from sparql_conformance.rdf_tools import rdf_xml_to_turtle, write_ttl_file, replace_empty_base_iri
 
 
 DEFAULT_NAME = "qlever-sparql-conformance"
@@ -248,6 +248,12 @@ class VirtuosoManager(EngineManager):
         graph_paths: tuple[tuple[str, str], ...],
     ) -> tuple[list[str], list[Path], list[str]]:
         workdir = Path(os.getcwd()).resolve()
+        cwd_uri = workdir.as_uri() + "/"
+        file_to_named_uri: dict[str, str] = {}
+        for gp, gn in graph_paths:
+            if gn and gn not in ("-", ""):
+                fname = Path(gp).resolve().name
+                file_to_named_uri[fname] = gn
         graph_files: list[str] = []
         cleanup_paths: list[Path] = []
         graph_names: list[str] = []
@@ -264,6 +270,13 @@ class VirtuosoManager(EngineManager):
                 graph_names.append(self._map_graph_name(graph_name))
                 continue
             src = Path(graph_path).resolve()
+            replacement = file_to_named_uri.get(src.name, cwd_uri)
+            temp_name, temp_path = replace_empty_base_iri(src, workdir, replacement, "virtuoso")
+            if temp_path is not None:
+                graph_files.append(temp_name)
+                cleanup_paths.append(temp_path)
+                graph_names.append(self._map_graph_name(graph_name))
+                continue
             if src.parent == workdir:
                 graph_files.append(src.name)
                 graph_names.append(self._map_graph_name(graph_name))

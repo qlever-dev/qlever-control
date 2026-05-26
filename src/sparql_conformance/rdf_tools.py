@@ -31,6 +31,32 @@ def delete_ttl_file(name: str):
         os.remove(name)
 
 
+def replace_empty_base_iri(
+    src,
+    workdir,
+    replacement_uri: str,
+    prefix: str,
+):
+    """
+    Replace `<>` with `<replacement_uri>` in a TTL/TriG/N3 file.
+    Writes a temp file `_{prefix}_{src.name}` in workdir if replacement is needed.
+    Returns (temp_filename, temp_path) or (None, None) if unchanged.
+    """
+    from pathlib import Path
+    src = Path(src)
+    workdir = Path(workdir)
+    if src.suffix not in (".ttl", ".trig", ".n3"):
+        return None, None
+    raw = src.read_text(encoding="utf-8")
+    if "<>" not in raw:
+        return None, None
+    processed = raw.replace("<>", f"<{replacement_uri}>")
+    temp_name = f"_{prefix}_{src.name}"
+    temp_path = workdir / temp_name
+    temp_path.write_text(processed, encoding="utf-8")
+    return temp_name, temp_path
+
+
 def copy_namespaces(source_graph, target_graph):
     for prefix, namespace in source_graph.namespaces():
         target_graph.bind(prefix, namespace, override=False)

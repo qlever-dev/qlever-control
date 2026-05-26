@@ -16,7 +16,7 @@ from qlever.util import run_command
 import sparql_conformance.util as conformance_util
 from sparql_conformance.config import Config
 from sparql_conformance.engines.engine_manager import EngineManager
-from sparql_conformance.rdf_tools import rdf_xml_to_turtle, write_ttl_file
+from sparql_conformance.rdf_tools import rdf_xml_to_turtle, write_ttl_file, replace_empty_base_iri
 
 
 DEFAULT_NAME = "qlever-sparql-conformance"
@@ -404,23 +404,12 @@ class JenaManager(EngineManager):
                 graph_files.append(graph_path_new)
                 cleanup_paths.append(workdir / graph_path_new)
                 continue
-            # For default graph files: replace <> so the stored URI is
-            # consistent with what the comparison framework expects.
-            # • If this file is also loaded as a named graph (relative name),
-            #   use that named graph's HTTP URI so GRAPH ?g bindings match.
-            # • Otherwise use the CWD dir URI, which matches how rdflib
-            #   resolves <> when parsing the expected-result TTL for comparison.
-            if src.suffix in (".ttl", ".trig", ".n3"):
-                raw = src.read_text(encoding="utf-8")
-                if "<>" in raw:
-                    replacement = file_to_named_uri.get(src.name, cwd_uri)
-                    processed = raw.replace("<>", f"<{replacement}>")
-                    temp_name = f"_jena_{src.name}"
-                    temp_path = workdir / temp_name
-                    temp_path.write_text(processed, encoding="utf-8")
-                    graph_files.append(temp_name)
-                    cleanup_paths.append(temp_path)
-                    continue
+            replacement = file_to_named_uri.get(src.name, cwd_uri)
+            temp_name, temp_path = replace_empty_base_iri(src, workdir, replacement, "jena")
+            if temp_path is not None:
+                graph_files.append(temp_name)
+                cleanup_paths.append(temp_path)
+                continue
             if src.parent == workdir:
                 graph_file = src.name
             else:

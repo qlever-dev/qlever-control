@@ -13,7 +13,7 @@ from qlever.log import mute_log
 from qlever.util import run_command
 from sparql_conformance.config import Config
 from sparql_conformance.engines.engine_manager import EngineManager
-from sparql_conformance.rdf_tools import rdf_xml_to_turtle
+from sparql_conformance.rdf_tools import rdf_xml_to_turtle, replace_empty_base_iri
 import sparql_conformance.util as conformance_util
 
 
@@ -247,6 +247,7 @@ class BlazegraphManager(EngineManager):
         graph_paths: Tuple[Tuple[str, str], ...],
     ) -> Tuple[List[str], List[Path]]:
         workdir = Path(os.getcwd()).resolve()
+        cwd_uri = workdir.as_uri() + "/"
         graph_files: List[str] = []
         cleanup_paths: List[Path] = []
         for i, (graph_path, graph_name) in enumerate(graph_paths):
@@ -259,6 +260,11 @@ class BlazegraphManager(EngineManager):
                 )
                 graph_files.append(generated_name)
                 cleanup_paths.append(workdir / generated_name)
+                continue
+            temp_name, temp_path = replace_empty_base_iri(src, workdir, cwd_uri, "blazegraph")
+            if temp_path is not None:
+                graph_files.append(temp_name)
+                cleanup_paths.append(temp_path)
                 continue
             if src.parent == workdir:
                 graph_files.append(src.name)
@@ -274,6 +280,12 @@ class BlazegraphManager(EngineManager):
         graph_paths: Tuple[Tuple[str, str], ...],
     ) -> Tuple[List[Tuple[Path, str]], List[Path]]:
         workdir = Path(os.getcwd()).resolve()
+        cwd_uri = workdir.as_uri() + "/"
+        file_to_named_uri: dict[str, str] = {}
+        for gp, gn in graph_paths:
+            if gn and gn not in ("-", ""):
+                fname = Path(gp).resolve().name
+                file_to_named_uri[fname] = gn
         graph_files: List[Tuple[Path, str]] = []
         cleanup_paths: List[Path] = []
         for i, (graph_path, graph_name) in enumerate(graph_paths):
@@ -285,6 +297,14 @@ class BlazegraphManager(EngineManager):
                 graph_files.append((generated_path, graph_name))
                 cleanup_paths.append(generated_path)
                 continue
+            is_default = graph_name in ("-", "", None)
+            if is_default:
+                replacement = file_to_named_uri.get(src.name, cwd_uri)
+                temp_name, temp_path = replace_empty_base_iri(src, workdir, replacement, "blazegraph")
+                if temp_path is not None:
+                    graph_files.append((temp_path, graph_name))
+                    cleanup_paths.append(temp_path)
+                    continue
             graph_files.append((src, graph_name))
         return graph_files, cleanup_paths
 

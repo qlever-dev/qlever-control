@@ -19,6 +19,7 @@ try:
 except ImportError:
     GraphdbManager = None
 from sparql_conformance.engines.engine_manager import EngineManager
+from sparql_conformance.mock_sparql_server import MockSPARQLServer
 from sparql_conformance.json_tools import compare_json
 from sparql_conformance.protocol_tools import run_protocol_test, run_protocol_test_from_action
 from sparql_conformance.rdf_tools import compare_ttl
@@ -334,7 +335,7 @@ class TestSuite:
                         test.query_file,
                         result_format)
 
-                if query_result[0] != 200:
+                if not (200 <= query_result[0] < 400):
                     self.process_failed_response(test, query_result)
                 else:
                     setattr(test, "query_log", query_result[1])
@@ -457,6 +458,57 @@ class TestSuite:
                     util.remove_date_time_parts(server_log))
             self.engine_manager.cleanup(self.config)
 
+    def run_federation_tests(self, graphs_list_of_tests: Dict[Tuple[Tuple[str, str], ...], List[TestObject]]):
+        """
+        Executes SERVICE federation tests.
+
+        For each test a local mock SPARQL server is started, populated with the
+        data from qt:serviceData in the manifest, and the SERVICE endpoint URLs
+        in the query are rewritten in memory to point at the mock before the
+        query is sent to the main engine.  Test files on disk are not modified.
+        """
+        for graph_key in graphs_list_of_tests:
+            for test in graphs_list_of_tests[graph_key]:
+                log.info(f"Running federation test: {test.name}")
+
+                service_data = test.action_node.get('serviceData', []) if isinstance(test.action_node, dict) else []
+                if isinstance(service_data, dict):
+                    service_data = [service_data]
+
+                mock = MockSPARQLServer()
+                url_map: dict = {}
+                for sd in service_data:
+                    endpoint_url = sd.get('endpoint') if isinstance(sd, dict) else None
+                    data_path = sd.get('data') if isinstance(sd, dict) else None
+                    if endpoint_url and data_path:
+                        mock.add_endpoint(endpoint_url, util.read_file(data_path))
+                        url_map[endpoint_url] = None
+                mock.start()
+                for orig in url_map:
+                    url_map[orig] = mock.local_url_for(orig)
+
+                query_text = test.query_file
+                for orig, local in url_map.items():
+                    query_text = query_text.replace(orig, local)
+
+                if not self.prepare_test_environment(graph_key, [test]):
+                    mock.stop()
+                    continue
+
+                query_result = self.engine_manager.query(self.config, query_text, test.result_format)
+
+                if os.path.exists('./TestSuite.server-log.txt'):
+                    setattr(test, 'server_log', util.remove_date_time_parts(
+                        util.read_file('./TestSuite.server-log.txt')))
+
+                mock.stop()
+                self.engine_manager.cleanup(self.config)
+
+                if query_result[0] == 200:
+                    self.evaluate_query(test.result_file, query_result[1], test, test.result_format)
+                else:
+                    self.process_failed_response(test, query_result)
+
     def analyze(self):
         """
         Method to index and start the server for a specific test.
@@ -483,6 +535,7 @@ class TestSuite:
             self.run_syntax_tests(self.tests["syntax"])
             self.run_protocol_tests(self.tests["protocol"])
             self.run_graphstore_protocol_tests(self.tests["graphstoreprotocol"])
+            self.run_federation_tests(self.tests.get("federation", {}))
         except KeyboardInterrupt:
             log.warning("Interrupted by user.")
             self.engine_manager.cleanup(self.config)

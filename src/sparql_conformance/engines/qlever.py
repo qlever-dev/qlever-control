@@ -17,7 +17,7 @@ from sparql_conformance.config import Config
 from sparql_conformance.engines.engine_manager import EngineManager
 from sparql_conformance import util
 from qlever.commands.index import IndexCommand
-from sparql_conformance.rdf_tools import write_ttl_file, delete_ttl_file, rdf_xml_to_turtle
+from sparql_conformance.rdf_tools import write_ttl_file, delete_ttl_file, rdf_xml_to_turtle, replace_empty_base_iri
 
 _SPARQL_RESULTS_NS = "http://www.w3.org/2005/sparql-results#"
 _RS = rdflib.Namespace("http://www.w3.org/2001/sw/DataAccess/tests/result-set#")
@@ -147,21 +147,40 @@ class QLeverManager(EngineManager):
 
     def setup(self, config: Config, graph_paths: Tuple[Tuple[str, str], ...]) -> Tuple[bool, bool, str, str]:
         server_success = False
+        workdir = Path(os.getcwd()).resolve()
+        cwd_uri = workdir.as_uri() + "/"
+        file_to_named_uri: dict[str, str] = {}
+        for gp, gn in graph_paths:
+            if gn and gn not in ("-", ""):
+                fname = Path(gp).resolve().name
+                file_to_named_uri[fname] = gn
         graphs = []
+        cleanup_after_index = []
         for graph_path, graph_name in graph_paths:
+            src = Path(graph_path).resolve()
             # Handle rdf files by turning them into turtle format.
             if graph_path.endswith(".rdf"):
-                graph_path_new = Path(graph_path).name
-                graph_path_new = graph_path_new.replace(".rdf", ".ttl")
+                graph_path_new = src.name.replace(".rdf", ".ttl")
                 write_ttl_file(graph_path_new, rdf_xml_to_turtle(graph_path, graph_name))
                 graph_path = graph_path_new
             else:
-                graph_path = util.copy_graph_to_workdir(graph_path, os.getcwd())
+                replacement = file_to_named_uri.get(src.name, cwd_uri)
+                temp_name, temp_path = replace_empty_base_iri(src, workdir, replacement, "qlever")
+                if temp_path is not None:
+                    graph_path = temp_name
+                    cleanup_after_index.append(temp_path)
+                else:
+                    graph_path = util.copy_graph_to_workdir(graph_path, os.getcwd())
             graphs.append((graph_path, graph_name))
 
         index_success, index_log = self._index(config, graphs)
         for path, name in graphs:
             delete_ttl_file(path)
+        for temp_path in cleanup_after_index:
+            try:
+                temp_path.unlink()
+            except FileNotFoundError:
+                pass
         if not index_success:
             return index_success, server_success, index_log, ''
         else:

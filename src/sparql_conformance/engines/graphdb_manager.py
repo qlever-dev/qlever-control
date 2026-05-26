@@ -16,7 +16,7 @@ from qlever.util import run_command, run_curl_command
 import sparql_conformance.util as conformance_util
 from sparql_conformance.config import Config
 from sparql_conformance.engines.engine_manager import EngineManager
-from sparql_conformance.rdf_tools import rdf_xml_to_turtle, write_ttl_file
+from sparql_conformance.rdf_tools import rdf_xml_to_turtle, write_ttl_file, replace_empty_base_iri
 
 
 GRAPHDB_CONFIG_TTL_URL = (
@@ -143,6 +143,13 @@ def _is_select_or_ask(query: str) -> bool:
     return m is not None and m.group(1).upper() in ('SELECT', 'ASK')
 
 
+def _is_rdf_query(query: str) -> bool:
+    """Return True for CONSTRUCT/DESCRIBE queries that return RDF, not a result set."""
+    no_comments = re.sub(r'#[^\n]*', '', query)
+    m = re.search(r'\b(SELECT|ASK|CONSTRUCT|DESCRIBE)\b', no_comments, re.IGNORECASE)
+    return m is not None and m.group(1).upper() in ('CONSTRUCT', 'DESCRIBE')
+
+
 def _license_file_path() -> Path:
     for key in ("GRAPHDB_LICENSE_FILE", "GRAPHDB_LICENSE_PATH"):
         if value := os.environ.get(key):
@@ -174,6 +181,9 @@ class GraphdbManager(EngineManager):
 
     def protocol_endpoint(self) -> str:
         return f"repositories/{DEFAULT_NAME}"
+
+    def protocol_update_endpoint(self) -> str:
+        return f"repositories/{DEFAULT_NAME}/statements"
 
     def setup(
         self,
@@ -221,21 +231,20 @@ class GraphdbManager(EngineManager):
                 return 200, _sparql_xml_to_result_set_ttl(body)
             except Exception as e:
                 return 1, str(e)
+        if result_format == "srx" and _is_rdf_query(query):
+            # CONSTRUCT/DESCRIBE return RDF; Accept: application/sparql-results+xml
+            # causes GraphDB to reply "No acceptable file format found." (406).
+            result_format = "ttl"
         return self._query(config, query, "query=", result_format)
 
     def update(self, config: Config, query: str) -> tuple[int, str]:
-        status, body = self._query(
+        return self._query(
             config,
             query,
             "update=",
             "json",
             endpoint_suffix="/statements",
         )
-        # GraphDB SPARQL Update endpoint returns 204 No Content on success.
-        # run_syntax_tests checks for exactly 200, so normalise any 2xx to 200.
-        if 200 < status < 300:
-            return 200, body
-        return status, body
 
     def _query(
         self,
@@ -359,6 +368,13 @@ class GraphdbManager(EngineManager):
         graph_paths: tuple[tuple[str, str], ...],
     ) -> tuple[list[str], list[Path]]:
         workdir = Path(os.getcwd()).resolve()
+        cwd_uri = workdir.as_uri() + "/"
+        file_to_named_uri: dict[str, str] = {}
+        for gp, gn in graph_paths:
+            if gn and gn not in ("-", ""):
+                fname = Path(gp).resolve().name
+                abs_gn = gn if "://" in gn else DEFAULT_BASE_IRI + fname
+                file_to_named_uri[fname] = abs_gn
         graph_files: list[str] = []
         cleanup_paths: list[Path] = []
         for graph_path, graph_name in graph_paths:
@@ -396,6 +412,12 @@ class GraphdbManager(EngineManager):
                 )
                 graph_files.append(graph_path_new)
                 cleanup_paths.append(workdir / graph_path_new)
+                continue
+            replacement = file_to_named_uri.get(src.name, cwd_uri)
+            temp_name, temp_path = replace_empty_base_iri(src, workdir, replacement, "graphdb")
+            if temp_path is not None:
+                graph_files.append(temp_name)
+                cleanup_paths.append(temp_path)
                 continue
             if src.parent == workdir:
                 graph_files.append(src.name)
