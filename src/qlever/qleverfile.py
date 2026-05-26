@@ -347,6 +347,14 @@ class Qleverfile:
             help="Whether to use the text index (requires that one was "
             "built, see `qlever index`)",
         )
+        server_args["preload_materialized_views"] = arg(
+            "-l",
+            "--preload-materialized-views",
+            nargs="+",
+            default=None,
+            help="Names of one or more materialized views to preload on "
+            "startup",
+        )
         server_args["warmup_cmd"] = arg(
             "--warmup-cmd",
             type=str,

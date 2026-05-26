@@ -2,6 +2,7 @@ import argparse
 import unittest
 
 from qlever.commands.start import StartCommand
+from qlever.qleverfile import Qleverfile
 
 
 class TestStartCommand(unittest.TestCase):
@@ -42,6 +43,7 @@ class TestStartCommand(unittest.TestCase):
                     "only_pso_and_pos_permutations",
                     "use_patterns",
                     "use_text_index",
+                    "preload_materialized_views",
                     "warmup_cmd",
                 ],
                 "runtime": [
@@ -84,3 +86,12 @@ class TestStartCommand(unittest.TestCase):
         # Test that the help text for --no-warmup is correctly set
         argument_help = subparser._group_actions[-3].help
         self.assertEqual(argument_help, "Do not execute the warmup command")
+
+    def test_preload_materialized_views_qleverfile_argument(self):
+        args, kwargs = Qleverfile.all_arguments()["server"][
+            "preload_materialized_views"
+        ]
+
+        self.assertEqual(args, ("-l", "--preload-materialized-views"))
+        self.assertEqual(kwargs["nargs"], "+")
+        self.assertEqual(kwargs["default"], None)

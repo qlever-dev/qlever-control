@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import traceback
 from importlib.metadata import version
 from pathlib import Path
@@ -106,7 +107,12 @@ class QleverConfig:
                         section, arg_name, fallback=None
                     )
                     if qleverfile_value is not None:
-                        kwargs_copy["default"] = qleverfile_value
+                        qleverfile_default = qleverfile_value
+                        if "nargs" in kwargs_copy:
+                            qleverfile_default = shlex.split(
+                                qleverfile_value
+                            )
+                        kwargs_copy["default"] = qleverfile_default
                         kwargs_copy["required"] = False
                         escaped_value = qleverfile_value.replace("%", "%%")
                         kwargs_copy["help"] += (

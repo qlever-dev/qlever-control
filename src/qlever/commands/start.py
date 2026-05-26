@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 import time
 from pathlib import Path
 
@@ -45,6 +46,15 @@ def construct_command(args) -> str:
         start_cmd += " --no-patterns"
     if args.use_text_index == "yes":
         start_cmd += " -t"
+    preload_materialized_views = vars(args).get(
+        "preload_materialized_views"
+    )
+    if preload_materialized_views:
+        start_cmd += " --preload-materialized-views"
+        start_cmd += "".join(
+            f" {shlex.quote(view_name)}"
+            for view_name in preload_materialized_views
+        )
     start_cmd += f" > {args.name}.server-log.txt 2>&1"
     return start_cmd
 
@@ -148,6 +158,7 @@ class StartCommand(QleverCommand):
                 "only_pso_and_pos_permutations",
                 "use_patterns",
                 "use_text_index",
+                "preload_materialized_views",
                 "warmup_cmd",
             ],
             "runtime": [
