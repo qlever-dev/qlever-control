@@ -189,7 +189,7 @@ class LoadTestCommand(QleverCommand):
             const=10,
             default=None,
             metavar="N",
-            help="Show the first N queries (default: 10) and exit"
+            help="Show up to N queries (N=10 if not specified) and exit"
             " without running the load test (with"
             " --query-selection=random, a fresh random sample)",
         )
@@ -202,9 +202,18 @@ class LoadTestCommand(QleverCommand):
         except ValueError as e:
             log.error(e)
             return False
+        if args.request_rate <= 0:
+            log.error(
+                f"--request-rate must be positive (got {args.request_rate})"
+            )
+            return False
+        if query_timeout_secs <= 0:
+            log.error(
+                f"--query-timeout must be positive (got {args.query_timeout})"
+            )
+            return False
 
-        # Read all queries into memory. The mutually exclusive group with
-        # `required=True` guarantees that exactly one source is specified.
+        # Read all queries into memory.
         if args.queries_tsv is not None:
             source_path, reader = args.queries_tsv, read_queries_tsv
         elif args.queries_yml is not None:
@@ -277,7 +286,7 @@ class LoadTestCommand(QleverCommand):
 
         def send_query(query: str):
             nonlocal num_done, num_errors
-            query_oneline = re.sub(r"\s+", " ", query)
+            error_message: str | None = None
             start = time.time()
             try:
                 with tempfile.NamedTemporaryFile(
@@ -299,43 +308,37 @@ class LoadTestCommand(QleverCommand):
                         timeout=query_timeout_secs + 10,
                     )
                     elapsed = time.time() - start
-                    http_code = result.stdout.strip() or "000"
-                    body = (
-                        result_file.read()
-                        if show_errors and http_code != "200"
-                        else ""
-                    )
-                with lock:
-                    num_done += 1
-                    completed_times.append(elapsed)
-                    status_codes[http_code] = (
-                        status_codes.get(http_code, 0) + 1
-                    )
-                    if http_code != "200":
-                        num_errors += 1
-                        if show_errors:
-                            msg = (
-                                re.sub(r"\s+", " ", body).strip()
-                                or "(empty response)"
-                            )
-                            if len(msg) > max_error_width:
-                                msg = msg[:max_error_width] + "..."
-                            log.info("")
-                            log.info(colored(query_oneline, "magenta"))
-                            log.error(f"HTTP {http_code}: {msg}")
-            except Exception:
+                    bucket = result.stdout.strip() or "000"
+                    if bucket != "200" and show_errors:
+                        msg = (
+                            re.sub(r"\s+", " ", result_file.read()).strip()
+                            or "(empty response)"
+                        )
+                        if len(msg) > max_error_width:
+                            msg = msg[:max_error_width] + "..."
+                        error_message = f"HTTP {bucket}: {msg}"
+            except Exception as exc:
                 elapsed = time.time() - start
-                with lock:
-                    num_done += 1
-                    num_errors += 1
-                    completed_times.append(elapsed)
-                    status_codes["timeout"] = (
-                        status_codes.get("timeout", 0) + 1
-                    )
+                if isinstance(exc, subprocess.TimeoutExpired):
+                    bucket = "timeout"
                     if show_errors:
-                        log.info("")
-                        log.info(colored(query_oneline, "magenta"))
-                        log.error("Request timed out or failed")
+                        error_message = "Request timed out"
+                else:
+                    bucket = "error"
+                    if show_errors:
+                        error_message = f"Request failed: {exc}"
+
+            # Record outcome.
+            with lock:
+                num_done += 1
+                completed_times.append(elapsed)
+                status_codes[bucket] = status_codes.get(bucket, 0) + 1
+                if bucket != "200":
+                    num_errors += 1
+                if error_message is not None:
+                    log.info("")
+                    log.info(colored(re.sub(r"\s+", " ", query), "magenta"))
+                    log.error(error_message)
 
         # Print status header and status lines.
         header = (
@@ -395,10 +398,8 @@ class LoadTestCommand(QleverCommand):
                 now = time.time()
                 elapsed = now - start_time
 
-                # Launch queries that are due. Bump `num_launched` BEFORE
-                # starting the thread so that a fast-completing query cannot
-                # make `num_done > num_launched` and yield a negative
-                # `Running` count in the status line.
+                # Launch queries that are due. Increment `num_launched`
+                # before starting the thread, so `num_done` cannot exceed it.
                 while (
                     next_launch_time <= now and num_launched < args.num_queries
                 ):
