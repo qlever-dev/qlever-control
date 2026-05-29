@@ -124,7 +124,8 @@ class TestCommand(QleverCommand):
         for suite_key, suite_dir in active_suites:
             print(f"Running suite '{suite_key}' from {suite_dir}...")
             config = Config(image, args.system, args.port, args.graph_store, suite_dir, alias,
-                            args.binaries_directory, args.exclude, args.include)
+                            args.binaries_directory, args.exclude, args.include,
+                            run_id=args.name)
             tests, test_count = extract_tests(config)
             suite = TestSuite(name=args.name, tests=tests, test_count=test_count,
                               config=config, engine_manager=get_engine_manager(args.engine))

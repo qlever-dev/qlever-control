@@ -20,8 +20,6 @@ from sparql_conformance.engines.engine_manager import EngineManager
 from sparql_conformance.rdf_tools import rdf_xml_to_turtle, write_ttl_file, replace_empty_base_iri
 
 
-DEFAULT_NAME = "qlever-sparql-conformance"
-
 _SPARQL_RESULTS_NS = "http://www.w3.org/2005/sparql-results#"
 _RS = rdflib.Namespace("http://www.w3.org/2001/sw/DataAccess/tests/result-set#")
 
@@ -210,9 +208,9 @@ class OxigraphManager(EngineManager):
         self._stop_server(config)
         with mute_log():
             run_command(
-                f"rm -rf {DEFAULT_NAME}_index "
-                f"{DEFAULT_NAME}.index-log.txt "
-                f"{DEFAULT_NAME}.server-log.txt"
+                f"rm -rf {config.run_id}_index "
+                f"{config.run_id}.index-log.txt "
+                f"{config.run_id}.server-log.txt"
             )
 
     def query(
@@ -301,7 +299,7 @@ class OxigraphManager(EngineManager):
         except Exception as e:
             return False, str(e)
 
-        index_log = _read_file(f"./{DEFAULT_NAME}.index-log.txt")
+        index_log = _read_file(f"./{config.run_id}.index-log.txt")
         return result, index_log
 
     def _start_server(self, config: Config) -> tuple[bool, str]:
@@ -325,7 +323,7 @@ class OxigraphManager(EngineManager):
         except Exception as e:
             return False, str(e)
 
-        server_log = _read_file(f"./{DEFAULT_NAME}.server-log.txt")
+        server_log = _read_file(f"./{config.run_id}.server-log.txt")
         return result, server_log
 
     def _stop_server(self, config: Config) -> tuple[bool, str]:

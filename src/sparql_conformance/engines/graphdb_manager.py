@@ -179,17 +179,21 @@ def _set_config_ttl_option(option: str, value: str) -> None:
 class GraphdbManager(EngineManager):
     """Manager for GraphDB using qgraphdb commands."""
 
+    def __init__(self):
+        self._run_id = DEFAULT_NAME
+
     def protocol_endpoint(self) -> str:
-        return f"repositories/{DEFAULT_NAME}"
+        return f"repositories/{self._run_id}"
 
     def protocol_update_endpoint(self) -> str:
-        return f"repositories/{DEFAULT_NAME}/statements"
+        return f"repositories/{self._run_id}/statements"
 
     def setup(
         self,
         config: Config,
         graph_paths: tuple[tuple[str, str], ...],
     ) -> tuple[bool, bool, str, str]:
+        self._run_id = config.run_id
         server_success = False
         config_ready, config_log = self._ensure_config_ttl()
         if not config_ready:
@@ -210,9 +214,9 @@ class GraphdbManager(EngineManager):
         self._stop_server(config)
         with mute_log():
             run_command(
-                f"rm -rf {DEFAULT_NAME}_index "
-                f"{DEFAULT_NAME}.index-log.txt "
-                f"{DEFAULT_NAME}.server-log.txt"
+                f"rm -rf {config.run_id}_index "
+                f"{config.run_id}.index-log.txt "
+                f"{config.run_id}.server-log.txt"
             )
 
     def query(
@@ -262,7 +266,7 @@ class GraphdbManager(EngineManager):
             content_type=content_type,
             sparql_endpoint=(
                 f"http://{config.server_address}:{config.port}"
-                f"/repositories/{DEFAULT_NAME}{endpoint_suffix}"
+                f"/repositories/{config.run_id}{endpoint_suffix}"
             ),
         )
         try:
@@ -322,7 +326,7 @@ class GraphdbManager(EngineManager):
         except Exception as e:
             return False, str(e)
 
-        index_log = _read_file(f"./{DEFAULT_NAME}.index-log.txt")
+        index_log = _read_file(f"./{config.run_id}.index-log.txt")
         return result, index_log
 
     def _start_server(self, config: Config) -> tuple[bool, str]:
@@ -348,7 +352,7 @@ class GraphdbManager(EngineManager):
         except Exception as e:
             return False, str(e)
 
-        server_log = _read_file(f"./{DEFAULT_NAME}.server-log.txt")
+        server_log = _read_file(f"./{config.run_id}.server-log.txt")
         return result, server_log
 
     def _stop_server(self, config: Config) -> tuple[bool, str]:

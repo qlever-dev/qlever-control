@@ -2,6 +2,7 @@ import bz2
 import io
 import json
 import os
+import re
 from typing import List, Dict, Tuple
 
 import rdflib
@@ -26,6 +27,40 @@ from sparql_conformance.rdf_tools import compare_ttl
 from sparql_conformance.test_object import TestObject, Status, ErrorMessage
 from sparql_conformance.tsv_csv_tools import compare_sv
 from sparql_conformance.xml_tools import compare_xml
+
+
+def _get_mock_host(config) -> str:
+    """Return the host address that containerized engines can use to reach the mock server."""
+    import platform
+    import subprocess
+    import socket as _socket
+    system = getattr(config, 'system', 'native')
+    if system not in ('docker', 'podman'):
+        return '127.0.0.1'
+    if platform.system() == 'Darwin':
+        return 'host.docker.internal'
+    cmd = 'docker' if system == 'docker' else 'podman'
+    network = 'bridge' if system == 'docker' else 'podman'
+    try:
+        result = subprocess.run(
+            [cmd, 'network', 'inspect', network,
+             '--format', '{{range .IPAM.Config}}{{.Gateway}}{{end}}'],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception:
+        pass
+    try:
+        s = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+        s.close()
+        if not ip.startswith('127.'):
+            return ip
+    except Exception:
+        pass
+    return '172.17.0.1'
 
 
 class TestSuite:
@@ -217,6 +252,24 @@ class TestSuite:
             error_type = ErrorMessage.NOT_SUPPORTED
             if "content type" in query_response[1]:
                 error_type = ErrorMessage.CONTENT_TYPE_NOT_SUPPORTED
+            query_log = query_response[1]
+        elif re.search(r'arqinternalerrorexception|peek\s+iterator\s+is\s+already\s+empty', query_response[1], re.IGNORECASE):
+            error_type = ErrorMessage.ENGINE_INTERNAL_ERROR
+            query_log = query_response[1]
+        elif re.search(r'\b404\b|\bnot\s+found\b', query_response[1], re.IGNORECASE):
+            error_type = ErrorMessage.HTTP_NOT_FOUND
+            query_log = query_response[1]
+        elif re.search(r'undefined\s+procedure|unknown\s+function', query_response[1], re.IGNORECASE):
+            error_type = ErrorMessage.UNDEFINED_FUNCTION
+            query_log = query_response[1]
+        elif re.search(r'required\s+argument.*not\s+supplied', query_response[1], re.IGNORECASE):
+            error_type = ErrorMessage.FUNCTION_ARGUMENT_ERROR
+            query_log = query_response[1]
+        elif re.search(r'non\s+numeric\s+argument|needs\s+a\s+(string|datetime)|cannot\s+convert.*to\s+datetime', query_response[1], re.IGNORECASE):
+            error_type = ErrorMessage.TYPE_ERROR
+            query_log = query_response[1]
+        elif re.search(r'sparql\s+compiler|transitive\s+start\s+not\s+given|no\s+column\s+', query_response[1], re.IGNORECASE):
+            error_type = ErrorMessage.PARSE_ERROR
             query_log = query_response[1]
         else:
             error_type = ErrorMessage.UNDEFINED_ERROR
@@ -484,8 +537,9 @@ class TestSuite:
                         mock.add_endpoint(endpoint_url, util.read_file(data_path))
                         url_map[endpoint_url] = None
                 mock.start()
+                mock_host = _get_mock_host(self.config)
                 for orig in url_map:
-                    url_map[orig] = mock.local_url_for(orig)
+                    url_map[orig] = mock.local_url_for(orig, host=mock_host)
 
                 query_text = test.query_file
                 for orig, local in url_map.items():

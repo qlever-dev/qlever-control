@@ -28,6 +28,12 @@ class ErrorMessage(str, Enum):
     FORMAT_ERROR = 'Result format error'
     NOT_SUPPORTED = 'Not supported'
     CONTENT_TYPE_NOT_SUPPORTED = "Content type not supported"
+    ENGINE_INTERNAL_ERROR = 'Engine Internal Error'
+    HTTP_NOT_FOUND = 'Http Not Found'
+    PARSE_ERROR = 'Parse Error'
+    TYPE_ERROR = 'Type Error'
+    FUNCTION_ARGUMENT_ERROR = 'Function Argument Error'
+    UNDEFINED_FUNCTION = 'Undefined Function'
 
     @classmethod
     def is_query_error(cls, error: str) -> bool:
@@ -38,6 +44,12 @@ class ErrorMessage(str, Enum):
             cls.NOT_SUPPORTED,
             cls.UNDEFINED_ERROR,
             cls.CONTENT_TYPE_NOT_SUPPORTED,
+            cls.ENGINE_INTERNAL_ERROR,
+            cls.HTTP_NOT_FOUND,
+            cls.PARSE_ERROR,
+            cls.TYPE_ERROR,
+            cls.FUNCTION_ARGUMENT_ERROR,
+            cls.UNDEFINED_FUNCTION,
         ]
 
 def process_graph_data(graph_data: Union[None, str, Dict, List], target_dict: Dict[str, str]) -> None:

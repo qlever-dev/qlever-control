@@ -111,7 +111,7 @@ class QLeverManager(EngineManager):
     def cleanup(self, config: Config):
         self._stop_server(config)
         with mute_log():
-            run_command('rm -f qlever-sparql-conformance*')
+            run_command(f'rm -f {config.run_id}*')
 
     def query(self, config: Config, query: str, result_format: str) -> Tuple[int, str]:
         if result_format == "ttl" and _is_select_or_ask(query):
@@ -194,9 +194,9 @@ class QLeverManager(EngineManager):
 
     def _stop_server(self, config: Config) -> Tuple[bool, str]:
         args = Namespace(
-            name='qlever-sparql-conformance',
+            name=config.run_id,
             port=config.port,
-            server_container='qlever-sparql-conformance-server-container',
+            server_container=f'{config.run_id}-server-container',
             no_containers=config.system == 'native',
             show=False,
             cmdline_regex='ServerMain.* -i [^ ]*%%NAME%%'
@@ -224,8 +224,8 @@ class QLeverManager(EngineManager):
             return False, error_output
 
         server_log = ''
-        if os.path.exists('./qlever-sparql-conformance.server-log.txt'):
-            server_log = util.read_file('./qlever-sparql-conformance.server-log.txt')
+        if os.path.exists(f'./{config.run_id}.server-log.txt'):
+            server_log = util.read_file(f'./{config.run_id}.server-log.txt')
         return result, server_log
 
     def _index(self, config: Config, graph_paths: List[Tuple[str, str]]) -> Tuple[bool, str]:
@@ -244,13 +244,13 @@ class QLeverManager(EngineManager):
             return False, error_output
 
         index_log = ''
-        if os.path.exists("./qlever-sparql-conformance.index-log.txt"):
-            index_log = util.read_file("./qlever-sparql-conformance.index-log.txt")
+        if os.path.exists(f"./{config.run_id}.index-log.txt"):
+            index_log = util.read_file(f"./{config.run_id}.index-log.txt")
         # Docker tee/pipefail workaround: verify the index was actually completed.
         # When QLever index builder fails inside docker, the tee exit code masks
         # the failure and IndexCommand returns True.  meta-data.json is only
         # written on successful completion.
-        if result and not os.path.exists("qlever-sparql-conformance.meta-data.json"):
+        if result and not os.path.exists(f"{config.run_id}.meta-data.json"):
             result = False
         return result, index_log
 

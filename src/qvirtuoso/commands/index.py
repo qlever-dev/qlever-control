@@ -63,7 +63,7 @@ def construct_ini_sed_cmd(
         #         • Replace with \1{new_value} → keep "option =" (the captured group) and
         #           replace the old value with the new one.
         rf"{sed_inplace} '/^\[{section}\]/,/^\[/ s/^\({option}[[:space:]]*=[[:space:]]*\)"
-        rf"[a-zA-Z0-9:.-]*/\1{new_value}/' {arg_name}.virtuoso.ini || "
+        rf"[^[:space:]]*/\1{new_value}/' {arg_name}.virtuoso.ini || "
         # If the option does NOT exist:
         #   - '/^\[{section}\]/a {option} = {new_value}' appends the line
         #     "option = new_value" right after the section header line [section].

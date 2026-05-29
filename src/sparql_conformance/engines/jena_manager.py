@@ -159,9 +159,9 @@ class JenaManager(EngineManager):
         self._stop_server(config)
         with mute_log():
             run_command(
-                f"rm -rf index {DEFAULT_NAME}.index-log.txt "
-                f"{DEFAULT_NAME}.server-log.txt "
-                f"{DEFAULT_NAME}-fuseki.ttl"
+                f"rm -rf index {config.run_id}.index-log.txt "
+                f"{config.run_id}.server-log.txt "
+                f"{config.run_id}-fuseki.ttl"
             )
 
     def _add_base_if_missing(self, config: Config, query: str) -> str:
@@ -245,11 +245,31 @@ class JenaManager(EngineManager):
         except Exception as e:
             return 1, str(e)
 
+    @staticmethod
+    def _has_no_triples(graph_files: list[str]) -> bool:
+        """Return True if all input files collectively contain zero RDF triples."""
+        try:
+            g = rdflib.ConjunctiveGraph()
+            for f in graph_files:
+                g.parse(f)
+            return len(g) == 0
+        except Exception:
+            return False
+
     def _index(
         self,
         config: Config,
         graph_files: list[str],
     ) -> tuple[bool, str]:
+        if not graph_files or self._has_no_triples(graph_files):
+            # No triples to load — create the index directory so StartCommand's
+            # presence check passes; Fuseki will initialize a fresh empty TDB2
+            # store on startup.
+            empty_index = Path("index/Data-0001")
+            empty_index.mkdir(parents=True, exist_ok=True)
+            (empty_index / ".keep").touch()
+            return True, ""
+
         index_binary = "tdb2.xloader"
         if config.system == "native":
             index_binary = str(Path(config.path_to_binaries, index_binary))
@@ -277,7 +297,7 @@ class JenaManager(EngineManager):
         if not result and Path("index/Data-0001").exists():
             result = True
 
-        index_log = _read_file(f"./{DEFAULT_NAME}.index-log.txt")
+        index_log = _read_file(f"./{config.run_id}.index-log.txt")
         return result, index_log
 
     def _write_fuseki_config(self, config: Config) -> str:
@@ -307,10 +327,10 @@ class JenaManager(EngineManager):
             f'    tdb2:location "index" ;\n'
             f'    .\n'
         )
-        local_path = Path(os.getcwd()) / f"{DEFAULT_NAME}-fuseki.ttl"
+        local_path = Path(os.getcwd()) / f"{config.run_id}-fuseki.ttl"
         local_path.write_text(conf, encoding="utf-8")
         if config.system != "native":
-            return f"/opt/data/{DEFAULT_NAME}-fuseki.ttl"
+            return f"/opt/data/{config.run_id}-fuseki.ttl"
         return str(local_path)
 
     def _start_server(self, config: Config) -> tuple[bool, str]:
@@ -335,7 +355,7 @@ class JenaManager(EngineManager):
         except Exception as e:
             return False, str(e)
 
-        server_log = _read_file(f"./{DEFAULT_NAME}.server-log.txt")
+        server_log = _read_file(f"./{config.run_id}.server-log.txt")
         return result, server_log
 
     def _stop_server(self, config: Config) -> tuple[bool, str]:

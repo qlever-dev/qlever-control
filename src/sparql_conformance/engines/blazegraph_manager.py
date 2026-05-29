@@ -108,10 +108,10 @@ class BlazegraphManager(EngineManager):
         self._stop_server(config)
         with mute_log():
             run_command(
-                "rm -f blazegraph.jnl "
-                "qlever-sparql-conformance.index-log.txt "
-                "qlever-sparql-conformance.server-log.txt "
-                "web.xml qlever-sparql-conformance.web.xml"
+                f"rm -f blazegraph.jnl "
+                f"{config.run_id}.index-log.txt "
+                f"{config.run_id}.server-log.txt "
+                f"web.xml {config.run_id}.web.xml"
             )
 
     def query(
@@ -172,11 +172,11 @@ class BlazegraphManager(EngineManager):
         except Exception as e:
             return False, str(e)
 
-        index_log = _read_file("./qlever-sparql-conformance.index-log.txt")
+        index_log = _read_file(f"./{config.run_id}.index-log.txt")
         return result, index_log
 
     def _index_empty_journal(self, config: Config) -> Tuple[bool, str]:
-        empty_file = Path(".qlever-sparql-conformance.empty.ttl")
+        empty_file = Path(f".{config.run_id}.empty.ttl")
         empty_file.write_text("", encoding="utf-8")
         try:
             return self._index(config, [empty_file.name])
@@ -206,7 +206,7 @@ class BlazegraphManager(EngineManager):
         except Exception as e:
             return False, str(e)
 
-        server_log = _read_file("./qlever-sparql-conformance.server-log.txt")
+        server_log = _read_file(f"./{config.run_id}.server-log.txt")
         return result, server_log
 
     def _stop_server(self, config: Config) -> Tuple[bool, str]:
@@ -237,10 +237,7 @@ class BlazegraphManager(EngineManager):
     def _requires_quads_mode(
         graph_paths: Tuple[Tuple[str, str], ...],
     ) -> bool:
-        for _graph_path, graph_name in graph_paths:
-            if graph_name not in ("", "-", None):
-                return True
-        return False
+        return True
 
     def _prepare_graphs_for_index(
         self,

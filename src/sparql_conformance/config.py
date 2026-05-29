@@ -14,9 +14,11 @@ class Config:
                  type_alias: List[Tuple[str, str]],
                  binaries_directory: str,
                  exclude: List[str],
-                 include: List[str] = None
+                 include: List[str] = None,
+                 run_id: str = "qlever-sparql-conformance"
                  ):
         self.server_address = 'localhost'
+        self.run_id = run_id
         self.image = image
         self.system = system
         self.port = port

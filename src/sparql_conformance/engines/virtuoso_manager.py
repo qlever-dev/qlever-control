@@ -16,7 +16,6 @@ from sparql_conformance.engines.engine_manager import EngineManager
 from sparql_conformance.rdf_tools import rdf_xml_to_turtle, write_ttl_file, replace_empty_base_iri
 
 
-DEFAULT_NAME = "qlever-sparql-conformance"
 DEFAULT_GRAPH_URI = "urn:qlever:default-graph"
 UPDATE_USER = "qlever_update"
 UPDATE_PASSWORD = "qlever_update_pw"
@@ -87,8 +86,7 @@ class VirtuosoManager(EngineManager):
         self._stop_index_container(config)
         with mute_log():
             run_command(
-                f"rm -f {DEFAULT_NAME}.index-log.txt "
-                f"{DEFAULT_NAME}.server-log.txt "
+                f"rm -f {config.run_id}*log.txt "
                 "virtuoso.db virtuoso.trx virtuoso.pxa "
                 "virtuoso-temp.db virtuoso.cpt-after-recov "
                 "virtuoso.trx-after-recov"
@@ -190,7 +188,7 @@ class VirtuosoManager(EngineManager):
         except Exception as e:
             return False, str(e)
 
-        index_log = _read_file(f"./{DEFAULT_NAME}.index-log.txt")
+        index_log = _read_file(f"./{config.run_id}.index-log.txt")
         return result, index_log
 
     def _start_server(
@@ -221,7 +219,7 @@ class VirtuosoManager(EngineManager):
         except Exception as e:
             return False, str(e)
 
-        server_log = _read_file(f"./{DEFAULT_NAME}.server-log.txt")
+        server_log = _read_file(f"./{config.run_id}.server-log.txt")
         return result, server_log
 
     def _stop_server(self, config: Config) -> tuple[bool, str]:

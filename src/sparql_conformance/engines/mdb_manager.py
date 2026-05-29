@@ -15,7 +15,6 @@ from sparql_conformance.engines.engine_manager import EngineManager
 from sparql_conformance.rdf_tools import rdf_xml_to_turtle, write_ttl_file
 
 
-DEFAULT_NAME = "qlever-sparql-conformance"
 
 
 def _make_args(config: Config, **overrides):
@@ -63,8 +62,8 @@ class MdbManager(EngineManager):
         self._stop_server(config)
         with mute_log():
             run_command(
-                f"rm -rf {DEFAULT_NAME}_index {DEFAULT_NAME}.index-log.txt "
-                f"{DEFAULT_NAME}.server-log.txt"
+                f"rm -rf {config.run_id}_index {config.run_id}.index-log.txt "
+                f"{config.run_id}.server-log.txt"
             )
 
     def query(
@@ -148,7 +147,7 @@ class MdbManager(EngineManager):
         except Exception as e:
             return False, str(e)
 
-        index_log = _read_file(f"./{DEFAULT_NAME}.index-log.txt")
+        index_log = _read_file(f"./{config.run_id}.index-log.txt")
         return result, index_log
 
     def _start_server(self, config: Config) -> tuple[bool, str]:
@@ -178,7 +177,7 @@ class MdbManager(EngineManager):
         except Exception as e:
             return False, str(e)
 
-        server_log = _read_file(f"./{DEFAULT_NAME}.server-log.txt")
+        server_log = _read_file(f"./{config.run_id}.server-log.txt")
         return result, server_log
 
     def _stop_server(self, config: Config) -> tuple[bool, str]:
