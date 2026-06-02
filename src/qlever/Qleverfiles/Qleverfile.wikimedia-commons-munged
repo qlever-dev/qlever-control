@@ -1,0 +1,48 @@
+# Qleverfile for Wikimedia Commons MUNGED, use with `qlever` CLI (`pipx install qlever`)
+#
+# qlever get-data  # downloads latest-mediainfo.ttl.gz and runs WDQS `munge.sh`
+# qlever index     # munged input, see https://www.wikidata.org/wiki/Wikidata:Tools/munge.sh
+# qlever start     # a few seconds, adjust MEMORY_FOR_QUERIES as needed
+#
+# Mirrors the official WCQS data-reload pipeline
+# (https://github.com/wikimedia/wikidata-query-deploy/blob/master/wcqs-data-reload.sh):
+# the same `munge.sh` as for Wikidata, with the Commons-specific
+# `--wikibaseHost`, `--conceptUri`, and `--commonsUri` arguments, so that
+# direct-claim shortcuts (`wdt:`) and other Wikibase conveniences match
+# what WCQS exposes.
+
+[DEFAULT]
+NAME = wikimedia-commons
+
+[data]
+GET_DATA_URL_BASE      = https://dumps.wikimedia.org/other/wikibase/commonswiki
+GET_DATA_URL_MEDIAINFO = ${GET_DATA_URL_BASE}/latest-mediainfo.ttl.gz
+GET_DATA_WDQS_VER      = 0.3.156
+GET_DATA_WGET_CMD      = unbuffer wget -q --show-progress
+GET_DATA_CMD_1         = ${GET_DATA_WGET_CMD} -O service-${GET_DATA_WDQS_VER}-dist.tar.gz https://archiva.wikimedia.org/repository/releases/org/wikidata/query/rdf/service/${GET_DATA_WDQS_VER}/service-${GET_DATA_WDQS_VER}-dist.tar.gz | tee wikimedia-commons.download-log.txt && tar -xzf service-${GET_DATA_WDQS_VER}-dist.tar.gz && rm service-${GET_DATA_WDQS_VER}-dist.tar.gz
+GET_DATA_CMD_2         = ${GET_DATA_WGET_CMD} -O latest-mediainfo.ttl.gz ${GET_DATA_URL_MEDIAINFO} 2>&1 | tee -a wikimedia-commons.download-log.txt
+GET_DATA_CMD_3         = service-${GET_DATA_WDQS_VER}/munge.sh -f latest-mediainfo.ttl.gz -d . -c 150000000 -- --wikibaseHost commons.wikimedia.org --conceptUri http://www.wikidata.org --commonsUri https://commons.wikimedia.org --skolemize && mv wikidump-000000001.ttl.gz latest-mediainfo.MUNGED.ttl.gz && touch -r latest-mediainfo.ttl.gz latest-mediainfo.MUNGED.ttl.gz
+GET_DATA_CMD           = ${GET_DATA_CMD_1} && ${GET_DATA_CMD_2} && ${GET_DATA_CMD_3}
+DATE_COMMONS           = $$(date -r latest-mediainfo.ttl.gz +%d.%m.%Y || echo "NO_DATE")
+DESCRIPTION            = Wikimedia Commons MediaInfo (Structured Data on Commons), TTL from ${GET_DATA_URL_BASE} (latest-mediainfo.ttl.gz from ${DATE_COMMONS}, munged with WDQS `munge.sh` version ${GET_DATA_WDQS_VER})
+
+[index]
+INPUT_FILES      = latest-mediainfo.MUNGED.ttl.gz
+MULTI_INPUT_JSON = { "cmd": "gunzip -c latest-mediainfo.MUNGED.ttl.gz", "format": "ttl", "parallel": "true" }
+SETTINGS_JSON    = { "num-triples-per-batch": 5000000, "languages-internal": [], "prefixes-external": [""], "locale": { "language": "en", "country": "US", "ignore-punctuation": true } }
+STXXL_MEMORY     = 10G
+ENCODE_AS_ID     = http://www.wikidata.org/entity/Q https://www.openstreetmap.org/node/ http://www.openstreetmap.org/node/ https://www.openstreetmap.org/way/ https://www.openstreetmap.org/relation/ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmnode_tagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmnode_untagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmway_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmrel_ https://www.openstreetmap.org/changeset/
+
+[server]
+PORT                        = 7033
+ACCESS_TOKEN                = ${data:NAME}
+MEMORY_FOR_QUERIES          = 20G
+CACHE_MAX_SIZE              = 10G
+CACHE_MAX_SIZE_SINGLE_ENTRY = 5G
+
+[runtime]
+SYSTEM = docker
+IMAGE  = adfreiburg/qlever:latest
+
+[ui]
+UI_CONFIG = wikimedia-commons
