@@ -100,6 +100,13 @@ def validate_index(args, index_dir: str) -> bool:
     else:
         log.error("Validation failed: server started but query failed")
 
+    # Remove the log files written by the validation server inside
+    # `index_dir`. Otherwise the subsequent `mv {index_dir}/* .` would
+    # clobber the live `{name}.metrics-log.jsonl` and `{name}.server-log.txt`
+    # of the running server in the parent directory.
+    for suffix in (".metrics-log.jsonl", ".server-log.txt"):
+        (Path(index_dir) / f"{args.name}{suffix}").unlink(missing_ok=True)
+
     return query_ok
 
 
