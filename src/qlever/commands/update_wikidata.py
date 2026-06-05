@@ -1286,6 +1286,16 @@ class UpdateWikidataCommand(QleverCommand):
                         "total",
                         failure_mode=FailureMode.SILENTLY_RETURN_ZERO,
                     )
+                    # Time spent in `consolidateAll()` after the buffer
+                    # push_backs. Only emitted by servers built with the
+                    # `SortedLocatedTriplesVector` block layout (the
+                    # `update/replaceSet` change); zero on older servers.
+                    time_consolidate = get_time_ms(
+                        stats,
+                        "execution",
+                        "consolidateSortedDeltaTriples",
+                        failure_mode=FailureMode.SILENTLY_RETURN_ZERO,
+                    )
                     time_unaccounted = time_op_total - (
                         time_planning
                         + time_compute_ids
@@ -1293,6 +1303,7 @@ class UpdateWikidataCommand(QleverCommand):
                         + time_metadata
                         + time_delete
                         + time_insert
+                        + time_consolidate
                     )
                     if args.verbose == "yes":
                         log.info(
@@ -1302,6 +1313,7 @@ class UpdateWikidataCommand(QleverCommand):
                             f"IDS: {100 * time_compute_ids / time_op_total:2.0f}%, "
                             f"DELETE: {100 * time_delete / time_op_total:2.0f}%, "
                             f"INSERT: {100 * time_insert / time_op_total:2.0f}%, "
+                            f"CONSOLIDATE: {100 * time_consolidate / time_op_total:2.0f}%, "
                             f"UNACCOUNTED: {100 * time_unaccounted / time_op_total:2.0f}%",
                         )
 
