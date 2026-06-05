@@ -144,8 +144,10 @@ class UpdateWikidataCommand(QleverCommand):
             "sse_stream_url",
             nargs="?",
             type=str,
-            default=self.wikidata_update_stream_url,
-            help="URL of the SSE stream to update from",
+            default=None,
+            help="URL of the SSE stream to update from (default: the"
+            " Wikidata stream, or the Wikimedia Commons stream with"
+            " `--wikimedia-commons`)",
         )
         subparser.add_argument(
             "--batch-size",
@@ -186,15 +188,42 @@ class UpdateWikidataCommand(QleverCommand):
         subparser.add_argument(
             "--topic",
             type=str,
-            default="eqiad.rdf-streaming-updater.mutation",
+            default=None,
             help="The topic to consume from the SSE stream (default: "
-            "eqiad.rdf-streaming-updater.mutation)",
+            "eqiad.rdf-streaming-updater.mutation, or "
+            "eqiad.mediainfo-streaming-updater.mutation with "
+            "`--wikimedia-commons`)",
         )
         subparser.add_argument(
             "--partition",
             type=int,
             default=0,
             help="The partition to consume from the SSE stream (default: 0)",
+        )
+        subparser.add_argument(
+            "--entity-prefix",
+            type=str,
+            default=None,
+            help="Prefix used to format entity IDs in the entity-delete"
+            " operation (default: wd:, or sdc: with `--wikimedia-commons`)",
+        )
+        subparser.add_argument(
+            "--entity-namespace",
+            type=str,
+            default=None,
+            help="IRI namespace bound to `--entity-prefix` in the entity-delete"
+            " operation (default: http://www.wikidata.org/entity/, or"
+            " https://commons.wikimedia.org/entity/ with `--wikimedia-commons`)",
+        )
+        subparser.add_argument(
+            "--wikimedia-commons",
+            action="store_true",
+            default=False,
+            help="Update from the Wikimedia Commons (mediainfo) stream"
+            " instead of Wikidata; sets `sse_stream_url`, `--topic`,"
+            " `--entity-prefix`, and `--entity-namespace` to their"
+            " Commons-appropriate values, unless those are overridden"
+            " explicitly",
         )
         subparser.add_argument(
             "--wait-between-batches",
@@ -362,6 +391,29 @@ class UpdateWikidataCommand(QleverCommand):
         return cached_file_name, batch_size
 
     def execute(self, args) -> bool:
+        # Resolve the four args that depend on `--wikimedia-commons`. A
+        # `None` value means the user did not pass that arg, so fill in
+        # the source-appropriate default; any explicit value wins.
+        commons_defaults = {
+            "sse_stream_url": "https://stream.wikimedia.org/v2/stream/"
+            "mediainfo-streaming-updater.mutation.v2",
+            "topic": "eqiad.mediainfo-streaming-updater.mutation",
+            "entity_prefix": "sdc:",
+            "entity_namespace": "https://commons.wikimedia.org/entity/",
+        }
+        wikidata_defaults = {
+            "sse_stream_url": self.wikidata_update_stream_url,
+            "topic": "eqiad.rdf-streaming-updater.mutation",
+            "entity_prefix": "wd:",
+            "entity_namespace": "http://www.wikidata.org/entity/",
+        }
+        defaults = (
+            commons_defaults if args.wikimedia_commons else wikidata_defaults
+        )
+        for arg_name, default_value in defaults.items():
+            if getattr(args, arg_name) is None:
+                setattr(args, arg_name, default_value)
+
         # cURL command to get the date until which the updates of the
         # SPARQL endpoint are complete.
         sparql_endpoint = f"http://{args.host_name}:{args.port}"
@@ -983,13 +1035,13 @@ class UpdateWikidataCommand(QleverCommand):
                 # operation that deletes all triples that are associated with only
                 # those entities.
                 delete_entity_ids_as_values = " ".join(
-                    [f"wd:{qid}" for qid in delete_entity_ids]
+                    [f"{args.entity_prefix}{qid}" for qid in delete_entity_ids]
                 )
                 if len(delete_entity_ids) > 0:
                     delete_where_operation = (
                         f"PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n"
                         f"PREFIX wikibase: <http://wikiba.se/ontology#>\n"
-                        f"PREFIX wd: <http://www.wikidata.org/entity/>\n"
+                        f"PREFIX {args.entity_prefix.rstrip(':')}: <{args.entity_namespace}>\n"
                         f"DELETE {{\n"
                         f"  ?s ?p ?o .\n"
                         f"}} WHERE {{\n"
@@ -1017,6 +1069,16 @@ class UpdateWikidataCommand(QleverCommand):
                 # Use the cached file instead of writing a new one
                 update_arg_file_name = cached_file_name
             else:
+                # Refuse to write `update.None.*.sparql`: the offset must
+                # be a real integer here, otherwise the filename would
+                # later break the cleanup pass (`int("None")`).
+                if first_offset_in_batch is None:
+                    log.error(
+                        "Internal error: `first_offset_in_batch` is None "
+                        "when trying to write the update file; refusing "
+                        "to produce `update.None.*.sparql`. Please report."
+                    )
+                    return False
                 # Write the constructed SPARQL update to a file
                 update_arg_file_name = f"update.{first_offset_in_batch}.{current_batch_size}.sparql"
                 with open(update_arg_file_name, "w") as f:
@@ -1069,9 +1131,13 @@ class UpdateWikidataCommand(QleverCommand):
                 update_files = {}
                 for ext in ["sparql", "meta", "result"]:
                     for file_path in glob.glob(f"update.*.*.{ext}"):
-                        # Extract offset from filename (update.OFFSET.SIZE.ext)
+                        # Extract offset from filename (update.OFFSET.SIZE.ext).
+                        # Skip files whose middle component is not a numeric
+                        # offset (e.g. a stale `update.None.*.sparql` from a
+                        # prior crashed run), so they cannot derail `int(x)`
+                        # below.
                         parts = Path(file_path).stem.split(".")
-                        if len(parts) >= 3:
+                        if len(parts) >= 3 and parts[1].isdigit():
                             offset = parts[1]
                             if offset not in update_files:
                                 update_files[offset] = []
