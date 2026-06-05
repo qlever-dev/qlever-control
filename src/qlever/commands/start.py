@@ -46,9 +46,7 @@ def construct_command(args) -> str:
         start_cmd += " --no-patterns"
     if args.use_text_index == "yes":
         start_cmd += " -t"
-    preload_materialized_views = vars(args).get(
-        "preload_materialized_views"
-    )
+    preload_materialized_views = vars(args).get("preload_materialized_views")
     if preload_materialized_views:
         start_cmd += " --preload-materialized-views"
         start_cmd += "".join(

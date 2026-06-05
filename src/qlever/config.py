@@ -109,9 +109,7 @@ class QleverConfig:
                     if qleverfile_value is not None:
                         qleverfile_default = qleverfile_value
                         if "nargs" in kwargs_copy:
-                            qleverfile_default = shlex.split(
-                                qleverfile_value
-                            )
+                            qleverfile_default = shlex.split(qleverfile_value)
                         kwargs_copy["default"] = qleverfile_default
                         kwargs_copy["required"] = False
                         escaped_value = qleverfile_value.replace("%", "%%")
