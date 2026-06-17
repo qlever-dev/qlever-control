@@ -689,8 +689,16 @@ class UpdateWikidataCommand(QleverCommand):
             delete_entity_ids = set()
             delta_to_now_list = []
             batch_assembly_start_time = time.perf_counter()
-            insert_triples = set()
-            delete_triples = set()
+            # Maps each triple to the `(rev_id, sequence)` of the event that
+            # last wrote it. The SSE stream may deliver events out of `rev_id`
+            # order (notably during a Wikidata merge, where the source's
+            # DELETE and the target's ADD for a transferred article URL share
+            # the same `dt` and the target often arrives first). Tracking the
+            # `rev_id` per triple makes the cross-set "remove from the other
+            # side" step gated by causal order, so the chronologically last
+            # event for a given triple wins regardless of arrival order.
+            insert_triples: dict[str, tuple[int, int]] = {}
+            delete_triples: dict[str, tuple[int, int]] = {}
 
             # Check if we can use a cached SPARQL query file
             use_cached_file = False
@@ -752,6 +760,14 @@ class UpdateWikidataCommand(QleverCommand):
                             # rdf_unlinked_shared_data = event_data.get(
                             #     "rdf_unlinked_shared_data"
                             # )
+
+                            # Causal-order key for this event (see comment at
+                            # the `insert_triples` / `delete_triples`
+                            # initialization above).
+                            rev_key = (
+                                event_data.get("rev_id", 0),
+                                event_data.get("sequence", 0),
+                            )
 
                             # Check batch completion conditions BEFORE processing the
                             # data of this message. If any of the conditions is met,
@@ -879,10 +895,27 @@ class UpdateWikidataCommand(QleverCommand):
                                             # NOTE: In case there was a previous `insert` of that
                                             # triple, it is safe to remove that `insert`, but not
                                             # the `delete` (in case the triple is contained in the
-                                            # original data).
+                                            # original data). The cross-set override only happens
+                                            # if this delete is strictly newer than the existing
+                                            # insert; otherwise the existing insert dominates and
+                                            # the (older) delete is discarded.
                                             if triple in insert_triples:
-                                                insert_triples.remove(triple)
-                                            delete_triples.add(triple)
+                                                if (
+                                                    rev_key
+                                                    > insert_triples[triple]
+                                                ):
+                                                    del insert_triples[triple]
+                                                    delete_triples[triple] = (
+                                                        rev_key
+                                                    )
+                                            elif (
+                                                triple not in delete_triples
+                                                or rev_key
+                                                > delete_triples[triple]
+                                            ):
+                                                delete_triples[triple] = (
+                                                    rev_key
+                                                )
                                     except Exception as e:
                                         log.error(
                                             f"Error reading `rdf_to_be_deleted_data`: {e}"
@@ -912,10 +945,28 @@ class UpdateWikidataCommand(QleverCommand):
                                             # NOTE: In case there was a previous `delete` of that
                                             # triple, it is safe to remove that `delete`, but not
                                             # the `insert` (in case the triple is not contained in
-                                            # the original data).
+                                            # the original data). Use `>=` on the cross-set gate
+                                            # so that a same-event delete-then-add (deletes are
+                                            # processed first in the per-event loop) lets the
+                                            # add win, matching the previous within-event
+                                            # behaviour.
                                             if triple in delete_triples:
-                                                delete_triples.remove(triple)
-                                            insert_triples.add(triple)
+                                                if (
+                                                    rev_key
+                                                    >= delete_triples[triple]
+                                                ):
+                                                    del delete_triples[triple]
+                                                    insert_triples[triple] = (
+                                                        rev_key
+                                                    )
+                                            elif (
+                                                triple not in insert_triples
+                                                or rev_key
+                                                > insert_triples[triple]
+                                            ):
+                                                insert_triples[triple] = (
+                                                    rev_key
+                                                )
                                     except Exception as e:
                                         log.error(
                                             f"Error reading `rdf_to_be_added_data`: {e}"
@@ -1009,18 +1060,20 @@ class UpdateWikidataCommand(QleverCommand):
 
                 # Add a triples `wikibase:Dump wikibase:updatesCompleteUntil
                 # DATE` and `wikibase:Dump wikibase:updateStreamNextOffset
-                # OFFSET`.
-                insert_triples.add(
+                # OFFSET`. These are batch-level synthetic triples that
+                # never conflict with stream events, so the rev_key value
+                # stored alongside them is irrelevant — `(0, 0)` is fine.
+                insert_triples[
                     f"<http://wikiba.se/ontology#Dump> "
                     f"<http://wikiba.se/ontology#updatesCompleteUntil> "
                     f'"{date_list[-1]}"'
                     f"^^<http://www.w3.org/2001/XMLSchema#dateTime>"
-                )
-                insert_triples.add(
+                ] = (0, 0)
+                insert_triples[
                     "<http://wikiba.se/ontology#Dump> "
                     "<http://wikiba.se/ontology#updateStreamNextOffset> "
                     f'"{event_id_for_next_batch[0]["offset"]}"'
-                )
+                ] = (0, 0)
 
                 # Construct UPDATE operation.
                 delete_block = " . \n  ".join(delete_triples)
