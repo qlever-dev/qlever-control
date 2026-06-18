@@ -1,0 +1,28 @@
+# Qleverfile for YAGO 4.5, use with https://github.com/ad-freiburg/qlever-control
+#
+# qlever get-data  # downloads a 12GB zip that unzips into 4 ttl files of ~143GB
+# qlever index     # 38GB vocabulary+index
+# qlever start     # starts the server
+
+[data]
+NAME         = yago-4.5.0.2
+GET_DATA_CMD = curl --location --continue-at - --remote-name-all https://yago-knowledge.org/data/yago4.5/${NAME}.zip && unzip ${NAME}.zip
+DESCRIPTION  = "Full dump from https://yago-knowledge.org/downloads/yago-4-5, version 2024-04-09"
+
+[index]
+INPUT_FILES     = yago-schema.ttl yago-facts.ttl yago-beyond-wikipedia.ttl yago-taxonomy.ttl
+CAT_INPUT_FILES = cat ${INPUT_FILES}
+SETTINGS_JSON   = { "languages-internal": ["en"], "locale": { "language": "en", "country": "US", "ignore-punctuation": true }, "ascii-prefixes-only": false, "num-triples-per-batch": 5000000 }
+STXXL_MEMORY    = 10G
+
+[server]
+PORT               = 9004
+ACCESS_TOKEN       = ${data:NAME}
+MEMORY_FOR_QUERIES = 30G
+
+[runtime]
+SYSTEM = docker
+IMAGE  = docker.io/adfreiburg/qlever:latest
+
+[ui]
+UI_CONFIG = yago-4.5
