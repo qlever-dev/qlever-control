@@ -1,0 +1,1 @@
+../../qlever/commands/extract_queries.py
