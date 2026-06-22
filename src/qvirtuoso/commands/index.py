@@ -222,7 +222,7 @@ class IndexCommand(QleverCommand):
         start_cmd = Containerize().containerize_command(
             cmd=f"{start_cmd} -f",
             container_system=args.system,
-            run_subcommand="run -d -e DBA_PASSWORD=dba",
+            run_subcommand="run -d --rm -e DBA_PASSWORD=dba",
             image_name=args.image,
             container_name=args.index_container,
             volumes=[("$(pwd)", "/database")],
@@ -418,10 +418,11 @@ class IndexCommand(QleverCommand):
                 log.info("")
                 log.info("Data loading has finished!")
 
-            # Construct args for Stop Command to stop running virtuoso-t process
+            # Stop/remove the index container (with --rm it may already be gone).
             args.server_container = args.index_container
             args.cmdline_regex = StopCommand.DEFAULT_REGEX
-            return StopCommand().execute(args)
+            StopCommand().execute(args)
+            return True
         except Exception as e:
             log.error(f"Building the index failed: {e}")
             return False

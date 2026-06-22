@@ -28,12 +28,12 @@ class ErrorMessage(str, Enum):
     FORMAT_ERROR = 'Result format error'
     NOT_SUPPORTED = 'Not supported'
     CONTENT_TYPE_NOT_SUPPORTED = "Content type not supported"
-    ENGINE_INTERNAL_ERROR = 'Engine Internal Error'
-    HTTP_NOT_FOUND = 'Http Not Found'
-    PARSE_ERROR = 'Parse Error'
-    TYPE_ERROR = 'Type Error'
-    FUNCTION_ARGUMENT_ERROR = 'Function Argument Error'
-    UNDEFINED_FUNCTION = 'Undefined Function'
+    PARSE_ERROR = 'Parse error'
+    TYPE_ERROR = 'Type error'
+    ENGINE_INTERNAL_ERROR = 'Engine internal error'
+    HTTP_NOT_FOUND = 'HTTP not found'
+    UNDEFINED_FUNCTION = 'Undefined function'
+    FUNCTION_ARGUMENT_ERROR = 'Function argument error'
 
     @classmethod
     def is_query_error(cls, error: str) -> bool:
@@ -156,7 +156,7 @@ class TestObject:
             self.result_file = read_file(os.path.join(self.path, self.result))
             process_graph_data(result_node.get('graphData'), self.result_files)
         else:
-            self.result = self.result_file = ''
+            self.result = self.result_file = self.result_format = ''
 
         # Initialize test execution results
         self.error_type = ''
@@ -182,9 +182,9 @@ class TestObject:
 
     def to_dict(self) -> Dict[str, str]:
         """Convert test object to dictionary format for serialization."""
-        self.graph_file = '<b>default:</b> <br> <pre>' + escape(self.graph_file) + '</pre>'
+        graph_html = '<b>default:</b> <br> <pre>' + escape(self.graph_file) + '</pre>'
         for name, graph in self.index_files.items():
-            self.graph_file += f'<br><b>{name}:</b> <br> <pre>{escape(graph)}</pre>'
+            graph_html += f'<br><b>{name}:</b> <br> <pre>{escape(graph)}</pre>'
 
         return {
             'test': escape(self.test),
@@ -198,7 +198,7 @@ class TestObject:
             'query': escape(self.query),
             'graph': escape(self.graph),
             'queryFile': escape(self.query_file),
-            'graphFile': self.graph_file,
+            'graphFile': graph_html,
             'resultFile': escape(self.result_file),
             'status': escape(self.status),
             'errorType': escape(self.error_type),

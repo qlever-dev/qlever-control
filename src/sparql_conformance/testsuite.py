@@ -29,6 +29,20 @@ from sparql_conformance.tsv_csv_tools import compare_sv
 from sparql_conformance.xml_tools import compare_xml
 
 
+def _augment_with_protocol_data(
+        graph_path: Tuple[Tuple[str, str], ...],
+) -> Tuple[Tuple[str, str], ...]:
+    """Add the standard W3C protocol test data files (data0–data3.rdf)."""
+    path_to_data = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+    result = graph_path
+    for i in range(4):
+        result = result + ((
+            os.path.join(path_to_data, f"data{i}.rdf"),
+            f"http://kasei.us/2009/09/sparql/data/data{i}.rdf",
+        ),)
+    return result
+
+
 def _get_mock_host(config) -> str:
     """Return the host address that containerized engines can use to reach the mock server."""
     import platform
@@ -316,15 +330,19 @@ class TestSuite:
         """
         for graph in graphs_list_of_tests:
             log.info(f"Running update tests for graph / graphs: {graph}")
-            for test in graphs_list_of_tests[graph]:
+            if not self.prepare_test_environment(graph, graphs_list_of_tests[graph]):
+                continue
+            for i, test in enumerate(graphs_list_of_tests[graph]):
                 log.info(f"Running: {test.name}")
-                if not self.prepare_test_environment(
-                        graph, graphs_list_of_tests[graph]):
-                    # If the environment is not prepared, skip all tests for this graph.
-                    break
+                if i > 0:
+                    if not self.engine_manager.reset_graphs(self.config, graph):
+                        self.update_graph_status(
+                            graphs_list_of_tests[graph][i:],
+                            Status.FAILED, ErrorMessage.SERVER_ERROR)
+                        break
                 # Execute the update query.
                 query_update_result = self.engine_manager.update(self.config, test.query_file)
-                
+
                 # If the update query was successful, retrieve the current state of all graphs
                 # and check if the results match the expected results.
                 if 200 <= query_update_result[0] < 300:
@@ -339,7 +357,7 @@ class TestSuite:
                     )
                     actual_state_of_graphs.append(construct_graph[1])
                     expected_state_of_graphs.append(test.result_file)
-                    
+
                     # Handle named graphs.
                     if test.result_files:
                         for graph_label, expected_graph in test.result_files.items():
@@ -355,13 +373,13 @@ class TestSuite:
                 else:
                     self.process_failed_response(test, query_update_result)
 
-                if os.path.exists("./TestSuite.server-log.txt"):
-                    server_log = util.read_file("./TestSuite.server-log.txt")
-                    self.log_for_all_tests(
-                        graphs_list_of_tests[graph],
-                        "server_log",
-                        util.remove_date_time_parts(server_log))
-                self.engine_manager.cleanup(self.config)
+            if os.path.exists("./TestSuite.server-log.txt"):
+                server_log = util.read_file("./TestSuite.server-log.txt")
+                self.log_for_all_tests(
+                    graphs_list_of_tests[graph],
+                    "server_log",
+                    util.remove_date_time_parts(server_log))
+            self.engine_manager.cleanup(self.config)
 
     def run_syntax_tests(self, graphs_list_of_tests: Dict[Tuple[Tuple[str, str], ...], List[TestObject]]):
         """
@@ -417,55 +435,41 @@ class TestSuite:
         """
         for graph_path in graphs_list_of_tests:
             log.info(f"Running protocol tests for graph: {graph_path}")
-            # Work around for issue #25, missing data for protocol tests
-            path_to_data = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
-            graph_paths = graph_path
-            for i in range(4):
-                path_to_graph = os.path.join(path_to_data, f"data{i}.rdf")
-                name_of_graph = f"http://kasei.us/2009/09/sparql/data/data{i}.rdf"
-                new_path: Tuple[str, str] = (path_to_graph, name_of_graph)
-                graph_paths = graph_paths + (new_path,)
-            for test in graphs_list_of_tests[graph_path]:
+            # Work around for issue #25: add standard protocol test data files
+            graph_paths = _augment_with_protocol_data(graph_path)
+            if not self.prepare_test_environment(
+                    graph_paths, graphs_list_of_tests[graph_path]):
+                continue
+            for i, test in enumerate(graphs_list_of_tests[graph_path]):
                 log.info(f"Running: {test.name}")
-                if not self.prepare_test_environment(
-                        graph_paths, graphs_list_of_tests[graph_path]):
-                    break
+                if i > 0:
+                    if not self.engine_manager.reset_graphs(self.config, graph_paths):
+                        self.update_graph_status(
+                            graphs_list_of_tests[graph_path][i:],
+                            Status.FAILED, ErrorMessage.SERVER_ERROR)
+                        break
+                extracted_sent_requests = ''
+                extracted_expected_responses = ''
+                got_responses = ''
                 if test.protocol_requests:
                     status, error_type, extracted_expected_responses, extracted_sent_requests, got_responses, newpath = run_protocol_test_from_action(
                         self.engine_manager, test, test.protocol_requests, '')
-                    if os.path.exists("./TestSuite.server-log.txt"):
-                        server_log = util.read_file(
-                            "./TestSuite.server-log.txt")
-                        self.log_for_all_tests(
-                            graphs_list_of_tests[graph_path],
-                            "server_log",
-                            util.remove_date_time_parts(server_log))
-                    self.engine_manager.cleanup(self.config)
                     self.update_test_status(test, status, error_type)
                 elif test.comment:
                     status, error_type, extracted_expected_responses, extracted_sent_requests, got_responses, newpath = run_protocol_test(
                         self.engine_manager, test, test.comment, '')
-
-                    if os.path.exists("./TestSuite.server-log.txt"):
-                        server_log = util.read_file(
-                            "./TestSuite.server-log.txt")
-                        self.log_for_all_tests(
-                            graphs_list_of_tests[graph_path],
-                            "server_log",
-                            util.remove_date_time_parts(server_log))
-                    self.engine_manager.cleanup(self.config)
                     self.update_test_status(test, status, error_type)
-                else:
-                    extracted_sent_requests = ''
-                    extracted_expected_responses = ''
-                    got_responses = ''
                 setattr(test, "protocol", test.comment)
                 setattr(test, "protocol_sent", extracted_sent_requests)
-                setattr(
-                    test,
-                    "response_extracted",
-                    extracted_expected_responses)
+                setattr(test, "response_extracted", extracted_expected_responses)
                 setattr(test, "response", got_responses)
+            if os.path.exists("./TestSuite.server-log.txt"):
+                server_log = util.read_file("./TestSuite.server-log.txt")
+                self.log_for_all_tests(
+                    graphs_list_of_tests[graph_path],
+                    "server_log",
+                    util.remove_date_time_parts(server_log))
+            self.engine_manager.cleanup(self.config)
 
     def run_graphstore_protocol_tests(self, graphs_list_of_tests: Dict[Tuple[Tuple[str, str], ...], List[TestObject]]):
         """

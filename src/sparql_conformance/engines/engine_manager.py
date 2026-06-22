@@ -87,6 +87,25 @@ class EngineManager(ABC):
         """
         return "CONSTRUCT {?s ?p ?o} WHERE { ?s ?p ?o }"
 
+    def reset_graphs(
+        self,
+        config: Config,
+        graph_paths: Tuple[Tuple[str, str], ...],
+    ) -> bool:
+        """Restore the engine to the given initial graph state without restarting.
+
+        Called between consecutive tests in the same graph group so that each
+        test starts from a known clean state.  The default performs a full
+        teardown + setup (always correct).  Engines that support a cheaper
+        in-place reset (e.g. CLEAR ALL + HTTP re-upload) should override this
+        to avoid repeated JVM startups.
+
+        Returns True on success, False if the engine could not be reset.
+        """
+        self.cleanup(config)
+        ok_i, ok_s, _, _ = self.setup(config, graph_paths)
+        return ok_i and ok_s
+
     def activate_syntax_test_mode(self, server_address: str, port: str):
         """
         Called once before syntax tests run, after the server has started.

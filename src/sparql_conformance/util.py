@@ -134,8 +134,9 @@ def read_file(file_path: str) -> str:
         str: The content of the file.
     """
     try:
-        data = open(file_path, "r", encoding="utf-8").read()
-    except BaseException:
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = f.read()
+    except OSError:
         data = ""
     return data
 

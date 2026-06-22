@@ -85,6 +85,15 @@ class VirtuosoManager(EngineManager):
         self._stop_server(config)
         self._stop_index_container(config)
         with mute_log():
+            if config.system != "native":
+                # Force-remove any containers left in stopped/removing state so
+                # the next docker run can reuse the name without a name conflict.
+                run_command(
+                    f"{config.system} rm -f "
+                    f"{config.run_id}-server-container "
+                    f"{config.run_id}-index-container "
+                    "2>/dev/null || true"
+                )
             run_command(
                 f"rm -f {config.run_id}*log.txt "
                 "virtuoso.db virtuoso.trx virtuoso.pxa "

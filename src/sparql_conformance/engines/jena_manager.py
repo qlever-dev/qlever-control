@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import urllib.parse
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -163,6 +164,77 @@ class JenaManager(EngineManager):
                 f"{config.run_id}.server-log.txt "
                 f"{config.run_id}-fuseki.ttl"
             )
+
+    def reset_graphs(
+        self,
+        config: Config,
+        graph_paths: tuple[tuple[str, str], ...],
+    ) -> bool:
+        """Clear all graphs and reload initial data via HTTP without restarting Fuseki."""
+        status, _ = self.update(config, "CLEAR ALL")
+        if status >= 400:
+            self.cleanup(config)
+            ok_i, ok_s, _, _ = self.setup(config, graph_paths)
+            return ok_i and ok_s
+
+        if not graph_paths:
+            return True
+
+        workdir = Path(os.getcwd()).resolve()
+        cwd_uri = workdir.as_uri() + "/"
+        file_to_named_uri: dict[str, str] = {}
+        for gp, gn in graph_paths:
+            if gn and gn != "-" and "://" not in gn:
+                fname = Path(gp).resolve().name
+                file_to_named_uri[fname] = (
+                    f"http://{config.server_address}:{config.port}"
+                    f"/{DEFAULT_NAME}/{gn}"
+                )
+
+        base_data_url = (
+            f"http://{config.server_address}:{config.port}/{DEFAULT_NAME}/data"
+        )
+        tmp_file = workdir / "_jena_reset_tmp.ttl"
+        try:
+            for graph_path, graph_name in graph_paths:
+                src = Path(graph_path).resolve()
+                if src.suffix == ".rdf":
+                    turtle_data = rdf_xml_to_turtle(str(src), graph_name)
+                else:
+                    replacement = file_to_named_uri.get(src.name, cwd_uri)
+                    temp_name, temp_path = replace_empty_base_iri(
+                        src, workdir, replacement, "jena"
+                    )
+                    if temp_path is not None:
+                        turtle_data = temp_path.read_text(encoding="utf-8")
+                        temp_path.unlink()
+                    else:
+                        turtle_data = src.read_text(encoding="utf-8")
+
+                if graph_name and graph_name != "-":
+                    if "://" in graph_name:
+                        resolved_name = graph_name
+                    else:
+                        resolved_name = (
+                            f"http://{config.server_address}:{config.port}"
+                            f"/{DEFAULT_NAME}/{graph_name}"
+                        )
+                    encoded = urllib.parse.quote(resolved_name, safe="")
+                    target_url = f"{base_data_url}?graph={encoded}"
+                else:
+                    target_url = f"{base_data_url}?default"
+
+                tmp_file.write_text(turtle_data, encoding="utf-8")
+                with mute_log():
+                    run_command(
+                        f'curl -s -X PUT "{target_url}"'
+                        f' -H "Content-Type: text/turtle"'
+                        f' --data-binary @"{tmp_file}"'
+                    )
+        finally:
+            if tmp_file.exists():
+                tmp_file.unlink()
+        return True
 
     def _add_base_if_missing(self, config: Config, query: str) -> str:
         """Prepend BASE <endpoint_root/> if the query has no BASE declaration.

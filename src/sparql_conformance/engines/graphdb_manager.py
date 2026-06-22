@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import os
+import urllib.parse
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -218,6 +219,74 @@ class GraphdbManager(EngineManager):
                 f"{config.run_id}.index-log.txt "
                 f"{config.run_id}.server-log.txt"
             )
+
+    def reset_graphs(
+        self,
+        config: Config,
+        graph_paths: tuple[tuple[str, str], ...],
+    ) -> bool:
+        """Clear all graphs and reload initial data via HTTP without restarting GraphDB."""
+        status, _ = self.update(config, "CLEAR ALL")
+        if status >= 400:
+            self.cleanup(config)
+            ok_i, ok_s, _, _ = self.setup(config, graph_paths)
+            return ok_i and ok_s
+
+        if not graph_paths:
+            return True
+
+        workdir = Path(os.getcwd()).resolve()
+        cwd_uri = workdir.as_uri() + "/"
+        file_to_named_uri: dict[str, str] = {}
+        for gp, gn in graph_paths:
+            if gn and gn not in ("-", ""):
+                fname = Path(gp).resolve().name
+                abs_gn = gn if "://" in gn else DEFAULT_BASE_IRI + fname
+                file_to_named_uri[fname] = abs_gn
+
+        base_data_url = (
+            f"http://{config.server_address}:{config.port}"
+            f"/repositories/{config.run_id}/rdf-graphs/service"
+        )
+        tmp_file = workdir / "_graphdb_reset_tmp.ttl"
+        try:
+            for graph_path, graph_name in graph_paths:
+                src = Path(graph_path).resolve()
+                is_named = graph_name not in ("-", "", None)
+                if src.suffix == ".rdf":
+                    abs_name = graph_name if "://" in graph_name else DEFAULT_BASE_IRI + src.name
+                    turtle_data = rdf_xml_to_turtle(str(src), abs_name)
+                elif is_named:
+                    turtle_data = src.read_text(encoding="utf-8")
+                else:
+                    replacement = file_to_named_uri.get(src.name, cwd_uri)
+                    temp_name, temp_path = replace_empty_base_iri(
+                        src, workdir, replacement, "graphdb"
+                    )
+                    if temp_path is not None:
+                        turtle_data = temp_path.read_text(encoding="utf-8")
+                        temp_path.unlink()
+                    else:
+                        turtle_data = src.read_text(encoding="utf-8")
+
+                if is_named:
+                    abs_name = graph_name if "://" in graph_name else DEFAULT_BASE_IRI + src.name
+                    encoded = urllib.parse.quote(abs_name, safe="")
+                    target_url = f"{base_data_url}?graph={encoded}"
+                else:
+                    target_url = f"{base_data_url}?default"
+
+                tmp_file.write_text(turtle_data, encoding="utf-8")
+                with mute_log():
+                    run_command(
+                        f'curl -s -X PUT "{target_url}"'
+                        f' -H "Content-Type: text/turtle"'
+                        f' --data-binary @"{tmp_file}"'
+                    )
+        finally:
+            if tmp_file.exists():
+                tmp_file.unlink()
+        return True
 
     def query(
         self,
