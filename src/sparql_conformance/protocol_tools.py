@@ -354,7 +354,6 @@ def run_protocol_test(
         got_responses.append(tn_response)
         matching, newpath = compare_response(response, tn_response, 'SELECT' in request_with_reponse)
         status.append(matching)
-    print(status)
     if all(status):
         result = Status.PASSED
         error_type = ''
@@ -443,12 +442,10 @@ def run_protocol_test_from_action(
         is_select = req.expected_response.expected_format == 'tabular'
         matching, newpath = compare_response(response, tn_response, is_select)
         status.append(matching)
-    print(status)
     if all(status):
         result = Status.PASSED
         error_type = ''
     extracted_expected_responses = ''.join(str(r) + '\n' for r in responses)
     extracted_sent_requests = ''.join(r + '\n' for r in requests)
     got_responses_string = ''.join(r + '\n' for r in got_responses)
-    print(result)
     return result, error_type, extracted_expected_responses, extracted_sent_requests, got_responses_string, newpath

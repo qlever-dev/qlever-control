@@ -254,40 +254,42 @@ class TestSuite:
         return index_success and server_success
 
     def process_failed_response(self, test, query_response: tuple):
-        if "exception" in query_response[1]:
-            query_log = json.loads(
-                query_response[1])["exception"].replace(
-                ";", ";\n")
+        body = query_response[1]
+        if "exception" in body:
+            try:
+                query_log = json.loads(body)["exception"].replace(";", ";\n")
+            except Exception:
+                query_log = body
             error_type = ErrorMessage.QUERY_EXCEPTION
-        elif "HTTP Request" in query_response[1]:
+        elif "HTTP Request" in body:
             error_type = ErrorMessage.REQUEST_ERROR
-            query_log = query_response[1]
-        elif "not supported" in query_response[1]:
+            query_log = body
+        elif "not supported" in body:
             error_type = ErrorMessage.NOT_SUPPORTED
-            if "content type" in query_response[1]:
+            if "content type" in body:
                 error_type = ErrorMessage.CONTENT_TYPE_NOT_SUPPORTED
-            query_log = query_response[1]
-        elif re.search(r'arqinternalerrorexception|peek\s+iterator\s+is\s+already\s+empty', query_response[1], re.IGNORECASE):
+            query_log = body
+        elif re.search(r'arqinternalerrorexception|peek\s+iterator\s+is\s+already\s+empty', body, re.IGNORECASE):
             error_type = ErrorMessage.ENGINE_INTERNAL_ERROR
-            query_log = query_response[1]
-        elif re.search(r'\b404\b|\bnot\s+found\b', query_response[1], re.IGNORECASE):
+            query_log = body
+        elif re.search(r'\b404\b|\bnot\s+found\b', body, re.IGNORECASE):
             error_type = ErrorMessage.HTTP_NOT_FOUND
-            query_log = query_response[1]
-        elif re.search(r'undefined\s+procedure|unknown\s+function', query_response[1], re.IGNORECASE):
+            query_log = body
+        elif re.search(r'undefined\s+procedure|unknown\s+function', body, re.IGNORECASE):
             error_type = ErrorMessage.UNDEFINED_FUNCTION
-            query_log = query_response[1]
-        elif re.search(r'required\s+argument.*not\s+supplied', query_response[1], re.IGNORECASE):
+            query_log = body
+        elif re.search(r'required\s+argument.*not\s+supplied', body, re.IGNORECASE):
             error_type = ErrorMessage.FUNCTION_ARGUMENT_ERROR
-            query_log = query_response[1]
-        elif re.search(r'non\s+numeric\s+argument|needs\s+a\s+(string|datetime)|cannot\s+convert.*to\s+datetime', query_response[1], re.IGNORECASE):
+            query_log = body
+        elif re.search(r'non\s+numeric\s+argument|needs\s+a\s+(string|datetime)|cannot\s+convert.*to\s+datetime', body, re.IGNORECASE):
             error_type = ErrorMessage.TYPE_ERROR
-            query_log = query_response[1]
-        elif re.search(r'sparql\s+compiler|transitive\s+start\s+not\s+given|no\s+column\s+', query_response[1], re.IGNORECASE):
+            query_log = body
+        elif re.search(r'sparql\s+compiler|transitive\s+start\s+not\s+given|no\s+column\s+', body, re.IGNORECASE):
             error_type = ErrorMessage.PARSE_ERROR
-            query_log = query_response[1]
+            query_log = body
         else:
             error_type = ErrorMessage.UNDEFINED_ERROR
-            query_log = query_response[1]
+            query_log = body
         setattr(test, "query_log", query_log)
         self.update_test_status(test, Status.FAILED, error_type)
 
