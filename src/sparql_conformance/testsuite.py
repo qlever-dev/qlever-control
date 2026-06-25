@@ -82,7 +82,7 @@ class TestSuite:
     A class to represent a test suite for SPARQL using QLever.
     """
 
-    def __init__(self, name: str, tests: Dict[str, Dict[Tuple[Tuple[str, str], ...], List[TestObject]]], test_count, config: Config, engine_manager: EngineManager):
+    def __init__(self, name: str, tests: Dict[str, Dict[Tuple[Tuple[str, str], ...], List[TestObject]]], test_count, config: Config, engine_manager: EngineManager, results_dir: str = "./results"):
         """
         Constructs all the necessary attributes for the TestSuite object.
 
@@ -97,6 +97,7 @@ class TestSuite:
         self.failed = 0
         self.passed_failed = 0
         self.engine_manager = engine_manager
+        self.results_dir = results_dir
 
     def evaluate_query(
             self,
@@ -646,8 +647,8 @@ class TestSuite:
 
     def generate_json_file(self):
         """Generates a JSON file with the test results (single-suite v1 format)."""
-        os.makedirs("./results", exist_ok=True)
+        os.makedirs(self.results_dir, exist_ok=True)
         data, info = self.build_results_dict()
         data["info"] = {"name": "info", **info}
         log.info("Writing file...")
-        self.compress_json_bz2(data, f"./results/{self.name}.json.bz2")
+        self.compress_json_bz2(data, os.path.join(self.results_dir, f"{self.name}.json.bz2"))

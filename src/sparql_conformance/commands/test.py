@@ -64,7 +64,8 @@ class TestCommand(QleverCommand):
         return {
             "conformance": ["name", "port", "engine",
                             "graph_store", "sparql11_dir", "sparql10_dir", "custom",
-                            "type_alias", "exclude", "include", "binaries_directory"],
+                            "type_alias", "exclude", "include", "binaries_directory",
+                            "results_dir"],
             "runtime": ["system"],
             "qlever": ["qlever_image"],
             "oxigraph": ["oxigraph_image"],
@@ -128,7 +129,8 @@ class TestCommand(QleverCommand):
                             run_id=args.name)
             tests, test_count = extract_tests(config)
             suite = TestSuite(name=args.name, tests=tests, test_count=test_count,
-                              config=config, engine_manager=get_engine_manager(args.engine))
+                              config=config, engine_manager=get_engine_manager(args.engine),
+                              results_dir=args.results_dir)
             suite.run()
             tests_dict, info_dict = suite.build_results_dict()
             suites_data[suite_key] = {"tests": tests_dict, "info": info_dict}
@@ -142,7 +144,7 @@ class TestCommand(QleverCommand):
             "info": {"name": "info", **total_info},
         }
 
-        os.makedirs("./results", exist_ok=True)
-        last_suite.compress_json_bz2(output, f"./results/{args.name}.json.bz2")
+        os.makedirs(args.results_dir, exist_ok=True)
+        last_suite.compress_json_bz2(output, os.path.join(args.results_dir, f"{args.name}.json.bz2"))
         print("Finished!")
         return True

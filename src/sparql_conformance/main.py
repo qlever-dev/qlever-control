@@ -60,7 +60,13 @@ def main():
     parser.add_argument(
         "--name",
         required=True,
-        help="Name for this run; used as the output filename: results/<name>.json.bz2",
+        help="Name for this run; used as the output filename: <results-dir>/<name>.json.bz2",
+    )
+    parser.add_argument(
+        "--results-dir",
+        default="./results",
+        dest="results_dir",
+        help="Directory for the output JSON file (default: ./results).",
     )
     parser.add_argument(
         "--port",
@@ -173,6 +179,7 @@ def main():
             test_count=test_count,
             config=config,
             engine_manager=engine_manager,
+            results_dir=args.results_dir,
         )
         suite.run()
         tests_dict, info_dict = suite.build_results_dict()
@@ -187,8 +194,8 @@ def main():
         "info": {"name": "info", **total_info},
     }
 
-    os.makedirs("./results", exist_ok=True)
-    last_suite.compress_json_bz2(output, f"./results/{args.name}.json.bz2")
+    os.makedirs(args.results_dir, exist_ok=True)
+    last_suite.compress_json_bz2(output, os.path.join(args.results_dir, f"{args.name}.json.bz2"))
     print("Finished!")
 
 

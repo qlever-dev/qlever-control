@@ -156,6 +156,12 @@ class Qleverfile:
             help="Path to the directory of the IndexBuilderMain and ServerMain binaries.",
             default=""
         )
+        args["results_dir"] = arg(
+            "--results-dir",
+            type=str,
+            default="./results",
+            help="Directory for the output JSON file (default: ./results).",
+        )
         return args
 
     @staticmethod
