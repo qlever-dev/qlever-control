@@ -185,8 +185,6 @@ class QLeverManager(EngineManager):
             return index_success, server_success, index_log, ''
         else:
             server_success, server_log = self._start_server(config)
-            print(server_log)
-            print(server_success)
 
             if not server_success:
                 return index_success, server_success, index_log, server_log

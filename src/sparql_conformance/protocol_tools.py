@@ -366,7 +366,6 @@ def run_protocol_test(
     got_responses_string = ''
     for response in got_responses:
         got_responses_string += response + '\n'
-    print(result)
     return result, error_type, extracted_expected_responses, extracted_sent_requests, got_responses_string, newpath
 
 
