@@ -22,7 +22,11 @@ except ImportError:
 from sparql_conformance.engines.engine_manager import EngineManager
 from sparql_conformance.mock_sparql_server import MockSPARQLServer
 from sparql_conformance.json_tools import compare_json
-from sparql_conformance.protocol_tools import run_protocol_test, run_protocol_test_from_action
+from sparql_conformance.protocol_tools import (
+    run_graphstore_protocol_test_from_action,
+    run_protocol_test,
+    run_protocol_test_from_action,
+)
 from sparql_conformance.rdf_tools import compare_ttl
 from sparql_conformance.test_object import TestObject, Status, ErrorMessage
 from sparql_conformance.tsv_csv_tools import compare_sv
@@ -518,6 +522,58 @@ class TestSuite:
                     util.remove_date_time_parts(server_log))
             self.engine_manager.cleanup(self.config)
 
+    def run_structured_graphstore_protocol_tests(self, graphs_list_of_tests: Dict[Tuple[Tuple[str, str], ...], List[TestObject]]):
+        """
+        Executes structured graph store protocol tests from ht:Connection actions.
+
+        Tests whose mf:requires features are not supported by the engine (see
+        EngineManager.supported_graphstore_features) are skipped and reported as
+        an intended deviation rather than being run and failed.
+        """
+        for graph_path in graphs_list_of_tests:
+            log.info(f'Running structured graphstore protocol tests for graph: {graph_path}')
+            if not self.prepare_test_environment(
+                    graph_path, graphs_list_of_tests[graph_path]):
+                continue
+            supported_features = self.engine_manager.supported_graphstore_features()
+            for i, test in enumerate(graphs_list_of_tests[graph_path]):
+                log.info(f"Running: {test.name}")
+                missing_features = {
+                    util.local_name(req) for req in test.requires
+                } - supported_features
+                if missing_features:
+                    log.info(
+                        f"Skipping {test.name}: engine does not support "
+                        f"{sorted(missing_features)}")
+                    self.update_test_status(
+                        test, Status.INTENDED, ErrorMessage.NOT_SUPPORTED)
+                    continue
+                if i > 0:
+                    if not self.engine_manager.reset_graphs(self.config, graph_path):
+                        self.update_graph_status(
+                            graphs_list_of_tests[graph_path][i:],
+                            Status.FAILED, ErrorMessage.SERVER_ERROR)
+                        break
+                status, error_type, extracted_expected_responses, extracted_sent_requests, got_responses, newpath = run_graphstore_protocol_test_from_action(
+                    test,
+                    test.protocol_requests or [])
+                self.update_test_status(test, status, error_type)
+                setattr(test, 'protocol', test.comment)
+                setattr(test, 'protocol_sent', extracted_sent_requests)
+                setattr(
+                    test,
+                    'response_extracted',
+                    extracted_expected_responses)
+                setattr(test, 'response', got_responses)
+            if os.path.exists('./TestSuite.server-log.txt'):
+                server_log = util.read_file(
+                    './TestSuite.server-log.txt')
+                self.log_for_all_tests(
+                    graphs_list_of_tests[graph_path],
+                    'server_log',
+                    util.remove_date_time_parts(server_log))
+            self.engine_manager.cleanup(self.config)
+
     def run_federation_tests(self, graphs_list_of_tests: Dict[Tuple[Tuple[str, str], ...], List[TestObject]]):
         """
         Executes SERVICE federation tests.
@@ -596,6 +652,8 @@ class TestSuite:
             self.run_syntax_tests(self.tests["syntax"])
             self.run_protocol_tests(self.tests["protocol"])
             self.run_graphstore_protocol_tests(self.tests["graphstoreprotocol"])
+            self.run_structured_graphstore_protocol_tests(
+                self.tests.get("graphstoreprotocol_structured", {}))
             self.run_federation_tests(self.tests.get("federation", {}))
         except KeyboardInterrupt:
             log.warning("Interrupted by user.")

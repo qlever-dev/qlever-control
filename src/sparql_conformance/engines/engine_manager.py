@@ -1,7 +1,16 @@
 from abc import ABC, abstractmethod
-from typing import Tuple
+from typing import Set, Tuple
 
 from sparql_conformance.config import Config
+
+
+# Graph Store Protocol features a test may declare via mf:requires
+# (local names of the mf: URIs used in the graph-store-protocol manifests).
+ALL_GRAPHSTORE_FEATURES = {
+    "DirectGraphIdentification",
+    "IndirectGraphIdentification",
+    "POSTGraphCreation",
+}
 
 
 class EngineManager(ABC):
@@ -105,6 +114,22 @@ class EngineManager(ABC):
         self.cleanup(config)
         ok_i, ok_s, _, _ = self.setup(config, graph_paths)
         return ok_i and ok_s
+
+    def supported_graphstore_features(self) -> Set[str]:
+        """
+        Return the Graph Store Protocol features this engine supports.
+
+        Values are the local names of the mf: feature URIs that GSP tests
+        declare via mf:requires (e.g. "DirectGraphIdentification",
+        "IndirectGraphIdentification", "POSTGraphCreation"). A structured GSP
+        test whose mf:requires are not all supported is skipped (reported as an
+        intended deviation) rather than run and failed.
+
+        Default assumes full support so engines that do not override keep their
+        previous behaviour of running every test. Engines lacking a feature
+        should override and return only the features they actually support.
+        """
+        return set(ALL_GRAPHSTORE_FEATURES)
 
     def activate_syntax_test_mode(self, server_address: str, port: str):
         """

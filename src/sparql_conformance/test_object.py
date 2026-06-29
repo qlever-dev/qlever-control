@@ -99,6 +99,7 @@ class TestObject:
             feature: List[str],
             config: Config,
             protocol_requests: Optional[List['ProtocolRequest']] = None,
+            requires: Optional[List[str]] = None,
     ):
         """
         Initialize a test object with all its properties.
@@ -134,6 +135,7 @@ class TestObject:
         self.feature = feature
         self.config = config
         self.protocol_requests = protocol_requests
+        self.requires = requires or []
 
         self.status = Status.NOT_TESTED
         self.index_files: Dict[str, str] = {}
@@ -175,6 +177,7 @@ class TestObject:
         self.protocol_sent = ''
         self.response_extracted = ''
         self.response = ''
+        self.response_not_matching = ''
 
     def __repr__(self) -> str:
         """Return string representation of the test object."""
@@ -192,6 +195,7 @@ class TestObject:
             'name': escape(self.name),
             'group': escape(self.group),
             'feature': escape(';'.join(self.feature)),
+            'requires': escape(';'.join(self.requires)),
             'comment': escape(self.comment),
             'approval': escape(self.approval),
             'approvedBy': escape(self.approved_by),
@@ -218,6 +222,7 @@ class TestObject:
             'protocolSent': escape(self.protocol_sent),
             'responseExtracted': escape(self.response_extracted),
             'response': escape(self.response),
+            'notMatching': escape(self.response_not_matching),
             'config': escape(json.dumps(self.config.to_dict(), indent=4)),
             'indexFiles': escape(json.dumps(self.index_files, indent=4)),
             'resultFiles': escape(json.dumps(self.result_files, indent=4))

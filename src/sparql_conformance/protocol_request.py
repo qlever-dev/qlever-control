@@ -14,6 +14,10 @@ class ProtocolResponse:
     expected_boolean: Optional[bool] = None
     expected_format: Optional[str] = None
     expectation: Optional[str] = None
+    headers: List[ProtocolHeader] = field(default_factory=list)
+    body: Optional[str] = None
+    character_encoding: str = "UTF-8"
+    expected_location: Optional[str] = None
 
 
 @dataclass
