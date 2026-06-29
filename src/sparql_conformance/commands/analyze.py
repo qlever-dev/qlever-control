@@ -2,22 +2,31 @@ from pathlib import Path
 
 from qlever.command import QleverCommand
 from qlever.log import log
-from qlever.util import run_command
 from sparql_conformance.config import Config
 from sparql_conformance.extract_tests import extract_tests
 from sparql_conformance.testsuite import TestSuite
+from sparql_conformance.engines.blazegraph_manager import BlazegraphManager
 from sparql_conformance.engines.engine_manager import EngineManager
+from sparql_conformance.engines.graphdb_manager import GraphdbManager
+from sparql_conformance.engines.jena_manager import JenaManager
+from sparql_conformance.engines.mdb_manager import MdbManager
+from sparql_conformance.engines.oxigraph_manager import OxigraphManager
 from sparql_conformance.engines.qlever import QLeverManager
+from sparql_conformance.engines.virtuoso_manager import VirtuosoManager
 from sparql_conformance.util import warn_if_missing_image
-
 
 
 def get_engine_manager(engine_type: str) -> EngineManager:
     """Get the appropriate engine manager for the given engine type"""
     managers = {
         'qlever': QLeverManager,
-        # 'mdb': MDBManager,
-        # 'oxigraph': OxigraphManager
+        'qlever-binaries': QLeverManager,
+        'blazegraph': BlazegraphManager,
+        'graphdb': GraphdbManager,
+        'jena': JenaManager,
+        'mdb': MdbManager,
+        'oxigraph': OxigraphManager,
+        'virtuoso': VirtuosoManager,
     }
 
     manager_class = managers.get(engine_type)
@@ -29,14 +38,19 @@ def get_engine_manager(engine_type: str) -> EngineManager:
 
 class AnalyzeCommand(QleverCommand):
     """
-    Class for executing the `test` command.
+    Class for executing the `analyze` command.
     """
 
     def __init__(self):
         self.options = [
             'qlever',
-            #'mdb',
-            #'oxigraph'
+            'qlever-binaries',
+            'blazegraph',
+            'graphdb',
+            'jena',
+            'mdb',
+            'oxigraph',
+            'virtuoso',
         ]
 
     def description(self) -> str:
@@ -48,47 +62,72 @@ class AnalyzeCommand(QleverCommand):
     def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {
             "conformance": ["name", "port", "engine", "graph_store",
-                            "testsuite_dir", "type_alias", "exclude"],
+                            "sparql11_dir", "sparql10_dir", "custom",
+                            "type_alias", "exclude", "binaries_directory"],
             "runtime": ["system"],
             "qlever": ["qlever_image"],
-            "oxigraph": ["oxigraph_image"]
+            "oxigraph": ["oxigraph_image"],
+            "blazegraph": ["blazegraph_image"],
+            "virtuoso": ["virtuoso_image"],
+            "graphdb": ["graphdb_image"],
+            "jena": ["jena_image"],
+            "mdb": ["mdb_image"],
         }
 
     def additional_arguments(self, subparser):
         subparser.add_argument(
-            "test_name",
+            "include",
             type=str,
-            help="The name of the test to start the server for.",
+            nargs="+",
+            help="Name(s) of the test(s) to start the server for.",
         )
 
     def execute(self, args) -> bool:
         if args.engine not in self.options:
             log.error(f"Invalid engine type: {args.engine}")
             return False
-        image = getattr(args, f"{args.engine}_image", "")
-        binaries_directory = getattr(args, "binaries_directory", "")
-        if (args.system == "native" and binaries_directory == "" or
-                args.system != "native" and image == ""):
+        image = getattr(args, f"{args.engine}_image", None)
+        if (args.system == "native" and args.binaries_directory == "" or
+                args.system != "native" and image is None and args.engine != "blazegraph"):
             log.error(
                 f"Selected system {args.system} not compatible with image: {image}"
-                f" and binaries_directory: {binaries_directory}"
+                f" and binaries_directory: {args.binaries_directory}"
             )
             return False
 
         warn_if_missing_image(args.system, image, args.engine)
 
-        if args.testsuite_dir is None or not Path(args.testsuite_dir).is_dir():
-            log.error("Could not find testsuite directory. Use `sparql_conformance setup` to download it.")
+        standard_suites = [
+            ("sparql11", args.sparql11_dir),
+            ("sparql10", args.sparql10_dir),
+        ]
+        active_suites = [(key, d) for key, d in standard_suites if d is not None]
+        if args.custom:
+            active_suites.extend(args.custom.items())
+
+        if not active_suites:
+            log.error("Provide at least one of --sparql11-dir, --sparql10-dir, --custom.")
             return False
 
+        for _, d in active_suites:
+            if not Path(d).is_dir():
+                log.error(f"Test suite directory not found: {d}. Use `sparql_conformance setup` to download it.")
+                return False
+
+        if args.engine == "blazegraph" and args.graph_store == "sparql":
+            args.graph_store = "blazegraph/namespace/kb/sparql"
+        if args.engine == "jena" and args.graph_store == "sparql":
+            args.graph_store = "qlever-sparql-conformance/data"
+
         alias = [tuple(x) for x in args.type_alias] if args.type_alias else []
-        config = Config(image, args.system, args.port, args.graph_store, args.testsuite_dir, alias,
-                        binaries_directory, args.exclude, args.test_name)
-        print("Preparing ...")
-        if "qlever" in args.engine:
-            print("access_token='abc'")
-        tests, test_count = extract_tests(config)
-        test_suite = TestSuite(name=args.name, tests=tests, test_count=test_count, config=config,
-                               engine_manager=get_engine_manager(args.engine))
-        test_suite.analyze()
+
+        for suite_key, suite_dir in active_suites:
+            config = Config(image, args.system, args.port, args.graph_store, suite_dir, alias,
+                            args.binaries_directory, args.exclude, args.include)
+            tests, test_count = extract_tests(config)
+            if test_count == 0:
+                continue
+            test_suite = TestSuite(name=args.name, tests=tests, test_count=test_count,
+                                   config=config, engine_manager=get_engine_manager(args.engine))
+            test_suite.analyze()
         return True

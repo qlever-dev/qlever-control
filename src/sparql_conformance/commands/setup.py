@@ -14,10 +14,11 @@ class SetupCommand(QleverCommand):
 
     def __init__(self):
         self.qleverfiles_path = Path(__file__).parent.parent / "Qleverfiles"
-        self.testsuite_command = f"""
-git clone --sparse --filter=blob:none --depth 1 https://github.com/w3c/rdf-tests ./testsuite-files && \
-git -C ./testsuite-files sparse-checkout set sparql/sparql11
-"""
+        self.testsuite_command = (
+            "git clone --sparse --filter=blob:none --depth 1 "
+            "https://github.com/w3c/rdf-tests ./testsuite-files && "
+            "git -C ./testsuite-files sparse-checkout set sparql/sparql11 sparql/sparql10"
+        )
 
     def description(self) -> str:
         return "Setup a pre-configured Qleverfile and download test suite for the SPARQL conformance tests"
@@ -32,7 +33,7 @@ git -C ./testsuite-files sparse-checkout set sparql/sparql11
         subparser.add_argument(
             "engine_name",
             type=str,
-            choices=["qlever", "qlever-native"],
+            choices=["qlever", "blazegraph", "graphdb", "jena", "mdb", "oxigraph", "virtuoso"],
             help="The engine name for the pre-configured Qleverfile to create",
         )
 
@@ -92,7 +93,7 @@ git -C ./testsuite-files sparse-checkout set sparql/sparql11
         )
 
         # If there is already a test suite in the current directory, exit.
-        testsuite_path = Path("./testsuite-files/sparql/sparql11")
+        testsuite_path = Path("./testsuite-files/sparql")
         if testsuite_path.exists():
             log.error("`Test suite` already exists in current directory")
             log.info("")
@@ -102,10 +103,6 @@ git -C ./testsuite-files sparse-checkout set sparql/sparql11
                 "first"
             )
             return False
-        testsuite_command = (
-            "git clone --sparse --filter=blob:none --depth 1 https://github.com/w3c/rdf-tests ./testsuite-files && \ "
-            "git -C ./testsuite-files sparse-checkout set sparql/sparql11"
-        )
         try:
             run_command(self.testsuite_command)
         except Exception as e:

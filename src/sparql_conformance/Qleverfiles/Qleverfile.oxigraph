@@ -1,17 +1,18 @@
-# Qleverfile for SPARQL conformance tests using the qlever engine
+# Qleverfile for SPARQL conformance tests using the Oxigraph engine
 # To exclude certain tests or test groups add them like this:
-# EXCLUDE = service-description,service,entailment,POST - existing graph,PUT - mismatched payload,query specifying dataset in both query string and protocol; test for use of protocol-specified dataset
-[data]
-NAME = qlever
+# EXCLUDE = service-description,service,entailment
 
 [runtime]
 SYSTEM = docker
 
+[oxigraph]
+OXIGRAPH_IMAGE = ghcr.io/oxigraph/oxigraph:latest
+
 [conformance]
-NAME = qlever
-PORT = 7036
-ENGINE = qlever
+NAME = oxigraph
+PORT = 7041
+ENGINE = oxigraph
 SPARQL11_DIR = ./testsuite-files/sparql/sparql11/
 SPARQL10_DIR = ./testsuite-files/sparql/sparql10/
-GRAPH_STORE = http-graph-store
+GRAPH_STORE = store
 TYPE_ALIAS = [["http://www.w3.org/2001/XMLSchema#int", "http://www.w3.org/2001/XMLSchema#integer"], ["http://www.w3.org/2001/XMLSchema#float", "http://www.w3.org/2001/XMLSchema#double"], ["http://www.w3.org/2001/XMLSchema#decimal", "http://www.w3.org/2001/XMLSchema#double"], ["http://www.w3.org/2001/XMLSchema#decimal", "http://www.w3.org/2001/XMLSchema#float"], ["http://www.w3.org/2001/XMLSchema#string", null]]
