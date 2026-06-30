@@ -281,8 +281,12 @@ def write_usage_plot(
 
     max_rss = float(np.nanmax(rss_gb))
     x_max = float(x_values[-1])
-    ax_mem.set_ylim(-max_rss * 0.04, max_rss * 1.4)
-    ax_mem.set_xlim(-x_max * 0.02, x_max * 1.06)
+    # With a single sample both spans are zero, which makes the axis
+    # limits identical; fall back to a unit span so the limits differ.
+    y_span = max_rss if max_rss > 0 else 1.0
+    x_span = x_max if x_max > 0 else 1.0
+    ax_mem.set_ylim(-y_span * 0.04, y_span * 1.4)
+    ax_mem.set_xlim(-x_span * 0.02, x_span * 1.06)
 
     annotate_peak(ax_mem, x_values, rss_gb, "RSS", "#cc0000", (-25, 20))
 

@@ -75,7 +75,7 @@ MetricsRow {
     margin-left: 1;
 }
 
-LiveQueryTable.stale, MetricsRow.stale {
+QueryTable.stale, MetricsRow.stale {
     color: $text-muted;
 }
 
@@ -107,6 +107,16 @@ QueryTable {
 QueryTable > .datatable--cursor {
     background: $secondary;
     color: $text;
+}
+
+QueryTable.stale > .datatable--cursor {
+    background: $secondary-muted;
+    color: $text-muted;
+}
+
+QueryTable.stale > .datatable--header {
+    background: $panel-darken-1;
+    color: $text-muted;
 }
 
 /* active-filter readout, just above the table; hidden until a filter is set */

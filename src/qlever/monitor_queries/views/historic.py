@@ -23,6 +23,10 @@ from qlever.monitor_queries.historic_data import (
     window_metrics,
 )
 from qlever.monitor_queries.live_data import current_ms
+from qlever.monitor_queries.log_reader import (
+    load_sparql_at,
+    open_log_buffer,
+)
 from qlever.monitor_queries.metrics import EMPTY_FIELDS
 from qlever.monitor_queries.models import (
     ControlsState,
@@ -230,15 +234,9 @@ class HistoricScreen(Screen, inherit_bindings=False):
             return state.latest_event_ms
 
     def show_loading_state(self) -> None:
-        """Blank the table and metrics row while a rescan is in flight."""
-        self.query_one(HistoricQueryTable).set_rows([])
-        self.query_one(MetricsRow).rows = [
-            MetricsCounts(
-                label=self.window_size,
-                **EMPTY_FIELDS,
-                not_ready_message="loading…",
-            )
-        ]
+        """Dim the rows so a window change registers before the scan lands."""
+        self.query_one(HistoricQueryTable).add_class("stale")
+        self.query_one(MetricsRow).add_class("stale")
         self.query_one("#table-status", Static).update("Loading window…")
 
     def refresh_view(self, rescan: bool) -> None:
@@ -351,6 +349,8 @@ class HistoricScreen(Screen, inherit_bindings=False):
         metrics: MetricsCounts,
     ) -> None:
         """Push fresh rows, metrics, and status line into the widgets."""
+        self.query_one(HistoricQueryTable).remove_class("stale")
+        self.query_one(MetricsRow).remove_class("stale")
         self.query_one(HistoricQueryTable).set_rows(rows)
         self.query_one(MetricsRow).rows = [metrics]
         self.query_one("#table-status", Static).update(
@@ -606,10 +606,17 @@ class HistoricScreen(Screen, inherit_bindings=False):
     ) -> None:
         """Show the selected finished query's SPARQL in the pane."""
         row = message.data_table.query_rows[message.cursor_row]
+        # The row holds only the table snippet, so read the full query.
+        with open_log_buffer(self.app.log_file) as buf:
+            sparql = (
+                row.sparql
+                if buf is None
+                else load_sparql_at(buf, row.start_line_offset)[2]
+            )
         self.query_one(SparqlPane).content = SparqlContent(
             qid=row.qid,
             started_at_ms=row.started_at_ms,
             status=row.status,
-            sparql_text=row.sparql,
+            sparql_text=sparql,
             client_ip=row.client_ip,
         )

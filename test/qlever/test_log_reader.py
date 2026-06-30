@@ -2,11 +2,14 @@ import pytest
 
 from qlever.monitor_queries import log_reader
 from qlever.monitor_queries.log_reader import (
+    SNIPPET_BYTES,
     CompletedQuery,
     extract_qid_ip_query,
     load_sparql_at,
+    load_sparql_snippet_at,
     next_whole_line,
     offset_for_ts,
+    open_log_buffer,
     pair_start_end_events,
     parse_line,
     parse_line_fallback,
@@ -112,38 +115,35 @@ SECOND_OFFSET = len(FIRST_LINE)
 THIRD_OFFSET = len(FIRST_LINE) + len(SECOND_LINE)
 
 
-def test_next_whole_line_probe_zero_returns_first_line(open_log):
-    log, size = open_log(FIRST_LINE + SECOND_LINE + THIRD_LINE)
-    assert next_whole_line(log, 0, size) == (0, 1000)
+def test_next_whole_line_probe_zero_returns_first_line():
+    buf = FIRST_LINE + SECOND_LINE + THIRD_LINE
+    assert next_whole_line(buf, 0) == (0, 1000)
 
 
-def test_next_whole_line_mid_line_aligns_to_following_line(open_log):
-    log, size = open_log(FIRST_LINE + SECOND_LINE + THIRD_LINE)
+def test_next_whole_line_mid_line_aligns_to_following_line():
+    buf = FIRST_LINE + SECOND_LINE + THIRD_LINE
     # A probe inside the first line lands on the second.
-    assert next_whole_line(log, 10, size) == (SECOND_OFFSET, 2000)
-    assert next_whole_line(log, SECOND_OFFSET - 1, size) == (
-        SECOND_OFFSET,
-        2000,
-    )
+    assert next_whole_line(buf, 10) == (SECOND_OFFSET, 2000)
+    assert next_whole_line(buf, SECOND_OFFSET - 1) == (SECOND_OFFSET, 2000)
 
 
-def test_next_whole_line_on_a_boundary_advances_to_the_next_line(open_log):
-    log, size = open_log(FIRST_LINE + SECOND_LINE + THIRD_LINE)
+def test_next_whole_line_on_a_boundary_advances_to_the_next_line():
+    buf = FIRST_LINE + SECOND_LINE + THIRD_LINE
     # probe > 0 always discards one line, so a probe on the second
     # line's start returns the third.
-    assert next_whole_line(log, SECOND_OFFSET, size) == (THIRD_OFFSET, 3000)
+    assert next_whole_line(buf, SECOND_OFFSET) == (THIRD_OFFSET, 3000)
 
 
-def test_next_whole_line_past_eof_returns_none(open_log):
-    log, size = open_log(FIRST_LINE + SECOND_LINE)
-    assert next_whole_line(log, size, size) is None
+def test_next_whole_line_past_eof_returns_none():
+    buf = FIRST_LINE + SECOND_LINE
+    assert next_whole_line(buf, len(buf)) is None
 
 
-def test_next_whole_line_trailing_partial_line_returns_none(open_log):
+def test_next_whole_line_trailing_partial_line_returns_none():
     partial = b'{"ts-ms":4000,"event":"end","qid":"q3"'
-    log, size = open_log(FIRST_LINE + partial)
+    buf = FIRST_LINE + partial
     # The only line after the probe has no newline, so it is incomplete.
-    assert next_whole_line(log, 5, size) is None
+    assert next_whole_line(buf, 5) is None
 
 
 def build_log(timestamps):
@@ -159,120 +159,123 @@ def build_log(timestamps):
     return bytes(data), offsets
 
 
-def first_ts_at_or_after(log, offset, target):
+def first_ts_at_or_after(buf, offset, target):
     """ts of the first line at/after offset, or None if every line older."""
-    log.seek(offset)
-    for line in log:
-        ts = peek_ts_ms(line)
-        if ts >= target:
+    while offset < len(buf):
+        end = buf.find(b"\n", offset)
+        if end == -1:
+            return None
+        ts = peek_ts_ms(buf[offset:end])
+        if ts is not None and ts >= target:
             return ts
+        offset = end + 1
     return None
 
 
-def test_offset_for_ts_empty_file_returns_zero(open_log):
-    log, size = open_log(b"")
-    assert offset_for_ts(log, 100, size) == 0
-
-
-def test_offset_for_ts_target_before_first_line_returns_zero(open_log):
+def test_offset_for_ts_target_before_first_line_returns_zero():
     data, _ = build_log([1000, 1010, 1020])
-    log, size = open_log(data)
-    assert offset_for_ts(log, 500, size) == 0
+    assert offset_for_ts(data, 500) == 0
 
 
-def test_offset_for_ts_target_equal_to_first_line_returns_zero(open_log):
+def test_offset_for_ts_target_equal_to_first_line_returns_zero():
     data, _ = build_log([1000, 1010, 1020])
-    log, size = open_log(data)
     # first_ts >= target means every line qualifies; start at 0.
-    assert offset_for_ts(log, 1000, size) == 0
+    assert offset_for_ts(data, 1000) == 0
 
 
 @pytest.mark.parametrize("target", [1015, 1020, 1099, 1500, 1900])
-def test_offset_for_ts_lands_at_or_before_the_boundary(
-    open_log, monkeypatch, target
-):
+def test_offset_for_ts_lands_at_or_before_the_boundary(monkeypatch, target):
     # Tiny gallop step so the backward gallop actually iterates here.
     monkeypatch.setattr(log_reader, "GALLOP_START", 16)
     timestamps = list(range(1000, 2000, 10))
     data, offsets = build_log(timestamps)
-    log, size = open_log(data)
 
-    result = offset_for_ts(log, target, size)
+    result = offset_for_ts(data, target)
 
     # Never overshoots: the returned line is not newer than target, so
     # no line with ts >= target was skipped.
     boundary = next(o for o, ts in zip(offsets, timestamps) if ts >= target)
     assert result <= boundary
-    assert first_ts_at_or_after(log, result, target) == next(
+    assert first_ts_at_or_after(data, result, target) == next(
         ts for ts in timestamps if ts >= target
     )
 
 
-def test_offset_for_ts_target_past_last_line_yields_empty_scan(
-    open_log, monkeypatch
-):
+def test_offset_for_ts_target_past_last_line_yields_empty_scan(monkeypatch):
     monkeypatch.setattr(log_reader, "GALLOP_START", 16)
     data, _ = build_log(list(range(1000, 2000, 10)))
-    log, size = open_log(data)
 
-    result = offset_for_ts(log, 9999, size)
+    result = offset_for_ts(data, 9999)
 
-    # Near EOF, not necessarily file_size, but a forward scan from it
+    # Near EOF, not necessarily len(buf), but a forward scan from it
     # finds nothing at or after the target: the same empty result.
-    assert first_ts_at_or_after(log, result, 9999) is None
+    assert first_ts_at_or_after(data, result, 9999) is None
 
 
-def test_scan_range_yields_each_whole_line_with_its_offset(open_log):
+def test_scan_range_yields_each_whole_line_with_its_offset():
     data, offsets = build_log([1000, 1010, 1020])
-    log, size = open_log(data)
-    assert list(scan_range(log, 0, size)) == [
+    assert list(scan_range(data, 0, len(data))) == [
         ((1000, "end", "q0", "ok"), offsets[0]),
         ((1010, "end", "q1", "ok"), offsets[1]),
         ((1020, "end", "q2", "ok"), offsets[2]),
     ]
 
 
-def test_scan_range_includes_the_line_straddling_hi_bound(open_log):
+def test_scan_range_includes_the_line_straddling_hi_bound():
     data, offsets = build_log([1000, 1010, 1020])
-    log, size = open_log(data)
     # hi_bound falls inside the second line. The second line starts
     # before it so it is still emitted; the third starts past it.
-    result = list(scan_range(log, 0, offsets[1] + 3))
+    result = list(scan_range(data, 0, offsets[1] + 3))
     assert [ts for (ts, _, _, _), _ in result] == [1000, 1010]
 
 
-def test_scan_range_stops_before_a_trailing_partial_line(open_log):
+def test_scan_range_stops_before_a_trailing_partial_line():
     data, _ = build_log([1000])
-    log, size = open_log(data + b'{"ts-ms":2000,"event":"end","qid":"q9"')
-    assert list(scan_range(log, 0, size)) == [
+    buf = data + b'{"ts-ms":2000,"event":"end","qid":"q9"'
+    assert list(scan_range(buf, 0, len(buf))) == [
         ((1000, "end", "q0", "ok"), 0),
     ]
 
 
-def test_scan_range_skips_a_malformed_line_and_continues(open_log):
+def test_scan_range_skips_a_malformed_line_and_continues():
     good = b'{"ts-ms":1000,"event":"end","qid":"q0","status":"ok"}\n'
     junk = b"not json at all\n"
     tail = b'{"ts-ms":1020,"event":"end","qid":"q2","status":"ok"}\n'
-    log, size = open_log(good + junk + tail)
-    assert list(scan_range(log, 0, size)) == [
+    buf = good + junk + tail
+    assert list(scan_range(buf, 0, len(buf))) == [
         ((1000, "end", "q0", "ok"), 0),
         ((1020, "end", "q2", "ok"), len(good) + len(junk)),
     ]
 
 
-def test_scan_range_recovers_a_line_via_the_json_fallback(open_log):
+def test_scan_range_recovers_a_line_via_the_json_fallback():
     # Leading space defeats the fast byte path but is valid JSON.
-    line = b'{ "ts-ms":2000,"event":"end","qid":"q1","status":"ok"}\n'
-    log, size = open_log(line)
-    assert list(scan_range(log, 0, size)) == [
+    buf = b'{ "ts-ms":2000,"event":"end","qid":"q1","status":"ok"}\n'
+    assert list(scan_range(buf, 0, len(buf))) == [
         ((2000, "end", "q1", "ok"), 0),
     ]
 
 
-def test_scan_range_from_eof_yields_nothing(open_log):
+def test_scan_range_parses_a_line_longer_than_head_bytes():
+    # The query blob pushes the line well past HEAD_BYTES, but the
+    # header fields sit in the head slice, so the line still parses
+    # without reading the blob.
+    big_query = b"x" * (log_reader.HEAD_BYTES * 4)
+    start = (
+        b'{"ts-ms":1000,"event":"start","qid":"q0",'
+        b'"query":"' + big_query + b'"}\n'
+    )
+    end = b'{"ts-ms":1010,"event":"end","qid":"q0","status":"ok"}\n'
+    buf = start + end
+    assert list(scan_range(buf, 0, len(buf))) == [
+        ((1000, "start", "q0", None), 0),
+        ((1010, "end", "q0", "ok"), len(start)),
+    ]
+
+
+def test_scan_range_from_eof_yields_nothing():
     data, _ = build_log([1000, 1010])
-    log, size = open_log(data)
-    assert list(scan_range(log, size, size)) == []
+    assert list(scan_range(data, len(data), len(data))) == []
 
 
 def test_pair_start_end_events_empty_input_yields_empty_outputs():
@@ -419,52 +422,48 @@ def test_extract_qid_ip_query_malformed_json_returns_empty():
     assert extract_qid_ip_query(b"this is not json\n") == ("", "", "")
 
 
-def test_load_sparql_at_returns_qid_ip_and_query(open_log):
-    line = (
+def test_load_sparql_at_returns_qid_ip_and_query():
+    buf = (
         b'{"ts-ms":1,"event":"start","qid":"q1","client-ip":"1.2.3.4",'
         b'"query":"SELECT * WHERE { ?s ?p ?o }"}\n'
     )
-    log, _ = open_log(line)
-    assert load_sparql_at(log, 0) == (
+    assert load_sparql_at(buf, 0) == (
         "q1",
         "1.2.3.4",
         "SELECT * WHERE { ?s ?p ?o }",
     )
 
 
-def test_load_sparql_at_handles_escaped_quotes_and_backslashes(open_log):
+def test_load_sparql_at_handles_escaped_quotes_and_backslashes():
     # The JSON value encodes a literal " and a literal \ in the query.
-    line = (
+    buf = (
         b'{"ts-ms":1,"event":"start","qid":"q1","client-ip":"1.2.3.4",'
         b'"query":"SELECT ?x WHERE { ?x ?p \\"a\\\\b\\" }"}\n'
     )
-    log, _ = open_log(line)
-    assert load_sparql_at(log, 0) == (
+    assert load_sparql_at(buf, 0) == (
         "q1",
         "1.2.3.4",
         'SELECT ?x WHERE { ?x ?p "a\\b" }',
     )
 
 
-def test_load_sparql_at_handles_unicode(open_log):
-    line = (
+def test_load_sparql_at_handles_unicode():
+    buf = (
         b'{"ts-ms":1,"event":"start","qid":"q1","client-ip":"1.2.3.4",'
         b'"query":"SELECT ?s WHERE { ?s ?p \xe2\x98\x83 }"}\n'
     )
-    log, _ = open_log(line)
-    assert load_sparql_at(log, 0) == (
+    assert load_sparql_at(buf, 0) == (
         "q1",
         "1.2.3.4",
         "SELECT ?s WHERE { ?s ?p ☃ }",
     )
 
 
-def test_load_sparql_at_malformed_json_returns_empty(open_log):
-    log, _ = open_log(b"this is not json\n")
-    assert load_sparql_at(log, 0) == ("", "", "")
+def test_load_sparql_at_malformed_json_returns_empty():
+    assert load_sparql_at(b"this is not json\n", 0) == ("", "", "")
 
 
-def test_load_sparql_at_reads_the_line_at_the_given_offset(open_log):
+def test_load_sparql_at_reads_the_line_at_the_given_offset():
     first = (
         b'{"ts-ms":1,"event":"start","qid":"q1","client-ip":"1.2.3.4",'
         b'"query":"FIRST"}\n'
@@ -473,57 +472,122 @@ def test_load_sparql_at_reads_the_line_at_the_given_offset(open_log):
         b'{"ts-ms":2,"event":"start","qid":"q2","client-ip":"5.6.7.8",'
         b'"query":"SECOND"}\n'
     )
-    log, _ = open_log(first + second)
-    assert load_sparql_at(log, len(first)) == ("q2", "5.6.7.8", "SECOND")
+    assert load_sparql_at(first + second, len(first)) == (
+        "q2",
+        "5.6.7.8",
+        "SECOND",
+    )
 
 
-def test_read_last_timestamp_empty_file_returns_none(open_log):
-    log, size = open_log(b"")
-    assert read_last_timestamp(log, size) is None
+def snippet_line(query: bytes) -> bytes:
+    """A start line whose query value is the raw (escaped) `query` bytes."""
+    return (
+        b'{"ts-ms":1,"event":"start","qid":"q1","client-ip":"1.2.3.4",'
+        b'"query":"' + query + b'"}\n'
+    )
 
 
-def test_read_last_timestamp_returns_last_complete_line_ts(open_log):
-    log, size = open_log(FIRST_LINE + SECOND_LINE)
-    assert read_last_timestamp(log, size) == 2000
+def test_load_sparql_snippet_at_short_query_decodes_in_full():
+    assert load_sparql_snippet_at(
+        snippet_line(b"SELECT * { ?s ?p ?o }"), 0
+    ) == (
+        "q1",
+        "1.2.3.4",
+        "SELECT * { ?s ?p ?o }",
+    )
 
 
-def test_read_last_timestamp_skips_trailing_partial_line(open_log):
+def test_load_sparql_snippet_at_handles_escapes():
+    # Escaped quote, backslash, and newline in a short query.
+    buf = snippet_line(b'a\\"b\\\\c\\nd')
+    assert load_sparql_snippet_at(buf, 0) == ("q1", "1.2.3.4", 'a"b\\c\nd')
+
+
+def test_load_sparql_snippet_at_reads_at_the_given_offset():
+    first = snippet_line(b"FIRST")
+    second = (
+        b'{"ts-ms":2,"event":"start","qid":"q2","client-ip":"5.6.7.8",'
+        b'"query":"SECOND"}\n'
+    )
+    assert load_sparql_snippet_at(first + second, len(first)) == (
+        "q2",
+        "5.6.7.8",
+        "SECOND",
+    )
+
+
+def test_load_sparql_snippet_at_caps_a_long_query():
+    # A query far past the cap is read only up to SNIPPET_BYTES chars.
+    qid, client_ip, sparql = load_sparql_snippet_at(
+        snippet_line(b"x" * (SNIPPET_BYTES * 4)), 0
+    )
+    assert (qid, client_ip) == ("q1", "1.2.3.4")
+    assert sparql == "x" * SNIPPET_BYTES
+
+
+def test_load_sparql_snippet_at_trims_an_escape_split_by_the_cap():
+    # The cap lands on the backslash of a `\n` escape. The split escape
+    # is dropped so the snippet still decodes, one char short of the cap.
+    buf = snippet_line(b"a" * (SNIPPET_BYTES - 1) + b"\\n" + b"b" * 50)
+    assert load_sparql_snippet_at(buf, 0) == (
+        "q1",
+        "1.2.3.4",
+        "a" * (SNIPPET_BYTES - 1),
+    )
+
+
+def test_load_sparql_snippet_at_empty_query():
+    assert load_sparql_snippet_at(snippet_line(b""), 0) == (
+        "q1",
+        "1.2.3.4",
+        "",
+    )
+
+
+def test_read_last_timestamp_returns_last_complete_line_ts():
+    assert read_last_timestamp(FIRST_LINE + SECOND_LINE) == 2000
+
+
+def test_read_last_timestamp_skips_trailing_partial_line():
     partial = b'{"ts-ms":3000,"event":"end","qid":"q2","status'
-    log, size = open_log(FIRST_LINE + SECOND_LINE + partial)
-    assert read_last_timestamp(log, size) == 2000
+    assert read_last_timestamp(FIRST_LINE + SECOND_LINE + partial) == 2000
 
 
-def test_read_last_timestamp_grows_buffer_for_long_lines(open_log):
+def test_read_last_timestamp_handles_a_long_last_line():
+    # rfind walks back over the whole line regardless of its size.
     long_query = b"x" * (40 * 1024)
     line = (
         b'{"ts-ms":1000,"event":"start","qid":"q1",'
         b'"query":"' + long_query + b'"}\n'
     )
-    log, size = open_log(line)
-    assert read_last_timestamp(log, size) == 1000
+    assert read_last_timestamp(line) == 1000
 
 
-def test_read_first_timestamp_empty_file_returns_none(open_log):
-    log, size = open_log(b"")
-    assert read_first_timestamp(log, size) is None
+def test_read_first_timestamp_returns_first_complete_line_ts():
+    assert read_first_timestamp(FIRST_LINE + SECOND_LINE) == 1000
 
 
-def test_read_first_timestamp_returns_first_complete_line_ts(open_log):
-    log, size = open_log(FIRST_LINE + SECOND_LINE)
-    assert read_first_timestamp(log, size) == 1000
+def test_read_first_timestamp_single_line():
+    assert read_first_timestamp(FIRST_LINE) == 1000
 
 
-def test_read_first_timestamp_single_line(open_log):
-    log, size = open_log(FIRST_LINE)
-    assert read_first_timestamp(log, size) == 1000
+def test_read_first_timestamp_malformed_first_line_returns_none():
+    # We read only the first line; a malformed one yields None rather
+    # than scanning forward (the real log's first line is well-formed).
+    assert read_first_timestamp(b"not a log line\n" + SECOND_LINE) is None
 
 
-def test_read_first_timestamp_skips_malformed_first_line(open_log):
-    log, size = open_log(b"not a log line\n" + SECOND_LINE)
-    assert read_first_timestamp(log, size) == 2000
-
-
-def test_read_first_timestamp_unterminated_only_line_returns_none(open_log):
+def test_read_first_timestamp_unterminated_only_line_returns_none():
     partial = b'{"ts-ms":1000,"event":"start","qid":"q1"'
-    log, size = open_log(partial)
-    assert read_first_timestamp(log, size) is None
+    assert read_first_timestamp(partial) is None
+
+
+def test_open_log_buffer_empty_file_yields_none(write_log):
+    with open_log_buffer(write_log(b"")) as buf:
+        assert buf is None
+
+
+def test_open_log_buffer_maps_a_nonempty_file(write_log):
+    with open_log_buffer(write_log(FIRST_LINE + SECOND_LINE)) as buf:
+        assert read_first_timestamp(buf) == 1000
+        assert read_last_timestamp(buf) == 2000

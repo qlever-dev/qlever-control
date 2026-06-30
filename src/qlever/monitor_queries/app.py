@@ -18,7 +18,10 @@ from qlever.monitor_queries.live_data import (
     find_active_queries,
     load_completed_history,
 )
-from qlever.monitor_queries.log_reader import read_first_timestamp
+from qlever.monitor_queries.log_reader import (
+    open_log_buffer,
+    read_first_timestamp,
+)
 from qlever.monitor_queries.util import clipboard_install_hint, copy_text
 from qlever.monitor_queries.views.historic import HistoricScreen
 from qlever.monitor_queries.views.live import LiveScreen
@@ -91,10 +94,10 @@ class MonitorQueriesApp(App):
         """
         if self.log_start_ms is not None:
             return
-        with self.log_file.open("rb") as log_stream:
-            self.log_start_ms = read_first_timestamp(
-                log_stream, self.log_file.stat().st_size
-            )
+        with open_log_buffer(self.log_file) as buf:
+            if buf is None:
+                return
+            self.log_start_ms = read_first_timestamp(buf)
 
     def on_mount(self) -> None:
         """Boot the live engine, then open the Live screen."""

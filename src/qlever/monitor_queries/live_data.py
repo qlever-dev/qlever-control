@@ -21,6 +21,7 @@ from qlever.monitor_queries.log_reader import (
     load_sparql_at,
     normalize_status,
     offset_for_ts,
+    open_log_buffer,
     pair_start_end_events,
     read_last_timestamp,
     scan_range,
@@ -154,23 +155,21 @@ def find_active_queries(
     complete line, or 0 when the log holds none.
     """
     state = LiveState()
-    with log_path.open("rb") as log_stream:
-        file_size = log_path.stat().st_size
-        eof_ts = read_last_timestamp(log_stream, file_size)
+    with open_log_buffer(log_path) as buf:
+        if buf is None:
+            return (state, 0, 0)
+        file_size = len(buf)
+        eof_ts = read_last_timestamp(buf)
         if eof_ts is None:
             return (state, file_size, 0)
 
         state.latest_event_ms = eof_ts
-        lo_offset = offset_for_ts(
-            log_stream, eof_ts - window_pad_ms, file_size
-        )
-        events = scan_range(log_stream, lo_offset, file_size)
+        lo_offset = offset_for_ts(buf, eof_ts - window_pad_ms)
+        events = scan_range(buf, lo_offset, file_size)
         _, still_open = pair_start_end_events(events)
 
         for qid, (start_ms, start_line_offset) in still_open.items():
-            _, client_ip, sparql = load_sparql_at(
-                log_stream, start_line_offset
-            )
+            _, client_ip, sparql = load_sparql_at(buf, start_line_offset)
             state.active[qid] = ActiveQuery(
                 start_ms=start_ms,
                 end_ms=None,
@@ -199,12 +198,14 @@ def load_completed_history(
     line in range and can be paired. Pairs that ended before the hour
     are then dropped, matching the deque's end_ms retention.
     """
-    with log_path.open("rb") as log_stream:
+    with open_log_buffer(log_path) as buf:
+        if buf is None:
+            return
         oldest_wanted_ms = now_ms() - LIVE_HORIZON_MS
         scan_start_offset = offset_for_ts(
-            log_stream, oldest_wanted_ms - window_pad_ms, cut_offset
+            buf, oldest_wanted_ms - window_pad_ms
         )
-        events = scan_range(log_stream, scan_start_offset, cut_offset)
+        events = scan_range(buf, scan_start_offset, cut_offset)
         paired, _ = pair_start_end_events(events)
         older_completions = [
             query for query in paired if query.end_ms >= oldest_wanted_ms
