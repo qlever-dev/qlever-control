@@ -8,7 +8,7 @@ class StopCommand(QoxigraphStopCommand):
     STATUS_COMMAND = StatusCommand()
     DEFAULT_REGEX = r".*-Dgraphdb\.home=%%NAME%%\S*.*GraphDBServer$"
 
-    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {
             "data": ["name"],
             "runtime": ["system", "server_container"],

@@ -4,6 +4,12 @@ from qlever.commands.query import QueryCommand as QleverQueryCommand
 
 
 class QueryCommand(QleverQueryCommand):
+    """
+    Send a SPARQL query to the Oxigraph server. Extends the base query
+    command with Oxigraph's /query endpoint and supported result formats.
+    This class is used as the base QueryCommand by all the other new engines.
+    """
+
     def additional_arguments(self, subparser) -> None:
         subparser.add_argument(
             "query",
@@ -47,8 +53,10 @@ class QueryCommand(QleverQueryCommand):
         )
 
     def execute(self, args, called_from_conformance_test: bool = False) -> bool:
+        # Oxigraph's SPARQL endpoint is at /query.
         if not args.sparql_endpoint:
             args.sparql_endpoint = f"{args.host_name}:{args.port}/query"
+        # These QLever-specific options are not supported by Oxigraph.
         args.pin_to_cache = None
         if called_from_conformance_test:
             args.access_token = ""

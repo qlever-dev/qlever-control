@@ -4,6 +4,7 @@ import subprocess
 import time
 from pathlib import Path
 
+from qjena.commands.stop import StopCommand
 from qlever.command import QleverCommand
 from qlever.containerize import Containerize
 from qlever.log import log
@@ -23,7 +24,7 @@ class StartCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return True
 
-    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {
             "data": ["name"],
             "server": [
@@ -54,8 +55,6 @@ class StartCommand(QleverCommand):
         run_subcommand = "run --restart=unless-stopped"
         if not args.run_in_foreground:
             run_subcommand += " -d"
-        if not args.run_in_foreground:
-            cmd = f"{cmd} > {args.name}.server-log.txt 2>&1"
         return Containerize().containerize_command(
             cmd=cmd,
             container_system=args.system,
@@ -88,11 +87,12 @@ class StartCommand(QleverCommand):
                 f"{args.server_binary} --port {args.port} --timeout {timeout_ms} "
                 f"--loc index {args.extra_args} /{args.name}"
             )
+        start_cmd += f" > {args.name}.server-log.txt 2>&1"
 
         if args.system == "native":
             if not args.run_in_foreground:
                 start_cmd = (
-                    f"nohup {start_cmd} > {args.name}.server-log.txt 2>&1 &"
+                    f"nohup {start_cmd} &"
                 )
         else:
             start_cmd = self.wrap_cmd_in_container(args, start_cmd)
@@ -104,7 +104,7 @@ class StartCommand(QleverCommand):
 
         # When running natively, check if the binary exists and works.
         if args.system == "native":
-            if not binary_exists(args.server_binary, "server-binary"):
+            if not binary_exists(args.server_binary, "server-binary", args):
                 return False
 
         index_dir = Path("index/Data-0001")
@@ -149,7 +149,10 @@ class StartCommand(QleverCommand):
                     " (Ctrl-C stops following the log, but NOT the server)"
                 )
             log.info("")
-            log_cmd = f"exec tail -f {args.name}.server-log.txt"
+            log_file = Path(f"{args.name}.server-log.txt")
+            while not log_file.exists():
+                time.sleep(0.1)
+            log_cmd = f"exec tail -f {log_file}"
             log_proc = subprocess.Popen(log_cmd, shell=True)
         while not is_server_alive(endpoint_url):
             time.sleep(1)
@@ -171,6 +174,10 @@ class StartCommand(QleverCommand):
                 process.wait()
             except KeyboardInterrupt:
                 process.terminate()
+                # Remove the container if the user stops the server process
+                if args.system in Containerize.supported_systems():
+                    args.cmdline_regex = StopCommand.DEFAULT_REGEX
+                    StopCommand().execute(args)
             if log_proc:
                 log_proc.terminate()
 

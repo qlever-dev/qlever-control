@@ -22,8 +22,9 @@ def qleverfile_args(all_args: dict[str, dict[str, tuple]]) -> None:
     )
     index_args["lenient"] = arg(
         "--lenient",
-        action="store_true",
-        default=False,
+        type=str,
+        choices=["yes", "no"],
+        default="no",
         help="Attempt to keep loading even if the data file is invalid",
     )
     index_args["extra_args"] = arg(

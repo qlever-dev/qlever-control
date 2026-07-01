@@ -10,6 +10,7 @@ import time
 from datetime import datetime, timezone
 from enum import Enum, auto
 from pathlib import Path
+from threading import Event
 
 import rdflib.term
 import requests_sse
@@ -30,43 +31,6 @@ def custom_cast_lexical_to_python(lexical, datatype):
 
 
 rdflib.term._castLexicalToPython = custom_cast_lexical_to_python
-
-
-def retry_with_backoff(operation, operation_name, max_retries, log):
-    """
-    Retry an operation with exponential backoff, see backoff intervals below
-    (in seconds). Returns the result of the operation if successful, or raises
-    the last exception.
-    """
-    backoff_intervals = [5, 10, 30, 60, 300, 900, 1800, 3600]
-
-    for attempt in range(max_retries):
-        try:
-            return operation()
-        except Exception as e:
-            if attempt < max_retries - 1:
-                # Use the appropriate backoff interval (once we get to the end
-                # of the list, keep using the last interval).
-                retry_delay = (
-                    backoff_intervals[attempt]
-                    if attempt < len(backoff_intervals)
-                    else backoff_intervals[-1]
-                )
-                # Show the delay as seconds, minutes, or hours.
-                if retry_delay >= 3600:
-                    delay_str = f"{retry_delay // 3600}h"
-                elif retry_delay >= 60:
-                    delay_str = f"{retry_delay // 60}min"
-                else:
-                    delay_str = f"{retry_delay}s"
-                log.warn(
-                    f"{operation_name} failed (attempt {attempt + 1}/{max_retries}): {e}. "
-                    f"Retrying in {delay_str} ..."
-                )
-                time.sleep(retry_delay)
-            else:
-                # If this was the last attempt, re-raise the exception.
-                raise
 
 
 def connect_to_sse_stream(sse_stream_url, since=None, event_id=None):
@@ -105,6 +69,40 @@ def connect_to_sse_stream(sse_stream_url, since=None, event_id=None):
     return source
 
 
+def get_next_offset_from_endpoint(sparql_endpoint):
+    """Query the endpoint for the next stream offset.
+
+    Args:
+        sparql_endpoint: URL of the SPARQL endpoint
+
+    Returns:
+        int: The offset value from the endpoint
+
+    Raises:
+        Exception: If the query fails or returns no results
+    """
+    sparql_query_offset = (
+        "PREFIX wikibase: <http://wikiba.se/ontology#> "
+        "SELECT (MAX(?offset) AS ?maxOffset) WHERE { "
+        "<http://wikiba.se/ontology#Dump> "
+        "wikibase:updateStreamNextOffset ?offset "
+        "}"
+    )
+    curl_cmd_check_offset = (
+        f"curl -s {sparql_endpoint}"
+        f' -H "Accept: text/csv"'
+        f' -H "Content-type: application/sparql-query"'
+        f' --data "{sparql_query_offset}"'
+    )
+    result = run_command(
+        f"{curl_cmd_check_offset} | sed 1d",
+        return_output=True,
+    ).strip()
+    if not result:
+        raise Exception("Query returned no results")
+    return int(result.strip('"'))
+
+
 class UpdateWikidataCommand(QleverCommand):
     """
     Class for executing the `update` command.
@@ -128,7 +126,7 @@ class UpdateWikidataCommand(QleverCommand):
             "stream/rdf-streaming-updater.mutation.v2"
         )
         # Remember if Ctrl+C was pressed, so we can handle it gracefully.
-        self.ctrl_c_pressed = False
+        self.ctrl_c_pressed = Event()
         # Set to `True` when finished.
         self.finished = False
 
@@ -188,10 +186,6 @@ class UpdateWikidataCommand(QleverCommand):
         subparser.add_argument(
             "--topic",
             type=str,
-            choices=[
-                "eqiad.rdf-streaming-updater.mutation",
-                "codfw.rdf-streaming-updater.mutation",
-            ],
             default="eqiad.rdf-streaming-updater.mutation",
             help="The topic to consume from the SSE stream (default: "
             "eqiad.rdf-streaming-updater.mutation)",
@@ -259,12 +253,113 @@ class UpdateWikidataCommand(QleverCommand):
             "last-three (keep the three most recent) (default: last)",
         )
 
+    def retry_with_backoff(self, operation, operation_name, max_retries):
+        """
+        Retry an operation with exponential backoff, see backoff intervals below
+        (in seconds). Returns the result of the operation if successful, or raises
+        the last exception.
+        """
+        backoff_intervals = [5, 10, 30, 60, 300, 900, 1800, 3600]
+
+        for attempt in range(max_retries):
+            try:
+                return operation()
+            except Exception as e:
+                if self.ctrl_c_pressed.is_set():
+                    raise KeyboardInterrupt()
+                if attempt < max_retries - 1:
+                    # Use the appropriate backoff interval (once we get to the end
+                    # of the list, keep using the last interval).
+                    retry_delay = (
+                        backoff_intervals[attempt]
+                        if attempt < len(backoff_intervals)
+                        else backoff_intervals[-1]
+                    )
+                    # Show the delay as seconds, minutes, or hours.
+                    if retry_delay >= 3600:
+                        delay_str = f"{retry_delay // 3600}h"
+                    elif retry_delay >= 60:
+                        delay_str = f"{retry_delay // 60}min"
+                    else:
+                        delay_str = f"{retry_delay}s"
+                    log.warn(
+                        f"{operation_name} failed (attempt {attempt + 1}/{max_retries}): {e}. "
+                        f"Retrying in {delay_str} ..."
+                    )
+                    # Returns true if the wait ended because of the flag being set.
+                    if self.ctrl_c_pressed.wait(timeout=retry_delay):
+                        raise KeyboardInterrupt()
+                else:
+                    # If this was the last attempt, re-raise the exception.
+                    raise
+
     # Handle Ctrl+C gracefully by finishing the current batch and then exiting.
     def handle_ctrl_c(self, signal_received, frame):
-        if self.ctrl_c_pressed:
-            log.warn("\rCtrl+C pressed again, watch your blood pressure")
+        if self.ctrl_c_pressed.is_set():
+            pass
+            # log.warn("\rCtrl+C pressed again, watch your blood pressure")
         else:
-            self.ctrl_c_pressed = True
+            self.ctrl_c_pressed.set()
+
+    @staticmethod
+    def iter_sse_events(source):
+        """
+        Yield events from the SSE stream. If the stream connection drops (e.g.
+        HTTP 503), log a warning and stop the iteration so the caller can
+        reconnect.
+        """
+        try:
+            yield from source
+        except Exception as e:
+            log.warn(f"SSE stream connection lost ({e}), will reconnect ...")
+
+    def determine_batch_size_for_cached_update(
+        self, offset: int, batch_size: int
+    ) -> int | None:
+        options = list(Path.cwd().glob(f"update.{offset}.*.sparql"))
+        if len(options) == 0:
+            log.warn(
+                "Found no cached SPARQL update. Continuing with update stream."
+            )
+            return None
+        elif len(options) > 1:
+            log.warn(
+                f"Found {len(options)} candidates for cached SPARQL update. Using {options[0].name}."
+            )
+        return int(
+            re.search(r"update\.\d+\.(\d+)\.sparql", options[0].name).group(1)
+        )
+
+    def determine_next_cached_update(
+        self, first_offset_in_batch: int, batch_size: int
+    ) -> tuple[str, int] | None:
+        batch_size = self.determine_batch_size_for_cached_update(
+            first_offset_in_batch, batch_size
+        )
+        if batch_size is None:
+            return None
+        cached_file_name = (
+            f"update.{first_offset_in_batch}.{batch_size}.sparql"
+        )
+        cached_meta_file_name = (
+            f"update.{first_offset_in_batch}.{batch_size}.meta"
+        )
+
+        # Try to read metadata file for date range
+        cached_date_range = None
+        if os.path.exists(cached_meta_file_name):
+            try:
+                with open(cached_meta_file_name, "r") as f:
+                    cached_date_range = f.read().strip()
+            except Exception:
+                pass
+
+        log_msg = f"Using cached SPARQL query file: {cached_file_name}"
+        if cached_date_range:
+            log_msg += f" [date range: {cached_date_range}]"
+        log.debug(colored(log_msg, "cyan"))
+
+        return cached_file_name, batch_size
 
     def execute(self, args) -> bool:
         # cURL command to get the date until which the updates of the
@@ -315,50 +410,29 @@ class UpdateWikidataCommand(QleverCommand):
         log.warn("Press Ctrl+C to finish and exit gracefully")
         log.info("")
 
-        # If --offset is not provided, first try to get the offset from
-        # the endpoint. Only fall back to date-based approach if no
-        # offset is available.
-        if not args.offset:
+        # If no `--offset` is provided, try to get the offset from
+        # the endpoint.
+        if args.offset is None:
             try:
-                sparql_query_stored_offset = (
-                    "PREFIX wikibase: <http://wikiba.se/ontology#> "
-                    "SELECT (MAX(?offset) AS ?maxOffset) WHERE { "
-                    "<http://wikiba.se/ontology#Dump> "
-                    "wikibase:updateStreamNextOffset ?offset "
-                    "}"
-                )
-                curl_cmd_get_stored_offset = (
-                    f"curl -s {sparql_endpoint}"
-                    f' -H "Accept: text/csv"'
-                    f' -H "Content-type: application/sparql-query"'
-                    f' --data "{sparql_query_stored_offset}"'
-                )
-                result = run_command(
-                    f"{curl_cmd_get_stored_offset} | sed 1d",
-                    return_output=True,
-                ).strip()
-                if result and result != '""':
-                    args.offset = int(result.strip('"'))
-                    log.info(
-                        f"Resuming from offset from endpoint: {args.offset}"
-                    )
+                args.offset = get_next_offset_from_endpoint(sparql_endpoint)
+                log.info(f"Resuming from offset from endpoint: {args.offset}")
             except Exception as e:
                 log.debug(
                     f"Could not retrieve offset from endpoint: {e}. "
                     f"Will determine offset from date instead."
                 )
 
-        # If --offset is still not set, determine it by reading a single
-        # message from the SSE stream using the `since` date.
-        if not args.offset:
+        # If the offset was neither provided via `--offset` nor could
+        # be retrieved from the endpoint, determine it by reading a
+        # single message from the SSE stream at the `since` date.
+        if args.offset is None:
             try:
-                source = retry_with_backoff(
+                source = self.retry_with_backoff(
                     lambda: connect_to_sse_stream(
                         args.sse_stream_url, since=since
                     ),
                     "SSE stream connection",
                     args.num_retries,
-                    log,
                 )
                 offset = None
                 for event in source:
@@ -377,6 +451,11 @@ class UpdateWikidataCommand(QleverCommand):
                         f"No event with topic {args.topic} found in stream"
                     )
                 args.offset = offset
+            except KeyboardInterrupt:
+                log.warn(
+                    "\rCtrl+C pressed while determine current state, exiting"
+                )
+                return True
             except Exception as e:
                 log.error(f"Error determining offset from stream: {e}")
                 return False
@@ -395,7 +474,7 @@ class UpdateWikidataCommand(QleverCommand):
                     "offset": args.offset,
                 }
             ]
-            if args.offset
+            if args.offset is not None
             else None
         )
 
@@ -409,18 +488,16 @@ class UpdateWikidataCommand(QleverCommand):
             # Optionally wait before processing the next batch (make sure that
             # the wait is interruptible by Ctrl+C).
             if wait_before_next_batch:
-                log.info(
-                    f"Waiting {args.wait_between_batches} "
-                    f"second{'s' if args.wait_between_batches > 1 else ''} "
-                    f"before processing the next batch"
-                )
-                log.info("")
+                if args.verbose == "yes":
+                    log.info(
+                        f"Waiting {args.wait_between_batches} "
+                        f"second{'s' if args.wait_between_batches > 1 else ''} "
+                        f"before processing the next batch"
+                    )
+                    log.info("")
                 wait_before_next_batch = False
-                for _ in range(args.wait_between_batches):
-                    if self.ctrl_c_pressed:
-                        break
-                    time.sleep(1)
-            if self.ctrl_c_pressed:
+                self.ctrl_c_pressed.wait(args.wait_between_batches)
+            if self.ctrl_c_pressed.is_set():
                 log.warn(
                     "\rCtrl+C pressed while waiting in between batches, "
                     "exiting"
@@ -449,7 +526,7 @@ class UpdateWikidataCommand(QleverCommand):
 
             # Connect to the SSE stream with retry logic
             try:
-                source = retry_with_backoff(
+                source = self.retry_with_backoff(
                     lambda: connect_to_sse_stream(
                         args.sse_stream_url,
                         since=since if not event_id_for_next_batch else None,
@@ -457,8 +534,13 @@ class UpdateWikidataCommand(QleverCommand):
                     ),
                     "SSE stream connection for batch processing",
                     args.num_retries,
-                    log,
                 )
+            except KeyboardInterrupt:
+                log.warn(
+                    "\rCtrl+C pressed while while connecting to stream, "
+                    "exiting"
+                )
+                break
             except Exception as e:
                 log.error(
                     f"Failed to connect to SSE stream after "
@@ -485,88 +567,69 @@ class UpdateWikidataCommand(QleverCommand):
                 # before starting, but keep as fallback
                 first_offset_in_batch = None
 
-            # Check that the stream offset matches the offset from the endpoint
-            # Skip this check on the first batch (when using --offset to resume)
+            # Check that the stream offset matches the offset from the
+            # endpoint, unless disabled or this is the first batch.
             if (
                 args.check_offset_before_each_batch == "yes"
                 and not first_batch
                 and first_offset_in_batch is not None
             ):
-                sparql_query_offset = (
-                    "PREFIX wikibase: <http://wikiba.se/ontology#> "
-                    "SELECT (MAX(?offset) AS ?maxOffset) WHERE { "
-                    "<http://wikiba.se/ontology#Dump> "
-                    "wikibase:updateStreamNextOffset ?offset "
-                    "}"
-                )
-                curl_cmd_check_offset = (
-                    f"curl -s {sparql_endpoint}"
-                    f' -H "Accept: text/csv"'
-                    f' -H "Content-type: application/sparql-query"'
-                    f' --data "{sparql_query_offset}"'
-                )
                 # Verify offset with retry logic
                 try:
-                    result = retry_with_backoff(
-                        lambda: run_command(
-                            f"{curl_cmd_check_offset} | sed 1d",
-                            return_output=True,
-                        ).strip(),
+                    endpoint_offset = self.retry_with_backoff(
+                        lambda: get_next_offset_from_endpoint(sparql_endpoint),
                         "Offset verification",
                         args.num_retries,
-                        log,
                     )
-                    if not result:
-                        log.error(
-                            "Failed to retrieve offset from endpoint: "
-                            "query returned no results; this might be the first update, "
-                            "or the offset triple is missing"
-                        )
-                        return False
-                    endpoint_offset = int(result.strip('"'))
-                    if endpoint_offset < first_offset_in_batch:
-                        # Stream offset is LATER than endpoint offset
-                        if args.rewind_to_earlier_offset == "yes":
-                            log.info(
-                                colored(
-                                    f"Stream offset {first_offset_in_batch} is later "
-                                    f"than offset {endpoint_offset} from endpoint; "
-                                    f"this can happen after a server restart; "
-                                    f"rewinding to offset {endpoint_offset} from endpoint",
-                                    "cyan",
-                                )
-                            )
-                            log.info("")
-                            # Reconnect from the endpoint offset
-                            event_id_for_next_batch = [
-                                {
-                                    "topic": args.topic,
-                                    "partition": args.partition,
-                                    "offset": endpoint_offset,
-                                }
-                            ]
-                            continue  # Skip this batch and reconnect
-                        else:
-                            log.error(
-                                f"Offset mismatch: stream offset {first_offset_in_batch} "
-                                f"is later than offset {endpoint_offset} from endpoint; "
-                                f"rewind disabled by --rewind-to-earlier-offset=no"
-                            )
-                            return False
-                    elif endpoint_offset > first_offset_in_batch:
-                        # Stream offset is EARLIER than endpoint offset - this is bad
-                        log.error(
-                            f"Offset mismatch: stream offset {first_offset_in_batch} "
-                            f"is earlier than offset {endpoint_offset} from endpoint; "
-                            f"this indicates that updates may have been applied "
-                            f"out of order or some updates are missing"
-                        )
-                        return False
+                except KeyboardInterrupt:
+                    log.warn(
+                        "\rCtrl+C pressed while while verifying state, exiting"
+                    )
+                    break
                 except Exception as e:
                     log.error(
-                        f"Failed to retrieve or verify offset from "
-                        f"endpoint after {args.num_retries} retries; "
-                        f"last error: {e}"
+                        f"Failed to retrieve offset from endpoint "
+                        f"after {args.num_retries} retries: {e}. "
+                        f"This might be the first update, or the offset triple is missing."
+                    )
+                    return False
+
+                if endpoint_offset < first_offset_in_batch:
+                    # Stream offset is LATER than endpoint offset
+                    if args.rewind_to_earlier_offset == "yes":
+                        log.info(
+                            colored(
+                                f"Stream offset {first_offset_in_batch} is later "
+                                f"than offset {endpoint_offset} from endpoint; "
+                                f"this can happen after a server restart; "
+                                f"rewinding to offset {endpoint_offset} from endpoint",
+                                "cyan",
+                            )
+                        )
+                        log.info("")
+                        # Reconnect from the endpoint offset
+                        event_id_for_next_batch = [
+                            {
+                                "topic": args.topic,
+                                "partition": args.partition,
+                                "offset": endpoint_offset,
+                            }
+                        ]
+                        continue  # Skip this batch and reconnect
+                    else:
+                        log.error(
+                            f"Offset mismatch: stream offset {first_offset_in_batch} "
+                            f"is later than offset {endpoint_offset} from endpoint; "
+                            f"rewind disabled by --rewind-to-earlier-offset=no"
+                        )
+                        return False
+                elif endpoint_offset > first_offset_in_batch:
+                    # Stream offset is EARLIER than endpoint offset - this is bad
+                    log.error(
+                        f"Offset mismatch: stream offset {first_offset_in_batch} "
+                        f"is earlier than offset {endpoint_offset} from endpoint; "
+                        f"this indicates that updates may have been applied "
+                        f"out of order or some updates are missing"
                     )
                     return False
 
@@ -580,33 +643,16 @@ class UpdateWikidataCommand(QleverCommand):
             # Check if we can use a cached SPARQL query file
             use_cached_file = False
             cached_file_name = None
-            cached_meta_file_name = None
-            cached_date_range = None
             if (
                 args.use_cached_sparql_queries
                 and first_offset_in_batch is not None
             ):
-                cached_file_name = (
-                    f"update.{first_offset_in_batch}.{args.batch_size}.sparql"
+                cached_update = self.determine_next_cached_update(
+                    first_offset_in_batch, args.batch_size
                 )
-                cached_meta_file_name = (
-                    f"update.{first_offset_in_batch}.{args.batch_size}.meta"
-                )
-                if os.path.exists(cached_file_name):
+                if cached_update is not None:
+                    cached_file_name, current_batch_size = cached_update
                     use_cached_file = True
-                    # Try to read metadata file for date range
-                    if os.path.exists(cached_meta_file_name):
-                        try:
-                            with open(cached_meta_file_name, "r") as f:
-                                cached_date_range = f.read().strip()
-                        except Exception:
-                            cached_date_range = None
-
-                    if args.verbose == "yes":
-                        log_msg = f"Using cached SPARQL query file: {cached_file_name}"
-                        if cached_date_range:
-                            log_msg += f" [date range: {cached_date_range}]"
-                        log.info(colored(log_msg, "cyan"))
 
             # Process one event at a time (unless using cached file).
             if not use_cached_file:
@@ -617,7 +663,7 @@ class UpdateWikidataCommand(QleverCommand):
                     leave=False,
                     bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}{postfix}",
                 ) as pbar:
-                    for event in source:
+                    for event in self.iter_sse_events(source):
                         # Skip events that are not of type `message` (should not
                         # happen), have no field `data` (should not happen either), or
                         # where the topic is not in `args.topics` (one topic by itself
@@ -864,7 +910,7 @@ class UpdateWikidataCommand(QleverCommand):
                         # Ctrl+C finishes the current batch (this should come at the
                         # end of the inner event loop so that always at least one
                         # message is processed).
-                        if self.ctrl_c_pressed:
+                        if self.ctrl_c_pressed.is_set():
                             log.warn(
                                 "\rCtrl+C pressed while processing a batch, "
                                 "finishing it and exiting"
@@ -872,7 +918,6 @@ class UpdateWikidataCommand(QleverCommand):
                             break
             else:
                 # Using cached file - set batch size and calculate next offset
-                current_batch_size = args.batch_size
                 total_num_messages += current_batch_size
                 event_id_for_next_batch = [
                     {
@@ -881,6 +926,11 @@ class UpdateWikidataCommand(QleverCommand):
                         "offset": first_offset_in_batch + current_batch_size,
                     }
                 ]
+
+            # If the stream died before any events were collected (e.g.,
+            # HTTP 503), skip straight to reconnecting.
+            if not use_cached_file and current_batch_size == 0:
+                continue
 
             # Process the current batch of messages (or skip if using cached).
             batch_count += 1
@@ -981,68 +1031,79 @@ class UpdateWikidataCommand(QleverCommand):
             if args.verbose == "yes":
                 log.info(colored(curl_cmd, "blue"))
 
-            # Run it (using `curl` for batch size up to 1000, otherwise
-            # `requests`) with retry logic.
+            # Send the UPDATE request. If it fails, reset to the beginning
+            # of this batch and retry in the next iteration of the outer
+            # loop. If this was a transient error, this makes sure that the
+            # batch is re-assembled and not lost. If the server has
+            # restarted, the offset check at the beginning of the next
+            # iteration will detect the mismatch and rewind.
             try:
-                result = retry_with_backoff(
-                    lambda: run_command(curl_cmd, return_output=True),
-                    "UPDATE request",
-                    args.num_retries,
-                    log,
-                )
-                result_file_name = f"update.{first_offset_in_batch}.{current_batch_size}.result"
-                with open(result_file_name, "w") as f:
-                    f.write(result)
-
-                # Clean up old update request files according to --keep-update-requests
-                if args.keep_update_requests != "all":
-                    # Find all update.*.{sparql,meta,result} files
-                    update_files = {}
-                    for ext in ["sparql", "meta", "result"]:
-                        for file_path in glob.glob(f"update.*.*.{ext}"):
-                            # Extract offset from filename (update.OFFSET.SIZE.ext)
-                            parts = Path(file_path).stem.split(".")
-                            if len(parts) >= 3:
-                                offset = parts[1]
-                                if offset not in update_files:
-                                    update_files[offset] = []
-                                update_files[offset].append(file_path)
-
-                    # Sort by offset (newest last)
-                    sorted_offsets = sorted(
-                        update_files.keys(), key=lambda x: int(x)
+                result = run_command(curl_cmd, return_output=True)
+            except Exception:
+                if self.ctrl_c_pressed.is_set():
+                    log.warn(
+                        "\r  \nCtrl+C pressed while executing update, exiting"
                     )
+                    return True
+                else:
+                    log.warn(
+                        "\r  \nUpdate request failed; will reconnect and retry"
+                    )
+                    event_id_for_next_batch = [
+                        {
+                            "topic": args.topic,
+                            "partition": args.partition,
+                            "offset": first_offset_in_batch,
+                        }
+                    ]
+                    continue
+            result_file_name = (
+                f"update.{first_offset_in_batch}.{current_batch_size}.result"
+            )
+            with open(result_file_name, "w") as f:
+                f.write(result)
 
-                    # Determine which to keep
-                    if args.keep_update_requests == "none":
-                        files_to_keep = []
-                    elif args.keep_update_requests == "last":
-                        files_to_keep = (
-                            update_files[sorted_offsets[-1]]
-                            if sorted_offsets
-                            else []
-                        )
-                    elif args.keep_update_requests == "last-three":
-                        files_to_keep = []
-                        for offset in sorted_offsets[-3:]:
-                            files_to_keep.extend(update_files[offset])
+            # Clean up old update request files according to --keep-update-requests
+            if args.keep_update_requests != "all":
+                # Find all update.*.{sparql,meta,result} files
+                update_files = {}
+                for ext in ["sparql", "meta", "result"]:
+                    for file_path in glob.glob(f"update.*.*.{ext}"):
+                        # Extract offset from filename (update.OFFSET.SIZE.ext)
+                        parts = Path(file_path).stem.split(".")
+                        if len(parts) >= 3:
+                            offset = parts[1]
+                            if offset not in update_files:
+                                update_files[offset] = []
+                            update_files[offset].append(file_path)
 
-                    # Delete files not in the keep list
-                    for offset, files in update_files.items():
-                        for file_path in files:
-                            if file_path not in files_to_keep:
-                                try:
-                                    os.remove(file_path)
-                                except Exception:
-                                    pass  # Ignore errors during cleanup
-
-            except Exception as e:
-                log.error(
-                    f"Failed to execute UPDATE request after "
-                    f"{args.num_retries} retry attempts, last error: "
-                    f"{e}"
+                # Sort by offset (newest last)
+                sorted_offsets = sorted(
+                    update_files.keys(), key=lambda x: int(x)
                 )
-                return False
+
+                # Determine which to keep
+                if args.keep_update_requests == "none":
+                    files_to_keep = []
+                elif args.keep_update_requests == "last":
+                    files_to_keep = (
+                        update_files[sorted_offsets[-1]]
+                        if sorted_offsets
+                        else []
+                    )
+                elif args.keep_update_requests == "last-three":
+                    files_to_keep = []
+                    for offset in sorted_offsets[-3:]:
+                        files_to_keep.extend(update_files[offset])
+
+                # Delete files not in the keep list
+                for offset, files in update_files.items():
+                    for file_path in files:
+                        if file_path not in files_to_keep:
+                            try:
+                                os.remove(file_path)
+                            except Exception:
+                                pass  # Ignore errors during cleanup
 
             # Results should be a JSON, parse it.
             try:
@@ -1258,7 +1319,7 @@ class UpdateWikidataCommand(QleverCommand):
             # If Ctrl+C was pressed, we reached `--until`, or we processed
             # exactly `--num-messages`, finish.
             if (
-                self.ctrl_c_pressed
+                self.ctrl_c_pressed.is_set()
                 or self.finished
                 or (
                     args.num_messages is not None

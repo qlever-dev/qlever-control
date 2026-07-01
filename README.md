@@ -40,14 +40,23 @@ If you want to make changes to the script, or add new commands, do as follows:
 ```
 git clone https://github.com/ad-freiburg/qlever-control
 cd qlever-control
-pip install -e .
+pip install -e ".[dev]"
 ```
 
 Then you can use `qlever` just as if you had installed it via `pip install
-qlever`. Note that you don't have to rerun `pip install -e .` when you modify
+qlever`. Note that you don't have to rerun `pip install -e ".[dev]"` when you modify
 any of the `*.py` files and not even when you add new commands in
 `src/qlever/commands`. The executable created by `pip` simply links and refers
 to the files in your working copy.
 
 If you have bug fixes or new useful features or commands, please open a pull
-request. If you have questions or suggestions, please open an issue.
+request. If you have questions or suggestions, please open an issue. Files have
+to be formatted and linted with `ruff`:
+
+```bash
+# manually
+ruff format
+ruff check
+# runs automatically before every commit
+pre-commit install
+```

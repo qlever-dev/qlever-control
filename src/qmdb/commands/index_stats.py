@@ -5,21 +5,30 @@ import re
 from qlever.commands.index_stats import (
     IndexStatsCommand as QleverIndexStatsCommand,
 )
+from qlever.commands.index_stats import (
+    get_size_unit,
+    get_size_unit_factor,
+    get_time_unit,
+    get_time_unit_factor,
+)
 from qlever.log import log
 from qlever.util import get_total_file_size
 
 
 class IndexStatsCommand(QleverIndexStatsCommand):
     """
-    Class for executing the `index-stats` command.
+    Show index build time and disk space usage for a MillenniumDB dataset.
+    Time is parsed from the "duration:" lines in the index log; space is
+    the total size of all files in the index directory.
     """
 
     def execute_time(
         self, args, log_file_name: str
     ) -> dict[str, tuple[float | None, str]]:
         """
-        Part of `execute` that returns the time used for each part of indexing
-        along with the unit.
+        Parse the MillenniumDB index log to extract build times. Each log
+        line matching "<label> duration: <value> <unit>" produces one entry.
+        The "total import" label is normalized to "TOTAL time".
         """
 
         # Read the content of `log_file_name` into a list of lines.
@@ -34,14 +43,14 @@ class IndexStatsCommand(QleverIndexStatsCommand):
         # Pattern: "<label> = <number> seconds"
         pattern = re.compile(
             r"^(.*?)\s*duration:\s*([\d.]+)\s*(milliseconds|seconds|minutes|hours)",
-            re.IGNORECASE
+            re.IGNORECASE,
         )
 
         unit_to_seconds = {
             "milliseconds": 1 / 1000,
-            "seconds":      1,
-            "minutes":      60,
-            "hours":        3600,
+            "seconds": 1,
+            "minutes": 60,
+            "hours": 3600,
         }
 
         for line in lines:
@@ -68,23 +77,23 @@ class IndexStatsCommand(QleverIndexStatsCommand):
 
             value_s = value * factor
 
-            time_unit = self.get_time_unit(args.time_unit, value_s)
-            unit_factor = self.get_time_unit_factor(time_unit)
+            time_unit = get_time_unit(args.time_unit, value_s)
+            unit_factor = get_time_unit_factor(time_unit)
 
-            normalized_value = value / unit_factor
+            normalized_value = value_s / unit_factor
             stats[label] = (normalized_value, time_unit)
 
         return stats
 
     def execute_space(self, args) -> dict[str, tuple[float, str]]:
         """
-        Part of `execute` that returns the space used by different types of
-        index along with the unit.
+        Return the space used by the index files (all files in the index
+        directory) along with the unit.
         """
         index_size = get_total_file_size([f"{args.name}_index/*"])
 
-        size_unit = self.get_size_unit(args.size_unit, index_size)
-        unit_factor = self.get_size_unit_factor(size_unit)
+        size_unit = get_size_unit(args.size_unit, index_size)
+        unit_factor = get_size_unit_factor(size_unit)
 
         index_size /= unit_factor
 

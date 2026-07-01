@@ -8,6 +8,12 @@ class StopCommand(QoxigraphStopCommand):
     STATUS_COMMAND = StatusCommand()
     DEFAULT_REGEX = r".*fuseki-server.*--port\s%%PORT%%.*%%NAME%%.*"
 
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
+        # Add port in the server section to the arguments
+        args = super().relevant_qleverfile_arguments()
+        args.setdefault("server", []).append("port")
+        return args
+
     def description(self) -> str:
         return "Stop Jena server for a given dataset or port"
 

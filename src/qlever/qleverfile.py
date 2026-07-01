@@ -30,6 +30,7 @@ class Qleverfile:
         "cache-max-size-single-entry",
         "cache-service-results",
         "default-query-timeout",
+        "disable-caching",
         "division-by-zero-is-undef",
         "enable-distributive-union",
         "enable-prefilter-on-index-scans",
@@ -39,11 +40,14 @@ class Qleverfile:
         "lazy-index-scan-num-threads",
         "lazy-index-scan-queue-size",
         "lazy-result-max-cache-size",
+        "permutation-writer-num-threads",
         "query-planning-budget",
         "request-body-limit",
+        "service-allowed-iri-prefixes",
         "service-max-redirects",
         "service-max-value-rows",
         "sort-estimate-cancellation-factor",
+        "sort-in-memory-threshold",
         "sparql-results-json-with-time",
         "spatial-join-prefilter-max-size",
         "spatial-join-max-num-threads",
@@ -261,6 +265,15 @@ class Qleverfile:
             default="{}",
             help="The `.settings.json` file for the index",
         )
+        index_args["materialized_views"] = arg(
+            "--materialized-views",
+            type=str,
+            default=None,
+            help="JSON to specify materialized views to be created at the "
+            'end of the index build, of the form `{ "view_name": '
+            '"SPARQL query", ... }`; default: do not create any '
+            "materialized views",
+        )
         index_args["ulimit"] = arg(
             "--ulimit",
             type=int,
@@ -454,6 +467,14 @@ class Qleverfile:
             help="Whether to use the text index (requires that one was "
             "built, see `qlever index`)",
         )
+        server_args["preload_materialized_views"] = arg(
+            "-l",
+            "--preload-materialized-views",
+            nargs="+",
+            default=None,
+            help="Names of one or more materialized views to preload on "
+            "startup",
+        )
         server_args["warmup_cmd"] = arg(
             "--warmup-cmd",
             type=str,
@@ -488,6 +509,15 @@ class Qleverfile:
             "--server-container",
             type=str,
             help=f"The name of the container used by `{script_name} start`",
+        )
+        runtime_args["restart_policy"] = arg(
+            "--restart-policy",
+            type=str,
+            choices=["no", "always", "unless-stopped", "on-failure"],
+            default="unless-stopped",
+            help="Restart policy for the server container"
+            " (only applies when running in a container)"
+            " (default: unless-stopped)",
         )
 
         ui_args["ui_port"] = arg(
@@ -600,10 +630,13 @@ class Qleverfile:
 
         engine_args_module_path = f"{script_name}.qleverfile"
         try:
-            module = import_module(engine_args_module_path)
-            module.qleverfile_args(all_args)
+            if script_name != "qlever":
+                module = import_module(engine_args_module_path)
+                module.qleverfile_args(all_args)
         except (ImportError, AttributeError) as e:
-            log.debug(f"Could not import module {engine_args_module_path}: {e}")
+            log.debug(
+                f"Could not import module {engine_args_module_path}: {e}"
+            )
 
         return all_args
 

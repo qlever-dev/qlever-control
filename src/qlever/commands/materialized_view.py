@@ -42,12 +42,20 @@ class MaterializedViewCommand(QleverCommand):
         subparser.add_argument(
             "view_query",
             type=str,
+            nargs="?",
+            default=None,
             help="SPARQL query from which to create the materialized view",
         )
         subparser.add_argument(
             "--sparql-endpoint",
             type=str,
             help="URL of the SPARQL endpoint (default: <host_name>:<port>)",
+        )
+        subparser.add_argument(
+            "--load",
+            action="store_true",
+            default=False,
+            help="Load an existing materialized view instead of creating one",
         )
 
     def execute(self, args) -> bool:
@@ -63,6 +71,38 @@ class MaterializedViewCommand(QleverCommand):
             log.error(
                 f"The name for the materialized view must match "
                 f"the regex {self.materialized_view_name_regex}"
+            )
+            return False
+
+        # If `--load` is set, load an existing materialized view.
+        if args.load:
+            url = (
+                f"{sparql_endpoint}"
+                f"?cmd=load-materialized-view"
+                f"&view-name={args.view_name}"
+            )
+            load_cmd = (
+                f"curl -s {shlex.quote(url)} "
+                f"-H 'Authorization: Bearer {args.access_token}'"
+            )
+            self.show(load_cmd, only_show=args.show)
+            if args.show:
+                return True
+            try:
+                result = run_command(load_cmd, return_output=True)
+                result_json = json.loads(result)
+                view_name = result_json.get("materialized-view-loaded")
+                log.info(f"Materialized view '{view_name}' loaded")
+            except Exception as e:
+                log.error(f"Loading the materialized view failed: {e}")
+                return False
+            return True
+
+        # A query is required when creating a materialized view.
+        if args.view_query is None:
+            log.error(
+                "A query is required when creating a materialized view"
+                " (use --load to load an existing one)"
             )
             return False
 
@@ -85,9 +125,11 @@ class MaterializedViewCommand(QleverCommand):
         # Run the command (and time it).
         time_start = time.monotonic()
         try:
-            log.info("Creating the materialized view ... "
-                     "(this may take a while, depending on the complexity "
-                     "of the query and the size of the result)")
+            log.info(
+                "Creating the materialized view ... "
+                "(this may take a while, depending on the complexity "
+                "of the query and the size of the result)"
+            )
             log.info("")
             result = run_command(materialized_view_cmd, return_output=True)
         except Exception as e:

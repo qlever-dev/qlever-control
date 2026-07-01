@@ -18,7 +18,7 @@ class IndexCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return True
 
-    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {
             "data": ["name", "format"],
             "index": ["input_files", "jvm_args", "extra_args"],
@@ -35,6 +35,12 @@ class IndexCommand(QleverCommand):
                 "(this requires that you have Java installed and blazegraph.jar "
                 "downloaded on your machine)"
             ),
+        )
+        subparser.add_argument(
+            "--rebuild-image",
+            action="store_true",
+            default=False,
+            help="Rebuild the Docker image to get the latest updates",
         )
 
     @staticmethod
@@ -65,6 +71,7 @@ class IndexCommand(QleverCommand):
         )
         index_cmd += f" | tee {args.name}.index-log.txt"
 
+        image_id = build_cmd = ""
         if args.system == "native":
             cmd_to_show = index_cmd
         else:
@@ -75,9 +82,11 @@ class IndexCommand(QleverCommand):
                 f"{system} build -f {dockerfile_path} -t {args.image} --build-arg "
                 f"UID=$(id -u) --build-arg GID=$(id -g) {dockerfile_dir}"
             )
-            image_id = util.get_container_image_id(system, args.image) 
+            image_id = util.get_container_image_id(system, args.image)
             cmd_to_show = (
-                f"{build_cmd}\n\n{index_cmd}" if not image_id else index_cmd
+                f"{build_cmd}\n\n{index_cmd}"
+                if not image_id or args.rebuild_image
+                else index_cmd
             )
 
         # Show the command line.
@@ -86,7 +95,7 @@ class IndexCommand(QleverCommand):
             return True
 
         # Check if all of the input files exist.
-        if not util.input_files_exist(input_files, self.script_name):
+        if not util.input_files_exist(input_files):
             return False
 
         # When running natively, check if the binary exists and works.
@@ -121,7 +130,7 @@ class IndexCommand(QleverCommand):
                 )
                 return False
 
-            if not image_id:
+            if not image_id or args.rebuild_image:
                 build_successful = util.build_image(
                     build_cmd, system, args.image
                 )

@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+import re
 import shutil
-import sys
 import time
+from contextlib import nullcontext
 from pathlib import Path
 
 import qlever.util as util
+from qlever import script_name
 from qlever.command import QleverCommand
 from qlever.containerize import Containerize
 from qlever.log import log
+from qlever.memory_monitor import MemoryMonitor
 from qvirtuoso.commands.stop import StopCommand
+
+# Virtuoso buffer tuning constants (per GB of free memory)
+NUM_BUFFERS_PER_GB = 85_000
+MAX_DIRTY_BUFFERS_PER_GB = 65_000
 
 
 def download_virtuoso_ini(target_path: Path) -> bool:
@@ -28,96 +35,66 @@ def download_virtuoso_ini(target_path: Path) -> bool:
         return False
 
 
-def construct_ini_sed_cmd(
-    arg_name: str, section: str, option: str, new_value: str
-) -> str:
+def find_virtuoso_pid(lck_path: Path) -> int | None:
     """
-    Get the sed command that would either overwrite an option in virtuoso.ini
-    if it exists or append the new option with the value right after the
-    section header.
+    Read virtuoso.lck and return the PID of the running Virtuoso
+    server. The file is written by virtuoso-t on startup and contains
+    a ``VIRT_PID=<pid>`` entry.
     """
-    sed_inplace = "sed -i"
-    append_cmd = (
-        f"{sed_inplace} '/^\\[{section}\\]/a {option} = {new_value}' "
-        f"{arg_name}.virtuoso.ini"
-    )
-    if sys.platform == "darwin":
-        sed_inplace = "sed -i ''"
-        append_cmd = (
-            f"{sed_inplace} '/^\\[{section}\\]/a\\\n"
-            f"{option} = {new_value}' {arg_name}.virtuoso.ini"
-        )
-
-    sed_cmd = (
-        # First: check if the option exists anywhere in the file
-        rf"grep -q '^[[:space:]]*{option}[[:space:]]*=' {arg_name}.virtuoso.ini && "
-        # If the option exists:
-        #   - 'sed -i' edits the file in place.
-        #   - '/^\[{section}\]/,/^\[/' limits the search range to the given section:
-        #         from the line with "[section]" until the next line starting with '['.
-        #   - 's/^\({option}[[:space:]]*=[[:space:]]*\)[a-zA-Z0-9:.-]*/\1{new_value}/'
-        #         This substitution does:
-        #         • ^({option}[[:space:]]*=[[:space:]]*) → capture "option =" at the
-        #           start of the line, allowing spaces around '='.
-        #         • [a-zA-Z0-9:.-]* → match the old value (alphanumeric, colon, dot, dash).
-        #         • Replace with \1{new_value} → keep "option =" (the captured group) and
-        #           replace the old value with the new one.
-        rf"{sed_inplace} '/^\[{section}\]/,/^\[/ s/^\({option}[[:space:]]*=[[:space:]]*\)"
-        rf"[^[:space:]]*/\1{new_value}/' {arg_name}.virtuoso.ini || "
-        # If the option does NOT exist:
-        #   - '/^\[{section}\]/a {option} = {new_value}' appends the line
-        #     "option = new_value" right after the section header line [section].
-        rf"{append_cmd}"
-    )
-    return sed_cmd
+    try:
+        content = lck_path.read_text()
+    except OSError:
+        return None
+    match = re.search(r"VIRT_PID\s*=\s*(\d+)", content)
+    return int(match.group(1)) if match else None
 
 
 def update_virtuoso_ini(
-    arg_name: str, config_params: dict[str, dict[str, str]]
+    arg_name: str,
+    config_dict: dict[str, dict[str, tuple[str, bool]]],
 ) -> bool:
     """
-    Update all the necessary sections and options of virtuoso.ini
+    Read the virtuoso.ini file, apply the updates from config_dict,
+    and write it back.
     """
+    ini_path = Path(f"{arg_name}.virtuoso.ini")
     try:
-        for section, option_dict in config_params.items():
-            for option, new_value in option_dict.items():
-                sed_cmd = construct_ini_sed_cmd(
-                    arg_name, section, option, new_value
-                )
-                log.debug(sed_cmd)
-                util.run_command(sed_cmd)
+        lines = ini_path.read_text().splitlines()
+        result = util.update_ini_values(lines, config_dict)
+        ini_path.write_text("\n".join(result) + "\n")
         return True
     except Exception as e:
         log.error(
-            "Couldn't replace the necessary sections in "
-            f"{arg_name}.virtuoso.ini: {e}"
+            f"Couldn't update {arg_name}.virtuoso.ini: {e}"
         )
         return False
 
 
 def log_virtuoso_ini_changes(
-    arg_name: str, virtuoso_ini_config_dict: dict[str, dict[str, str]]
+    arg_name: str,
+    config_dict: dict[str, dict[str, tuple[str, bool]]],
 ):
     """
-    Show all the options of the virtuoso.ini that will be updated before the
-    process is executed
+    Log the section/option values that will be written to virtuoso.ini.
+    Called before execution so the user can review what will change.
     """
     log.info(
         f"Following options of {arg_name}.virtuoso.ini will be updated "
-        "with the values from Qleverfile as shown below:"
+        "with the values from Qleverfile:\n"
     )
-    for section, option_dict in virtuoso_ini_config_dict.items():
-        log.info(f"\n[{section}]")
-        for option, new_value in option_dict.items():
-            log.info(f"{option}  =  {new_value}")
-
-    log.info("")
+    for section, option_dict in config_dict.items():
+        log_values = [f"[{section}]"]
+        for option, (new_value, _) in option_dict.items():
+            log_values.append(f"{option}  =  {new_value}")
+        log.info("\n".join(log_values))
+        log.info("")
 
 
 def virtuoso_ini_help_msg(script_name: str, args, ini_files: list[str]) -> str:
     """
-    Log message to show based on presence of (0 or 1 or multiple) virtuoso.ini
-    file in the current working directory
+    Return a help message depending on how many .ini files are present in the
+    current directory: none (suggest setup-config), exactly one (will be
+    renamed), or multiple (ambiguous, user must resolve).
     """
     ini_msg = (
         "No .ini configfile present. Did you call "
@@ -137,12 +114,82 @@ def virtuoso_ini_help_msg(script_name: str, args, ini_files: list[str]) -> str:
     return ini_msg
 
 
+def config_dict_for_update_ini(
+    args,
+) -> dict[str, dict[str, tuple[str, bool]]]:
+    """
+    Construct the parameter dictionary for all the necessary sections and
+    options of virtuoso.ini that need updating for the index process.
+    Each value is a (new_value, is_suffix) tuple.
+    """
+    http_port = (
+        f"{args.host_name}:{args.port}"
+        if args.system == "native"
+        else str(args.port)
+    )
+    try:
+        free_memory_gb = int(args.free_memory_gb[:-1])
+    except ValueError as e:
+        log.warning(
+            f"Invalid --free-memory-gb value {args.free_memory_gb}. Error: {e}"
+        )
+        log.info("Setting free system memory to 4GB")
+        free_memory_gb = 4
+
+    return {
+        "Parameters": {
+            "ServerPort": (str(args.isql_port), False),
+            "NumberOfBuffers": (str(NUM_BUFFERS_PER_GB * free_memory_gb), False),
+            "MaxDirtyBuffers": (str(MAX_DIRTY_BUFFERS_PER_GB * free_memory_gb), False),
+        },
+        "HTTPServer": {
+            "ServerPort": (http_port, False),
+        },
+        "Database": {
+            "ErrorLogFile": (f"{args.name}.index-log.txt", False),
+        },
+    }
+
+
+def wrap_cmd_in_container(
+    args, start_cmd: str, ld_dir_cmd: str, run_cmds: list[str]
+) -> tuple[str, str, str]:
+    """
+    Wrap the three indexing phases (start server, register files, load
+    data) into container commands. The server runs detached, while
+    ld_dir and rdf_loader_run are executed via `docker exec`.
+    """
+    start_cmd = Containerize().containerize_command(
+        cmd=f"{start_cmd} -f",
+        container_system=args.system,
+        run_subcommand="run -d -e DBA_PASSWORD=dba --group-add virtuoso",
+        image_name=args.image,
+        container_name=args.index_container,
+        volumes=[("$(pwd)", "/database")],
+        ports=[(args.port, args.port)],
+        use_bash=True,
+    )
+    exec_cmd = f"{args.system} exec {args.index_container}"
+
+    ld_dir_cmd = f"{exec_cmd} {ld_dir_cmd}"
+    separator = " " if len(run_cmds) > 2 else "; "
+    run_cmd = f'{exec_cmd} bash -c "{separator.join(run_cmds)}"'
+
+    return start_cmd, ld_dir_cmd, run_cmd
+
+
 class IndexCommand(QleverCommand):
-    NUM_BUFFERS_PER_GB = 85_000
-    MAX_DIRTY_BUFFERS_PER_GB = 65_000
+    """
+    Build a Virtuoso index for an RDF dataset. The indexing workflow is:
+    1. Update virtuoso.ini with Qleverfile settings (ports, memory buffers)
+    2. Start the Virtuoso server (virtuoso-t)
+    3. Register input files via isql ld_dir()
+    4. Load data via rdf_loader_run() (optionally with parallel loaders)
+    5. Checkpoint and stop the server
+    """
 
     def __init__(self):
-        self.script_name = "qvirtuoso"
+        pass
 
     def description(self) -> str:
         return "Build the index for a given RDF dataset"
@@ -150,7 +197,7 @@ class IndexCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return True
 
-    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {
             "data": ["name", "format"],
             "index": [
@@ -177,72 +224,15 @@ class IndexCommand(QleverCommand):
             ),
         )
 
-    def config_dict_for_update_ini(self, args) -> dict[str, dict[str, str]]:
-        """
-        Construct the parameter dictionary for all the necessary sections and
-        options of virtuoso.ini that need updating for the index process
-        """
-        config_dict = {
-            "Parameters": {},
-            "HTTPServer": {},
-            "Database": {},
-        }
-        http_port = (
-            f"{args.host_name}:{args.port}"
-            if args.system == "native"
-            else str(args.port)
-        )
-        try:
-            free_memory_gb = int(args.free_memory_gb[:-1])
-        except ValueError as e:
-            log.warning(
-                f"Invalid --free-memory-gb value {args.free_memory_gb}. Error: {e}"
-            )
-            log.info("Setting free system memory to 4GB")
-            free_memory_gb = 4
-
-        config_dict["Parameters"]["ServerPort"] = str(args.isql_port)
-        config_dict["HTTPServer"]["ServerPort"] = http_port
-        config_dict["Database"]["ErrorLogFile"] = f"{args.name}.index-log.txt"
-        config_dict["Parameters"]["NumberOfBuffers"] = str(
-            self.NUM_BUFFERS_PER_GB * free_memory_gb
-        )
-        config_dict["Parameters"]["MaxDirtyBuffers"] = str(
-            self.MAX_DIRTY_BUFFERS_PER_GB * free_memory_gb
-        )
-        return config_dict
-
-    @staticmethod
-    def wrap_cmd_in_container(
-        args, start_cmd: str, ld_dir_cmd: str, run_cmds: list[str]
-    ) -> tuple[str, str, str]:
-        """
-        Given start_cmd, ld_dir_cmd, run_cmds, wrap them in a containerized command
-        """
-        start_cmd = Containerize().containerize_command(
-            cmd=f"{start_cmd} -f",
-            container_system=args.system,
-            run_subcommand="run -d --rm -e DBA_PASSWORD=dba",
-            image_name=args.image,
-            container_name=args.index_container,
-            volumes=[("$(pwd)", "/database")],
-            ports=[(args.port, args.port)],
-            working_directory="/database",
-            use_bash=True,
-        )
-        exec_cmd = f"{args.system} exec -w /database {args.index_container}"
-
-        ld_dir_cmd = f"{exec_cmd} {ld_dir_cmd}"
-        separator = " " if len(run_cmds) > 2 else "; "
-        run_cmd = f'{exec_cmd} bash -c "{separator.join(run_cmds)}"'
-
-        return start_cmd, ld_dir_cmd, run_cmd
-
     def execute(self, args, called_from_conformance_test: bool = False) -> bool:
         num_parallel_loaders = args.num_parallel_loaders
         start_cmd = f"{args.server_binary} -c {args.name}.virtuoso.ini"
 
         isql_cmd = f"{args.index_binary} {args.isql_port} dba dba"
+        # Build the ld_dir() commands. When graph files/names are provided
+        # (as in conformance tests loading named graphs), register each file
+        # into its target graph; otherwise load all input files into the
+        # default graph.
         graph_files = getattr(args, "graph_files", None)
         graph_names = getattr(args, "graph_names", None)
         default_graph = getattr(args, "default_graph_uri", "")
@@ -259,6 +249,8 @@ class IndexCommand(QleverCommand):
                 isql_cmd
                 + f" exec=\"ld_dir('.', '{args.input_files}', '');\""
             ]
+
+        # Multiple parallel loaders i.e. rdf_loader_run()
         if num_parallel_loaders > 1:
             run_cmds = [
                 f"{isql_cmd} exec='rdf_loader_run();' &"
@@ -266,28 +258,21 @@ class IndexCommand(QleverCommand):
             run_cmds.append("wait;")
         else:
             run_cmds = [f"{isql_cmd} exec='rdf_loader_run();'"]
+
         run_cmds.append(f"{isql_cmd} exec='checkpoint;'")
+
         separator = " " if num_parallel_loaders > 1 else "; "
         run_cmd = separator.join(run_cmds)
 
         run_cmd_to_show = "\n".join(run_cmds)
         cmd_to_show = ""
-        if args.system != "native":
-            start_cmd, _, run_cmd = self.wrap_cmd_in_container(
+        if args.system in Containerize.supported_systems():
+            start_cmd, _, run_cmd = wrap_cmd_in_container(
                 args, start_cmd, "", run_cmds
             )
             exec_cmd = f"{args.system} exec -w /database {args.index_container}"
             ld_dir_cmds = [f"{exec_cmd} {cmd}" for cmd in ld_dir_cmds]
             run_cmd_to_show = run_cmd
-            dockerfile_dir = Path(__file__).parent.parent
-            dockerfile_path = dockerfile_dir / "Dockerfile"
-            build_cmd = (
-                f"{args.system} build -f {dockerfile_path} -t {args.image} --build-arg "
-                f"UID=$(id -u) --build-arg GID=$(id -g) {dockerfile_dir}"
-            )
-            image_id = util.get_container_image_id(args.system, args.image)
-            if not image_id:
-                cmd_to_show = f"{build_cmd}\n\n"
 
         ini_files = [str(ini) for ini in Path(".").glob("*.ini")]
         if not Path(f"{args.name}.virtuoso.ini").exists():
@@ -297,10 +282,10 @@ class IndexCommand(QleverCommand):
             elif not called_from_conformance_test:
                 self.show(
                     f"{args.name}.virtuoso.ini configfile not found in the current "
-                    f"directory! {virtuoso_ini_help_msg(self.script_name, args, ini_files)}"
+                    f"directory! {virtuoso_ini_help_msg(script_name, args, ini_files)}"
                 )
 
-        virtuoso_ini_config_dict = self.config_dict_for_update_ini(args)
+        virtuoso_ini_config_dict = config_dict_for_update_ini(args)
         if not called_from_conformance_test:
             log_virtuoso_ini_changes(args.name, virtuoso_ini_config_dict)
 
@@ -316,11 +301,22 @@ class IndexCommand(QleverCommand):
             return True
 
         # Check if all of the input files exist.
-        if not util.input_files_exist(args.input_files, self.script_name):
+        if not called_from_conformance_test and not util.input_files_exist(
+            args.input_files
+        ):
             return False
 
-        # When running natively, check if the binary exists and works.
-        if args.system == "native":
+        if args.system in Containerize.supported_systems():
+            if Containerize().is_running(args.system, args.index_container):
+                log.info(
+                    f"{args.system} container {args.index_container} is still up, "
+                    "which means that data loading is in progress. Please wait..."
+                )
+                return False
+        else:
+            # When running natively, check if the binary exists and works.
+            # We use shutil.which instead of util.binary_exists because
+            # isql --help writes to stderr instead of stdout
             for binary, ps in [
                 (args.index_binary, "index"),
                 (args.server_binary, "server"),
@@ -332,23 +328,8 @@ class IndexCommand(QleverCommand):
                         "set `--system to a container system`"
                     )
                     return False
-        else:
-            if Containerize().is_running(args.system, args.index_container):
-                log.info(
-                    f"{args.system} container {args.index_container} is still up, "
-                    "which means that data loading is in progress. Please wait..."
-                )
-                return False
 
-            if not image_id:
-                build_successful = util.build_image(
-                    build_cmd, args.system, args.image
-                )
-                if not build_successful:
-                    return False
-            else:
-                log.info(f"{args.image} image present on the system\n")
-
+        # Check if previous index exists and user is not trying to extend it
         if Path("virtuoso.db").exists() and not args.extend_existing_index:
             log.error(
                 "virtuoso.db found in current directory "
@@ -361,7 +342,7 @@ class IndexCommand(QleverCommand):
             )
             return False
 
-        if args.system == "native":
+        if args.system not in Containerize.supported_systems():
             if util.is_port_used(args.isql_port):
                 log.error(
                     f"The isql port {args.isql_port} is already used! "
@@ -374,55 +355,122 @@ class IndexCommand(QleverCommand):
         if not Path(f"{args.name}.virtuoso.ini").exists():
             if len(ini_files) == 1:
                 Path(ini_files[0]).rename(f"{args.name}.virtuoso.ini")
-                log.info(
-                    f"{ini_files[0]} renamed to {args.name}.virtuoso.ini!"
-                )
+                if not called_from_conformance_test:
+                    log.info(
+                        f"{ini_files[0]} renamed to {args.name}.virtuoso.ini!"
+                    )
             else:
                 log.error(
                     f"{args.name}.virtuoso.ini configfile not found in the current "
-                    f"directory! {virtuoso_ini_help_msg(self.script_name, args, ini_files)}"
+                    f"directory! {virtuoso_ini_help_msg(script_name, args, ini_files)}"
                 )
                 return False
 
         if not update_virtuoso_ini(args.name, virtuoso_ini_config_dict):
             return False
 
+        # Helper to stop the server/container after a failure so it does
+        # not block the next indexing attempt.
+        def stop_server():
+            try:
+                args.server_container = args.index_container
+                args.cmdline_regex = StopCommand.DEFAULT_REGEX
+                StopCommand().execute(args)
+            except Exception as stop_err:
+                log.warning(f"Failed to stop Virtuoso server: {stop_err}")
+
         # Run the index command.
         try:
+            # Delete any existing old log files for a fresh index so that the
+            # index time computation is not affected
+            if not args.extend_existing_index:
+                Path(f"{args.name}.index-log.txt").unlink(missing_ok=True)
             # Run the index container in detached mode
             util.run_command(start_cmd)
             if not called_from_conformance_test:
                 log.info("Waiting for Virtuoso server to be online...")
             start_time = time.time()
             timeout = 60
-            # Wait until the Virtuoso server is online
+            log_file = Path(f"{args.name}.index-log.txt")
+            log_proc = None
+            # Wait until the Virtuoso server is online, and (outside of
+            # conformance runs) start tailing the index log file as soon as
+            # it exists (note that the `exec` is important to make sure that
+            # the tail process is killed and not just the bash process).
             while not util.is_server_alive(
                 f"http://{args.host_name}:{args.port}/sparql"
             ):
                 if time.time() - start_time > timeout:
                     log.error("Timed out waiting for Virtuoso to be online.")
+                    stop_server()
                     return False
+                if (
+                    log_proc is None
+                    and log_file.exists()
+                    and not called_from_conformance_test
+                ):
+                    log_proc = util.run_command(
+                        f"exec tail -n +1 -f {log_file}",
+                        use_popen=True,
+                        show_output=True,
+                    )
                 time.sleep(1)
+
             # Execute the ld_dir and rdf_loader_run commands
             if not called_from_conformance_test:
                 log.info(
                     "Virtuoso server online! Loading data into Virtuoso...\n"
                 )
-            for ld_dir_cmd in ld_dir_cmds:
-                util.run_command(
-                    ld_dir_cmd,
-                    show_output=not called_from_conformance_test,
+
+            # Resolve virtuoso-t's PID so the memory monitor can follow the
+            # detached server process in native mode. Memory monitoring is
+            # skipped entirely for conformance runs so it does not emit
+            # peak-memory logs or write a <name>.memory-log.json side effect.
+            virtuoso_pid = None
+            if (
+                not called_from_conformance_test
+                and args.system not in Containerize.supported_systems()
+            ):
+                virtuoso_pid = find_virtuoso_pid(Path("virtuoso.lck"))
+                if virtuoso_pid is None:
+                    log.warning(
+                        "Could not resolve virtuoso-t PID from "
+                        "virtuoso.lck; memory monitoring will be skipped"
+                    )
+
+            if not called_from_conformance_test and (
+                args.system in Containerize.supported_systems()
+                or virtuoso_pid is not None
+            ):
+                monitor_ctx = MemoryMonitor(
+                    dataset=args.name,
+                    cmdline_regex=args.server_binary,
+                    container=args.index_container,
+                    system=args.system,
+                    parent_pid=virtuoso_pid,
                 )
-            util.run_command(run_cmd, show_output=not called_from_conformance_test)
+            else:
+                monitor_ctx = nullcontext()
+
+            with monitor_ctx:
+                for ld_dir_cmd in ld_dir_cmds:
+                    util.run_command(
+                        ld_dir_cmd,
+                        show_output=not called_from_conformance_test,
+                    )
+                util.run_command(
+                    run_cmd, show_output=not called_from_conformance_test
+                )
+            if log_proc is not None:
+                log_proc.terminate()
             if not called_from_conformance_test:
                 log.info("")
                 log.info("Data loading has finished!")
 
             # Stop/remove the index container (with --rm it may already be gone).
-            args.server_container = args.index_container
-            args.cmdline_regex = StopCommand.DEFAULT_REGEX
-            StopCommand().execute(args)
+            stop_server()
             return True
         except Exception as e:
             log.error(f"Building the index failed: {e}")
+            stop_server()
             return False

@@ -4,15 +4,65 @@ import subprocess
 import time
 from pathlib import Path
 
+from qlever import script_name
 from qlever.command import QleverCommand
 from qlever.containerize import Containerize
 from qlever.log import log
-from qlever.util import binary_exists, is_server_alive, run_command
+from qlever.util import (
+    binary_exists,
+    is_server_alive,
+    run_command,
+    tail_log_file,
+)
+from qoxigraph.commands.stop import StopCommand
+
+
+def timeout_supported(args, serve_ps: str) -> bool:
+    """Check whether the oxigraph server binary supports query timeouts."""
+    help_cmd = f"{serve_ps} --help"
+    if args.system in Containerize.supported_systems():
+        help_cmd = f"{args.system} run --rm {args.image} {help_cmd}"
+    else:
+        help_cmd = f"{args.server_binary} {help_cmd}"
+    try:
+        help_output = run_command(help_cmd, return_output=True)
+        return "timeout-s" in help_output
+    except Exception as e:
+        log.warning(
+            "Could not determine if query timeouts are supported by this version "
+            f"of Oxigraph! Falling back to no timeouts. Error: {e}",
+        )
+        return False
+
+
+def wrap_cmd_in_container(args, cmd: str) -> str:
+    """Wrap the server start command in a container with restart policy."""
+    run_subcommand = "run --restart=unless-stopped"
+    if not args.run_in_foreground:
+        run_subcommand += " -d"
+    return Containerize().containerize_command(
+        cmd=cmd,
+        container_system=args.system,
+        run_subcommand=run_subcommand,
+        image_name=args.image,
+        container_name=args.server_container,
+        volumes=[("$(pwd)", "/opt")],
+        ports=[(args.port, args.port)],
+        working_directory="/opt",
+        use_bash=False,
+    )
 
 
 class StartCommand(QleverCommand):
+    """
+    Start the Oxigraph SPARQL server for an already-indexed dataset.
+    Supports both native and containerized execution, with an option
+    to run in the foreground. Uses `serve-read-only` or `serve`
+    depending on the read_only setting.
+    """
+
     def __init__(self):
-        self.script_name = "qoxigraph"
+        pass
 
     def description(self) -> str:
         return (
@@ -23,7 +73,7 @@ class StartCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return True
 
-    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {
             "data": ["name"],
             "server": [
@@ -48,50 +98,17 @@ class StartCommand(QleverCommand):
             ),
         )
 
-    @staticmethod
-    def timeout_supported(args, serve_ps: str) -> bool:
-        """Check whether the oxigraph server binary supports query timeouts."""
-        help_cmd = f"{serve_ps} --help"
-        if args.system == "native":
-            help_cmd = f"{args.server_binary} {help_cmd}"
-        else:
-            help_cmd = f"{args.system} run --rm {args.image} {help_cmd}"
-        try:
-            help_output = run_command(help_cmd, return_output=True)
-            return "timeout-s" in help_output
-        except Exception as e:
-            log.warning(
-                "Could not determine if query timeouts are supported by this version "
-                f"of Oxigraph! Falling back to no timeouts. Error: {e}",
-            )
-            return False
-
-    @staticmethod
-    def wrap_cmd_in_container(args, cmd: str) -> str:
-        run_subcommand = "run --restart=unless-stopped"
-        if not args.run_in_foreground:
-            run_subcommand += " -d"
-        return Containerize().containerize_command(
-            cmd=cmd,
-            container_system=args.system,
-            run_subcommand=run_subcommand,
-            image_name=args.image,
-            container_name=args.server_container,
-            volumes=[("$(pwd)", "/opt")],
-            ports=[(args.port, args.port)],
-            working_directory="/opt",
-            use_bash=False,
-        )
-
     def execute(self, args, called_from_conformance_test: bool = False) -> bool:
+        # Inside a container, bind to 0.0.0.0 so the port mapping is
+        # reachable from the host; natively, bind to the configured host.
         bind = (
-            f"{args.host_name}:{args.port}"
-            if args.system == "native"
-            else f"0.0.0.0:{args.port}"
+            f"0.0.0.0:{args.port}"
+            if args.system in Containerize.supported_systems() 
+            else f"{args.host_name}:{args.port}"
         )
         process = "serve-read-only" if args.read_only == "yes" else "serve"
         timeout_str = ""
-        if self.timeout_supported(args, process):
+        if timeout_supported(args, process):
             try:
                 timeout_s = int(args.timeout[:-1])
             except ValueError as e:
@@ -112,14 +129,12 @@ class StartCommand(QleverCommand):
             f"{timeout_str} --bind={bind}"
         )
 
-        if args.system == "native":
-            start_cmd = f"{args.server_binary} {start_cmd}"
-            if not args.run_in_foreground:
-                start_cmd = (
-                    f"nohup {start_cmd} > {args.name}.server-log.txt 2>&1 &"
-                )
+        if args.system in Containerize.supported_systems():
+            start_cmd = wrap_cmd_in_container(args, start_cmd)
         else:
-            start_cmd = self.wrap_cmd_in_container(args, start_cmd)
+            start_cmd = f"{args.server_binary} {start_cmd} > {args.name}.server-log.txt 2>&1"
+            if not args.run_in_foreground:
+                start_cmd = f"nohup {start_cmd} &"
 
         # Show the command line.
         self.show(start_cmd, only_show=args.show)
@@ -129,8 +144,8 @@ class StartCommand(QleverCommand):
         endpoint_url = f"http://{args.host_name}:{args.port}/query"
 
         # When running natively, check if the binary exists and works.
-        if args.system == "native":
-            if not binary_exists(args.server_binary, "server-binary"):
+        if args.system not in Containerize.supported_systems():
+            if not binary_exists(args.server_binary, "server-binary", args):
                 return False
 
         # Check if index files (*.sst) present in index directory
@@ -140,7 +155,7 @@ class StartCommand(QleverCommand):
         ):
             log.error(f"No Oxigraph index files for {args.name} found!\n")
             log.info(
-                f"Did you call `{self.script_name} index`? If you did, check "
+                f"Did you call `{script_name} index`? If you did, check "
                 "if .sst index files are present in index directory."
             )
             return False
@@ -149,9 +164,13 @@ class StartCommand(QleverCommand):
         if is_server_alive(url=endpoint_url):
             log.error(f"Oxigraph server already running on {endpoint_url}\n")
             log.info(
-                f"To kill the existing server, use `{self.script_name} stop`"
+                f"To kill the existing server, use `{script_name} stop`"
             )
             return False
+
+        # Remove old log file so that tail starts clean.
+        log_file = Path(f"{args.name}.server-log.txt")
+        log_file.unlink(missing_ok=True)
 
         try:
             process = run_command(
@@ -178,12 +197,17 @@ class StartCommand(QleverCommand):
                     " (Ctrl-C stops following the log, but NOT the server)"
                 )
             log.info("")
-            if args.system == "native":
-                log_cmd = f"exec tail -f {args.name}.server-log.txt"
-            else:
+            # For containers, use `docker/podman logs -f` as Oxigraph doesn't
+            # support redirecting logs to a log file. A short delay ensures
+            # the container is up before attaching.
+            if args.system in Containerize.supported_systems():
                 time.sleep(2)
                 log_cmd = f"exec {args.system} logs -f {args.server_container}"
-            log_proc = subprocess.Popen(log_cmd, shell=True)
+                log_proc = subprocess.Popen(log_cmd, shell=True)
+            else:
+                log_proc = tail_log_file(log_file)
+                if log_proc is None:
+                    return False
         while not is_server_alive(endpoint_url):
             time.sleep(1)
 
@@ -199,11 +223,15 @@ class StartCommand(QleverCommand):
                 log_proc.terminate()
 
             # With `--run-in-foreground`, wait until the server is stopped.
+            # On Ctrl-C, terminate the process and clean up the container.
             if args.run_in_foreground:
                 try:
                     process.wait()
                 except KeyboardInterrupt:
                     process.terminate()
+                    if args.system in Containerize.supported_systems():
+                        args.cmdline_regex = StopCommand.DEFAULT_REGEX
+                        StopCommand().execute(args)
                 if log_proc is not None:
                     log_proc.terminate()
 

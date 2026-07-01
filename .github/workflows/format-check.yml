@@ -9,24 +9,24 @@ on:
 
 jobs:
   format-check:
-    runs-on: ${{matrix.os}}
-    strategy:
-      fail-fast: true
-      matrix:
-        os: [ubuntu-22.04]
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout the repository for the qlever script
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Lint
+        uses: astral-sh/ruff-action@v4.0.0
+        id: lint
+        continue-on-error: true
         with:
-          path: qlever-control
-
-      - name: Install dependencies needed for checking
-        run: |
-          sudo apt update && sudo apt install flake8
-          pip install isort
-
-      - name: Check format, compilation, and imports
-        working-directory: ${{github.workspace}}/qlever-control
-        run: |
-          for PY in $(find src test -name "*.py"); do printf "$PY ... "; flake8 $PY && python3 -m py_compile $PY && isort -c $PY && echo "OK"; done
+          args: "check"
+      - name: Format
+        uses: astral-sh/ruff-action@v4.0.0
+        id: format
+        continue-on-error: true
+        with:
+          args: "format --diff"
+      - name: Fail if any check failed
+        if: steps.lint.outcome == 'failure' || steps.format.outcome == 'failure'
+        run: exit 1

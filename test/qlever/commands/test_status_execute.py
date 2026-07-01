@@ -96,18 +96,14 @@ class TestStatusCommand(unittest.TestCase):
         # simulating that no matching processes are found
         mock_process_iter.return_value = []
 
-        # Capture the string-output
-        captured_output = StringIO()
-        sys.stdout = captured_output
-
         # Instantiate the StatusCommand
         status_command = StatusCommand()
 
-        # Execute the function
-        result = status_command.execute(args)
-
-        # Reset redirect
-        sys.stdout = sys.__stdout__
+        # Execute the function. The "no processes" message is emitted via the
+        # logger (so callers like the conformance runner can mute it via
+        # `mute_log()`), not printed to stdout.
+        with self.assertLogs("qlever", level="ERROR") as log_ctx:
+            result = status_command.execute(args)
 
         # Assert that process_iter was called once
         mock_process_iter.assert_called_once()
@@ -118,8 +114,10 @@ class TestStatusCommand(unittest.TestCase):
 
         self.assertTrue(result)
 
-        # Verify the correct output was printed
-        self.assertIn("No processes found", captured_output.getvalue())
+        # Verify the correct message was logged
+        self.assertTrue(
+            any("No processes found" in msg for msg in log_ctx.output)
+        )
 
     @patch.object(qlever.command.QleverCommand, "show")
     def test_execute_show_action_description(self, mock_show):

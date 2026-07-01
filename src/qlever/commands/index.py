@@ -8,10 +8,12 @@ import shlex
 from qlever.command import QleverCommand
 from qlever.containerize import Containerize
 from qlever.log import log
+from qlever.memory_monitor import MemoryMonitor
 from qlever.util import (
     binary_exists,
     get_existing_index_files,
     get_total_file_size,
+    input_files_exist,
     run_command,
 )
 
@@ -40,6 +42,7 @@ class IndexCommand(QleverCommand):
                 "multi_input_json",
                 "parallel_parsing",
                 "settings_json",
+                "materialized_views",
                 "vocabulary_type",
                 "index_binary",
                 "only_pso_and_pos_permutations",
@@ -240,6 +243,10 @@ class IndexCommand(QleverCommand):
             index_cmd += f" --stxxl-memory {args.stxxl_memory}"
         if args.parser_buffer_size:
             index_cmd += f" --parser-buffer-size {args.parser_buffer_size}"
+        if args.materialized_views:
+            index_cmd += (
+                f" --materialized-views {shlex.quote(args.materialized_views)}"
+            )
         index_cmd += f" 2>&1 | tee {args.name}.index-log.txt"
 
         # If the total file size is larger than 10 GB, set ulimit (such that a
@@ -273,22 +280,15 @@ class IndexCommand(QleverCommand):
         if args.show:
             return True
 
-        # When running natively, check if the binary exists and works.
-        if args.system == "native":
-            if not binary_exists(args.index_binary, "index-binary"):
-                return False
+        if not binary_exists(args.index_binary, "index-binary", args):
+            return False
 
-        # Check if all of the input files exist.
-        if not called_from_conformance_test:
-            for pattern in shlex.split(args.input_files):
-                if len(glob.glob(pattern)) == 0:
-                    log.error(f'No file matching "{pattern}" found')
-                    log.info("")
-                    log.info(
-                        "Did you call `qlever get-data`? If you did, check "
-                        "GET_DATA_CMD and INPUT_FILES in the QLeverfile"
-                    )
-                    return False
+        # Check if all of the input files exist (skipped for conformance
+        # tests, which stage their inputs differently).
+        if not called_from_conformance_test and not input_files_exist(
+            args.input_files
+        ):
+            return False
 
         # Check if index files (name.index.*) already exist.
         existing_index_files = get_existing_index_files(args.name)
@@ -324,9 +324,20 @@ class IndexCommand(QleverCommand):
             log.error(f"Writing the settings.json file failed: {e}")
             return False
 
-        # Run the index command.
+        # Run the index command. Skip the memory monitor when called from a
+        # conformance test so it does not emit peak-memory logs or write a
+        # <name>.memory-log.json side-effect file.
         try:
-            run_command(index_cmd, show_output=not called_from_conformance_test)
+            if called_from_conformance_test:
+                run_command(index_cmd, show_output=False)
+            else:
+                with MemoryMonitor(
+                    dataset=args.name,
+                    cmdline_regex=args.index_binary,
+                    container=args.index_container,
+                    system=args.system,
+                ):
+                    run_command(index_cmd, show_output=True)
         except Exception as e:
             log.error(f"Building the index failed: {e}")
             return False

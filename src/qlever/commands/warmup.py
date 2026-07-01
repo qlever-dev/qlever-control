@@ -15,7 +15,7 @@ class WarmupCommand(QleverCommand):
         pass
 
     def description(self) -> str:
-        return ("Execute WARMUP_CMD")
+        return "Execute WARMUP_CMD"
 
     def should_have_qleverfile(self) -> bool:
         return True

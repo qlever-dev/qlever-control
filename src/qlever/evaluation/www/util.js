@@ -1,5 +1,12 @@
+/**
+ * Utility functions for the RDF Graph Database Performance Evaluation web app.
+ */
+
+/** @type {Object} Global performance data loaded from the server */
 var performanceData;
+/** @type {Object} Navigo router instance for client-side routing */
 var router;
+
 /**
  * Capitalizes the first letter of a string.
  *
@@ -12,6 +19,7 @@ function capitalize(str) {
 
 /**
  * Extract the core value from a SPARQL result value.
+ * Handles URIs in angle brackets and quoted literals.
  *
  * @param {string | string[]} sparqlValue - The raw SPARQL value or list of values
  * @returns {string} The extracted core value or empty string if none
@@ -40,6 +48,12 @@ function extractCoreValue(sparqlValue) {
     return sparqlValue;
 }
 
+/**
+ * Shows a specific page and hides all others with a fade animation.
+ *
+ * @param {string} pageId - The ID of the page to show (without "page-" prefix)
+ * @param {string|null} siteErrorMsg - Optional error message to display on error page
+ */
 function showPage(pageId, siteErrorMsg = null) {
     // Hide all pages
     document.querySelectorAll(".page").forEach((p) => {
@@ -60,6 +74,13 @@ function showPage(pageId, siteErrorMsg = null) {
     }
 }
 
+/**
+ * Converts columnar table data to row-based format for ag-Grid.
+ *
+ * @param {number} rowCount - Number of rows to generate
+ * @param {Object<string, Array>} tableData - Column-keyed object where each key maps to an array of values
+ * @returns {Array<Object>} Array of row objects suitable for ag-Grid
+ */
 function getGridRowData(rowCount, tableData) {
     return Array.from({ length: rowCount }, (_, i) => {
         const row = {};
@@ -72,6 +93,7 @@ function getGridRowData(rowCount, tableData) {
 
 /**
  * Extracts a single result string from query data if exactly one result exists.
+ * Used for displaying scalar query results (e.g., COUNT queries).
  *
  * @param {Object} queryData - Single query data object
  * @returns {string | null} Formatted single result or null if not applicable
@@ -97,6 +119,12 @@ function getSingleResult(queryData) {
     return singleResult;
 }
 
+/**
+ * Determines the appropriate time unit for displaying index times based on the minimum value.
+ *
+ * @param {Array<number|null>} values - Array of time values in seconds
+ * @returns {{unit: string, factor: number}} Object with unit string and conversion factor
+ */
 function pickTimeUnit(values) {
     const valid = values.filter((v) => typeof v === "number");
     if (valid.length === 0) return { unit: "s", factor: 1 };
@@ -108,6 +136,12 @@ function pickTimeUnit(values) {
     return { unit: "h", factor: 3600 };
 }
 
+/**
+ * Determines the appropriate size unit for displaying index sizes based on the maximum value.
+ *
+ * @param {Array<number|null>} values - Array of size values in bytes
+ * @returns {{unit: string, factor: number}} Object with unit string and conversion factor
+ */
 function pickSizeUnit(values) {
     const valid = values.filter((v) => typeof v === "number");
     if (valid.length === 0) return { unit: "B", factor: 1 };
@@ -121,6 +155,14 @@ function pickSizeUnit(values) {
     return { unit: "TB", factor: 1e12 };
 }
 
+/**
+ * Formats an index statistic value with the appropriate unit.
+ *
+ * @param {number|null} value - The raw value to format
+ * @param {number} factor - Conversion factor for the unit
+ * @param {string} unit - Unit string to append
+ * @returns {string|null} Formatted string or null if value is invalid
+ */
 function formatIndexStat(value, factor, unit) {
     if (value == null || typeof value !== "number") return null;
     if (unit === "s") return `${value / factor} ${unit}`;
@@ -143,6 +185,14 @@ function hideSpinner() {
     document.querySelector("#spinner").classList.add("d-none");
 }
 
+/**
+ * Recursively transforms a QLever execution tree node into Treant.js format.
+ * Processes runtime information, column names, and cache status for visualization.
+ * Also applies text transformations to make QLever-internal names more readable.
+ *
+ * @param {Object} tree_node - The execution tree node to transform
+ * @param {boolean} is_ancestor_cached - Whether an ancestor node is cached (propagated down)
+ */
 function addTextElementsToExecTreeForTreant(tree_node, is_ancestor_cached = false) {
     if (tree_node["text"] == undefined) {
         var text = {};
@@ -186,10 +236,10 @@ function addTextElementsToExecTreeForTreant(tree_node, is_ancestor_cached = fals
         text["cache-status"] = is_ancestor_cached
             ? "ancestor_cached"
             : tree_node["cache_status"]
-            ? tree_node["cache_status"]
-            : tree_node["was_cached"]
-            ? "cached_not_pinned"
-            : "computed";
+              ? tree_node["cache_status"]
+              : tree_node["was_cached"]
+                ? "cached_not_pinned"
+                : "computed";
         text["time"] =
             tree_node["cache_status"] == "computed" || tree_node["was_cached"] == false
                 ? formatInteger(tree_node["operation_time"])
@@ -219,15 +269,31 @@ function addTextElementsToExecTreeForTreant(tree_node, is_ancestor_cached = fals
 
         // Recurse over all children. Propagate "cached" status.
         tree_node["children"].map((child) =>
-            addTextElementsToExecTreeForTreant(child, is_ancestor_cached || text["cache-status"] != "computed")
+            addTextElementsToExecTreeForTreant(child, is_ancestor_cached || text["cache-status"] != "computed"),
         );
     }
 }
 
+/**
+ * Formats an integer with thousand separators (commas).
+ *
+ * @param {number} number - The number to format
+ * @returns {string} Formatted string with commas as thousand separators
+ */
 function formatInteger(number) {
     return number.toString().replace(/(\d)(?=(\d{3})+(?!\d))/g, "$1,");
 }
 
+/**
+ * Renders a QLever query execution tree using Treant.js with styling for
+ * cache status, execution time severity, and interactive tooltips.
+ *
+ * @param {Object} runtime_info - QLever runtime info containing meta and query_execution_tree
+ * @param {string} treeNodeId - CSS selector for the tree container element
+ * @param {string} metaNodeId - CSS selector for the meta info container element
+ * @param {string} purpose - Rendering purpose: "showTree", "zoomIn", or "zoomOut"
+ * @param {number} currentFontSize - Current font size percentage for zoom operations
+ */
 function renderExecTree(runtime_info, treeNodeId, metaNodeId, purpose = "showTree", currentFontSize) {
     // Show meta information (if it exists).
     const meta_info = runtime_info["meta"];
@@ -290,7 +356,7 @@ function renderExecTree(runtime_info, treeNodeId, metaNodeId, purpose = "showTre
                     <div style="margin-top: 10px; margin-bottom: 10px;">
                     ${detailHTML}
                     </div>
-                </div>`
+                </div>`,
             );
 
             // Manually initialize Bootstrap tooltip
@@ -298,6 +364,7 @@ function renderExecTree(runtime_info, treeNodeId, metaNodeId, purpose = "showTre
         }
     });
 
+    // Thresholds for highlighting slow operations
     const high_query_time_ms = 100;
     const very_high_query_time_ms = 1000;
 
@@ -312,7 +379,7 @@ function renderExecTree(runtime_info, treeNodeId, metaNodeId, purpose = "showTre
         }
     });
 
-    // Add cache status classes
+    // Add cache status classes for visual distinction
     document.querySelectorAll("p.node-cache-status").forEach(function (p) {
         const status = p.textContent;
         const parent = p.parentElement;
@@ -326,7 +393,7 @@ function renderExecTree(runtime_info, treeNodeId, metaNodeId, purpose = "showTre
         }
     });
 
-    // Add status classes
+    // Add status classes for different execution states
     document.querySelectorAll("p.node-status").forEach(function (p) {
         const status = p.textContent;
         const parent = p.parentElement;
@@ -353,7 +420,7 @@ function renderExecTree(runtime_info, treeNodeId, metaNodeId, purpose = "showTre
         }
     });
 
-    // Add title for truncated node names and cols
+    // Add title for truncated node names and cols (shows full text on hover)
     document.querySelectorAll("#result-tree p.node-name, #result-tree p.node-cols").forEach(function (p) {
         p.setAttribute("title", p.textContent);
     });
@@ -361,8 +428,9 @@ function renderExecTree(runtime_info, treeNodeId, metaNodeId, purpose = "showTre
 
 /**
  * Calculates the depth of a tree structure, where depth is the longest path from the root to any leaf node.
- * @param {Object} obj - The tree node or root object.
- * @returns {number} - The depth of the tree.
+ *
+ * @param {Object} obj - The tree node or root object
+ * @returns {number} The depth of the tree
  */
 function calculateTreeDepth(obj) {
     // Base case: if the object has no children, return 1
@@ -382,58 +450,92 @@ function calculateTreeDepth(obj) {
 
 /**
  * Determines the font size for a tree visualization based on its depth, ensuring text is appropriately sized.
- * @param {number} fontSize - The base font size.
- * @param {number} depth - The depth of the tree.
- * @returns {number} - The adjusted font size.
+ * Reduces font size for deeper trees to fit more content.
+ *
+ * @param {number} fontSize - The base font size
+ * @param {number} depth - The depth of the tree
+ * @returns {number} The adjusted font size
  */
 function getFontSizeForDepth(fontSize, depth) {
-    // If depth is greater than 4, reduce font size by 10 for each increment beyond 4
+    // If depth is greater than 4, reduce font size by zoomChange for each increment beyond 4
     if (depth > 4) {
         fontSize -= (depth - 4) * zoomChange;
     }
-    // Ensure font size doesn't go below 30
+    // Ensure font size doesn't go below minimum
     fontSize = Math.max(fontSize, minimumZoomPercent);
     return fontSize;
 }
 
-function goToCompareExecTreesPage(agGridApi, tableName) {
-    if (!agGridApi) return;
-    const selectedNode = agGridApi.getSelectedNodes();
-    if (selectedNode.length === 1) {
-        const selectedRowIdx = selectedNode[0].rowIndex;
-        const kb = new URLSearchParams(window.location.hash.split("?")[1]).get("kb");
-        router.navigate(`/compareExecTrees?kb=${encodeURIComponent(kb)}&q=${selectedRowIdx}`);
+/**
+ * Disables or enables a compare execution trees button based on availability.
+ * When disabled, shows a tooltip explaining why.
+ *
+ * @param {HTMLElement} btn - The button element to update
+ * @param {boolean} available - Whether exec tree comparison is available
+ */
+function setCompareExecTreesBtnState(btn, available) {
+    const title = "Compare query execution trees for 2 QLever instances"
+    const disabledTitle =
+        `Requires at least 2 QLever instances for this benchmark with query execution tree information 
+        (accept header: application/qlever-results+json)`;
+
+    // Dispose existing tooltip if any
+    const existingTooltip = bootstrap.Tooltip.getInstance(btn);
+    if (existingTooltip) existingTooltip.dispose();
+
+    if (available) {
+        btn.disabled = false;
+        btn.setAttribute("title", title);
     } else {
-        alert(`Please select a query from the ${tableName} Table!`);
+        btn.disabled = true;
+        btn.setAttribute("data-bs-toggle", "tooltip");
+        btn.setAttribute("title", disabledTitle);
+        new bootstrap.Tooltip(btn);
     }
 }
 
+/**
+ * Navigates to the execution tree comparison page for the selected query.
+ *
+ * @param {Object} agGridApi - ag-Grid API instance
+ */
+function goToCompareExecTreesPage(agGridApi) {
+    const selectedNode = agGridApi?.getSelectedNodes() || [];
+    const kb = new URLSearchParams(window.location.hash.split("?")[1]).get("kb");
+    let selectedRowIdx = 0;
+    if (selectedNode.length === 1) {
+        selectedRowIdx = selectedNode[0].rowIndex;
+    }
+    router.navigate(`/compareExecTrees?kb=${encodeURIComponent(kb)}&q=${selectedRowIdx}`);
+}
+
+/**
+ * Sorts engine names by a specified metric.
+ *
+ * @param {string[]} engines - Array of engine names to sort
+ * @param {string} kb - Knowledge base key
+ * @param {string} metric - Metric key to sort by (e.g., "gmeanTime2", "failed")
+ * @param {string} order - Sort order: "asc" or "desc"
+ * @returns {string[]} Sorted array of engine names
+ */
 function sortEngines(engines, kb, metric, order) {
     return engines.slice().sort((a, b) => {
         const left = order === "asc" ? a : b;
         const right = order === "asc" ? b : a;
-        return performanceData[kb][left][metric] - performanceData[kb][right][metric];
+        const valL = performanceData[kb][left][metric];
+        const valR = performanceData[kb][right][metric];
+        return (valL != null ? parseFloat(valL) : -1) - (valR != null ? parseFloat(valR) : -1);
     });
 }
 
-function extractFirstUrl(text) {
-    // Regex matches http(s):// and www. patterns, stops before spaces or closing punctuation
-    const regex = /\b((?:https?:\/\/|www\.)[^\s<>"]+[^.,;:!?()\[\]{}<>\s"])/i;
-    const match = text.match(regex);
-
-    if (match) {
-        let url = match[1].trim();
-
-        // Normalize URLs starting with www.
-        if (url.startsWith("www.")) {
-            url = "http://" + url;
-        }
-
-        return url;
-    }
-    return null;
-}
-
+/**
+ * Creates an info icon element with a Bootstrap popover for benchmark descriptions.
+ * Uses anchorme.js to automatically linkify URLs in the description.
+ *
+ * @param {string} indexDescription - Description text to show in the popover
+ * @param {string} tooltipPlacement - Popover placement: "top", "bottom", "left", or "right"
+ * @returns {HTMLElement} Anchor element configured as an info pill with popover
+ */
 function createBenchmarkDescriptionInfoPill(indexDescription, tooltipPlacement = "right") {
     const infoPill = document.createElement("a");
     infoPill.setAttribute("tabindex", 0);
@@ -457,16 +559,26 @@ function createBenchmarkDescriptionInfoPill(indexDescription, tooltipPlacement =
         anchorme({
             input: indexDescription,
             options: { attributes: { target: "_blank", class: "text-primary" } },
-        })
+        }),
     );
 
     return infoPill;
 }
 
+/**
+ * Removes the info pill element from the main title wrapper if present.
+ */
 function removeTitleInfoPill() {
     document.querySelector("#mainTitleWrapper a")?.remove();
 }
 
+/**
+ * Creates a tooltip container element for ag-Grid custom tooltips.
+ * Handles both SPARQL query tooltips (with title) and plain text tooltips.
+ *
+ * @param {Object} params - ag-Grid tooltip params containing value and data
+ * @returns {HTMLElement} Tooltip container with formatted content
+ */
 function createTooltipContainer(params) {
     const isSparql = typeof params.value !== "string";
     const tooltipText = isSparql ? params.value.sparql : params.value;
@@ -492,8 +604,11 @@ function createTooltipContainer(params) {
 }
 
 /**
- * Populate the checkbox container inside the accordion with column names.
- * @param {string[]} columnNames - List of Ag Grid column field names
+ * Creates a document fragment with checkboxes for column visibility control.
+ *
+ * @param {Object<string, string>} columns - Object mapping column keys to display names
+ * @param {boolean} allChecked - Whether all checkboxes should be initially checked
+ * @returns {DocumentFragment} Fragment containing checkbox elements
  */
 function getColumnVisibilityMultiSelectFragment(columns, allChecked = true) {
     const fragment = document.createDocumentFragment();
@@ -520,54 +635,4 @@ function getColumnVisibilityMultiSelectFragment(columns, allChecked = true) {
         fragment.appendChild(div);
     }
     return fragment;
-}
-
-function escapeLatex(str) {
-    if (!str) return "";
-
-    const replacements = {
-        "\\": "\\textbackslash{}",
-        "{": "\\{",
-        "}": "\\}",
-        $: "\\$",
-        "&": "\\&",
-        "#": "\\#",
-        _: "\\_",
-        "%": "\\%",
-        "~": "\\textasciitilde{}",
-        "^": "\\textasciicircum{}",
-        "<": "\\textless{}",
-        ">": "\\textgreater{}",
-    };
-
-    return str.replace(/([\\{}$&#_%~^<>])/g, (match) => replacements[match] || match).trim();
-}
-
-function csvToLatexTable(csvText) {
-    // Split CSV into rows
-    const rows = csvText
-        .trim()
-        .split("\n")
-        .map((row) => row.split(","));
-
-    const colAlign = "l" + "r".repeat(rows[0].length - 1);
-
-    // Build LaTeX table
-    let latex = `% Required packages (uncomment in LaTeX preamble):
-% \\usepackage{booktabs}
-% \\usepackage[table]{xcolor}
-
-\\rowcolors{2}{gray!15}{white}
-\\begin{tabular}{${colAlign}}
-\\toprule
-${rows[0].map((h) => `\\textbf{${escapeLatex(h)}}`).join(" & ")} \\\\ 
-\\midrule
-${rows
-    .slice(1)
-    .map((r) => r.map((c) => escapeLatex(c)).join(" & ") + " \\\\")
-    .join("\n")}
-\\bottomrule
-\\end{tabular}`;
-
-    return latex;
 }

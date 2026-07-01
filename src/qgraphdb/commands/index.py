@@ -20,7 +20,7 @@ class IndexCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return True
 
-    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {
             "data": ["name", "format"],
             "index": [
@@ -135,12 +135,12 @@ class IndexCommand(QleverCommand):
             return True
 
         # Check if all of the input files exist.
-        if not util.input_files_exist(args.input_files, self.script_name):
+        if not util.input_files_exist(args.input_files):
             return False
 
         # When running natively, check if the binary exists and works.
         if args.system == "native":
-            if not util.binary_exists(args.index_binary, "index-binary"):
+            if not util.binary_exists(args.index_binary, "index-binary", args):
                 return False
         else:
             if Containerize().is_running(args.system, args.index_container):
@@ -164,7 +164,9 @@ class IndexCommand(QleverCommand):
                 f"want to overwrite them, use --overwrite-existing"
             )
             log.info("")
-            log.info(f"Index directory found in current directory: {index_dir}")
+            log.info(
+                f"Index directory found in current directory: {index_dir}"
+            )
             return False
 
         # Run the index command.

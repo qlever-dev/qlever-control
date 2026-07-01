@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import subprocess
 from os import environ
 from pathlib import Path
 
 import qlever.util as util
 from qlever.command import QleverCommand
-from qlever.containerize import Containerize
 from qlever.log import log
 
 
@@ -16,10 +14,19 @@ class SetupConfigCommand(QleverCommand):
     """
 
     def __init__(self):
-        self.qleverfiles_path = Path(__file__).parent.parent / "Qleverfiles"
+        self.qleverfiles_path = (
+            Path(__file__).parent.parent.parent / "qlever/Qleverfiles"
+        )
         self.qleverfile_names = [
             p.name.split(".")[1]
             for p in self.qleverfiles_path.glob("Qleverfile.*")
+        ]
+        # Arguments that can be overridden when generating a Qleverfile,
+        # as (section, arg_name) pairs.
+        self.override_args = [
+            ("server", "port"),
+            ("server", "timeout"),
+            ("runtime", "system"),
         ]
 
     def description(self) -> str:
@@ -29,7 +36,10 @@ class SetupConfigCommand(QleverCommand):
         return False
 
     def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
-        return {}
+        result = {}
+        for section, arg_name in self.override_args:
+            result.setdefault(section, []).append(arg_name)
+        return result
 
     def additional_arguments(self, subparser) -> None:
         subparser.add_argument(
@@ -38,34 +48,23 @@ class SetupConfigCommand(QleverCommand):
             choices=self.qleverfile_names,
             help="The name of the pre-configured Qleverfile to create",
         )
-        subparser.add_argument(
-            "--port",
-            type=int,
-            default=None,
-            help=(
-                "Override the default PORT value in the [server] section of "
-                "the generated Qleverfile"
-            ),
-        )
-        subparser.add_argument(
-            "--timeout",
-            type=str,
-            default=None,
-            help=(
-                "Override the default TIMEOUT value in the [server] section of "
-                "the generated Qleverfile"
-            ),
-        )
-        subparser.add_argument(
-            "--system",
-            type=str,
-            choices=Containerize.supported_systems() + ["native"],
-            default=None,
-            help=(
-                "Override the default SYSTEM value in the [runtime] section of "
-                "the generated Qleverfile"
-            ),
-        )
+        # Override defaults to None so we can detect which args the user
+        # explicitly passed vs. which are just defaults.
+        for _, arg_name in self.override_args:
+            subparser.set_defaults(**{arg_name: None})
+
+    def check_qleverfile_exists(self) -> bool:
+        """Return True if a Qleverfile already exists (and log an error)."""
+        if Path("Qleverfile").exists():
+            log.error("`Qleverfile` already exists in current directory")
+            log.info("")
+            log.info(
+                "If you want to create a new Qleverfile using "
+                "`qlever setup-config`, delete the existing Qleverfile "
+                "first"
+            )
+            return True
+        return False
 
     def execute(self, args) -> bool:
         # Show a warning if `QLEVER_OVERRIDE_SYSTEM_NATIVE` is set.
@@ -79,66 +78,50 @@ class SetupConfigCommand(QleverCommand):
                 "(since inside the container, QLever should run natively)"
             )
             log.info("")
-        # Construct the command line and show it.
+        # Build the updates dict for the Qleverfile.
         qleverfile_path = (
             self.qleverfiles_path / f"Qleverfile.{args.config_name}"
         )
-        setup_config_cmd = (
-            f"cat {qleverfile_path}"
-            f" | {
-                util.get_ini_sed_cmd(
-                    'server', 'ACCESS_TOKEN', util.get_random_string(12), True
-                )
-            }"
-        )
+        random_token = util.get_random_string(12)
+        updates = {
+            "server": {"ACCESS_TOKEN": (random_token, True)},
+        }
         if qlever_is_running_in_container:
-            setup_config_cmd += (
-                f" | {util.get_ini_sed_cmd('runtime', 'SYSTEM', 'native')}"
-            )
+            updates.setdefault("runtime", {})["SYSTEM"] = ("native", False)
         else:
-            for section, override_arg in [
-                ("server", "port"),
-                ("server", "timeout"),
-                ("runtime", "system"),
-            ]:
-                if arg_value := getattr(args, override_arg):
-                    setup_config_cmd += (
-                        f" | {util.get_ini_sed_cmd(section, override_arg.upper(), arg_value)}"
+            for section, arg_name in self.override_args:
+                if arg_value := getattr(args, arg_name, None):
+                    updates.setdefault(section, {})[arg_name.upper()] = (
+                        arg_value,
+                        False,
                     )
 
-        setup_config_cmd += "> Qleverfile"
-        self.show(setup_config_cmd, only_show=args.show)
+        # Show the updates that will be applied.
+        show_lines = [
+            f"Copy {qleverfile_path} to Qleverfile with following changes:"
+        ]
+        for section, option_dict in updates.items():
+            show_lines.append(f"\n[{section}]")
+            for option, (value, is_suffix) in option_dict.items():
+                show_lines.append(f"  {option} = {value}")
+        self.show("\n".join(show_lines), only_show=args.show)
         if args.show:
             return True
 
-        # If there is already a Qleverfile in the current directory, exit.
-        qleverfile_path = Path("Qleverfile")
-        if qleverfile_path.exists():
-            log.error("`Qleverfile` already exists in current directory")
-            log.info("")
-            log.info(
-                "If you want to create a new Qleverfile using "
-                "`qlever setup-config`, delete the existing Qleverfile "
-                "first"
-            )
+        if self.check_qleverfile_exists():
             return False
 
-        # Copy the Qleverfile to the current directory.
+        # Read the template, apply updates, and write the Qleverfile.
         try:
-            subprocess.run(
-                setup_config_cmd,
-                shell=True,
-                check=True,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-            )
+            lines = qleverfile_path.read_text().splitlines()
+            result = util.update_ini_values(lines, updates)
+            Path("Qleverfile").write_text("\n".join(result) + "\n")
         except Exception as e:
             log.error(
                 f'Could not copy "{qleverfile_path}" to current directory: {e}'
             )
             return False
 
-        # If we get here, everything went well.
         log.info(
             f'Created Qleverfile for config "{args.config_name}"'
             f" in current directory"

@@ -5,6 +5,7 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from qblazegraph.commands.stop import StopCommand
 from qlever.command import QleverCommand
 from qlever.containerize import Containerize
 from qlever.log import log
@@ -24,7 +25,7 @@ class StartCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return True
 
-    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {
             "data": ["name"],
             "server": [
@@ -100,8 +101,6 @@ class StartCommand(QleverCommand):
         run_subcommand = "run --restart=unless-stopped"
         if not args.run_in_foreground:
             run_subcommand += " -d"
-        if not args.run_in_foreground:
-            cmd = f"{cmd} > {args.name}.server-log.txt 2>&1"
         return Containerize().containerize_command(
             cmd=cmd,
             container_system=args.system,
@@ -142,13 +141,12 @@ class StartCommand(QleverCommand):
             f"java -server {args.jvm_args} -Dbigdata.propertyFile=RWStore.properties"
             f"{'' if not web_xml_exists else f' -Djetty.overrideWebXml={args.name}.web.xml'} "
             f"-Djetty.port={args.port} {args.extra_args} -jar {jar_path}"
+            f" > {args.name}.server-log.txt 2>&1"
         )
 
         if args.system == "native":
             if not args.run_in_foreground:
-                start_cmd = (
-                    f"nohup {start_cmd} > {args.name}.server-log.txt 2>&1 &"
-                )
+                start_cmd = f"nohup {start_cmd} &"
         else:
             start_cmd = self.wrap_cmd_in_container(args, start_cmd)
 
@@ -246,7 +244,10 @@ class StartCommand(QleverCommand):
                     " (Ctrl-C stops following the log, but NOT the server)"
                 )
             log.info("")
-            log_cmd = f"exec tail -f {args.name}.server-log.txt"
+            log_file = Path(f"{args.name}.server-log.txt")
+            while not log_file.exists():
+                time.sleep(0.1)
+            log_cmd = f"exec tail -f {log_file}"
             log_proc = subprocess.Popen(log_cmd, shell=True)
         while not is_server_alive(endpoint_url):
             time.sleep(1)
@@ -268,6 +269,9 @@ class StartCommand(QleverCommand):
                 process.wait()
             except KeyboardInterrupt:
                 process.terminate()
+                if args.system in Containerize.supported_systems():
+                    args.cmdline_regex = StopCommand.DEFAULT_REGEX
+                    StopCommand().execute(args)
             if log_proc is not None:
                 log_proc.terminate()
 

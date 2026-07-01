@@ -10,26 +10,33 @@ import shutil
 import socket
 import string
 import subprocess
+import time
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Optional
 
 import psutil
 
+from qlever import script_name
 from qlever.log import log
 
 
-def get_total_file_size(patterns: list[str]) -> int:
+def get_total_file_size(
+    patterns: list[str], exclude: set[str] | None = None
+) -> int:
     """
-    Helper function that gets the total size of all files mathing the given
-    patterns in bytes.
+    Helper function that gets the total size of all files matching the given
+    patterns in bytes. Files whose names match any entry in `exclude` are
+    skipped.
     """
-
+    if not exclude:
+        exclude = set()
     total_size = 0
     search_dir = Path.cwd()
     for pattern in patterns:
         for file in search_dir.glob(pattern):
-            total_size += file.stat().st_size
+            if file.name not in exclude:
+                total_size += file.stat().st_size
     return total_size
 
 
@@ -159,7 +166,9 @@ def is_qlever_server_alive(endpoint_url: str) -> bool:
         return False
 
 
-def get_existing_index_files(basename: str, add_non_essential: bool = False) -> list[str]:
+def get_existing_index_files(
+    basename: str, add_non_essential: bool = False
+) -> list[str]:
     """
     Helper function that returns a list of all index files for `basename` in
     the current working directory.
@@ -168,7 +177,9 @@ def get_existing_index_files(basename: str, add_non_essential: bool = False) -> 
     # Essential index files.
     existing_index_files = []
     existing_index_files.extend(Path.cwd().glob(f"{basename}.index.*"))
-    existing_index_files.extend(Path.cwd().glob(f"{basename}.internal.index.*"))
+    existing_index_files.extend(
+        Path.cwd().glob(f"{basename}.internal.index.*")
+    )
     existing_index_files.extend(Path.cwd().glob(f"{basename}.text.*"))
     existing_index_files.extend(Path.cwd().glob(f"{basename}.vocabulary.*"))
     existing_index_files.extend(Path.cwd().glob(f"{basename}.meta-data.json"))
@@ -177,9 +188,15 @@ def get_existing_index_files(basename: str, add_non_essential: bool = False) -> 
     # Non-essential index files.
     if add_non_essential:
         existing_index_files.extend(Path.cwd().glob(f"{basename}.view.*"))
-        existing_index_files.extend(Path.cwd().glob(f"{basename}.settings.json"))
-        existing_index_files.extend(Path.cwd().glob(f"{basename}.index-log.txt"))
-        existing_index_files.extend(Path.cwd().glob(f"{basename}.server-log.txt"))
+        existing_index_files.extend(
+            Path.cwd().glob(f"{basename}.settings.json")
+        )
+        existing_index_files.extend(
+            Path.cwd().glob(f"{basename}.index-log.txt")
+        )
+        existing_index_files.extend(
+            Path.cwd().glob(f"{basename}.server-log.txt")
+        )
 
     # Return only the file names, not the full paths.
     return [path.name for path in existing_index_files]
@@ -320,29 +337,53 @@ def stop_process_with_regex(cmdline_regex: str) -> list[bool] | None:
     return stop_process_results
 
 
-def binary_exists(binary: str, cmd_arg: str) -> bool:
+def binary_exists(binary: str, cmd_arg: str, args) -> bool:
     """
-    When a command is run natively, check if the binary exists on the system
+    Check if the binary exists on the user's system. If running inside a
+    container, check if the binary exists inside the container system.
     """
+    from qlever.containerize import Containerize
+
+    is_containerized = args.system in Containerize.supported_systems()
+    cmd = f"{binary} --help"
+    if is_containerized:
+        # Run the check inside the container: when containerized the binary
+        # generally does not exist on the host (e.g. under the
+        # `sparql_conformance` entry point), so checking on the host would be
+        # a false negative. Only qlever calls binary_exists while
+        # containerized, always with the qlever image.
+        cmd = Containerize().containerize_command(
+            cmd,
+            args.system,
+            "run --rm",
+            args.image,
+            "qlever.check-binary",
+            volumes=[("$(pwd)", "/index")],
+            working_directory="/index",
+        )
+
     try:
-        run_command(f"{binary} --help")
+        run_command(cmd)
         return True
     except Exception as e:
-        log.error(
-            f'Running "{binary}" failed, '
-            f"set `--{cmd_arg}` to a different binary or "
-            f"set `--system to a container system`"
-        )
-        log.info("")
-        log.info(f"The error message was: {e}")
-        if binary == "qlever-index" or binary == "qlever-server":
-            log.info("")
-            log.warning(
+        if is_containerized and (
+            binary == "qlever-index" or binary == "qlever-server"
+        ):
+            log.error(
+                f'Running "{binary}" failed. '
                 f"This might be because you are using a newer version of "
                 f"the `qlever` command-line tool together with an older "
                 f"Docker image; in that case update with "
-                f"`docker pull adfreiburg/qlever` "
+                f"`{args.system} pull {args.image}` "
             )
+        else:
+            log.error(
+                f'Running "{binary}" failed, '
+                f"set `--{cmd_arg}` to a different binary or "
+                f"set `--system to a container system`"
+            )
+        log.info("")
+        log.info(f"The error message was: {e}")
         return False
 
 
@@ -358,7 +399,7 @@ def is_server_alive(url: str) -> bool:
         return False
 
 
-def input_files_exist(input_files: str, script_name: str) -> bool:
+def input_files_exist(input_files: str) -> bool:
     """
     Check if all of the input files exist in current working directory.
     """
@@ -382,7 +423,7 @@ def build_image(build_cmd: str, system: str, image: str) -> bool:
     """
     log.info(f"Building {system} image {image}...")
     try:
-        run_command(build_cmd, show_output=True)
+        run_command(build_cmd, show_output=True, show_stderr=True)
         log.info(
             f"Finished building {system} image {image}! "
             "Continuing with index operation...\n"
@@ -414,18 +455,95 @@ def get_container_image_id(system: str, image: str) -> str:
     return image_id
 
 
-def get_ini_sed_cmd(
-    section: str, option: str, new_value: str, is_suffix: bool = False
-) -> str:
+def update_ini_values(
+    lines: list[str],
+    updates: dict[str, dict[str, tuple[str, bool]]],
+):
     """
-    Generates a cross-platform sed command to update the value of a 
-    key = value pair or append to one (by using is_suffix = True) in an INI file.
+    Update values in INI-style file content, preserving comments and
+    formatting. Takes lines as input and returns modified lines.
+
+    updates: {section: {option: (new_value, is_suffix)}}
+    1. If the section and option exist, replace the value
+    2. If the section exists, but the option doesn't: add the new option and
+       value at the end of the section
+    3. If the section doesn't exist: add the section at the end of the file
+       with the option and new_value
+    is_suffix: bool decides whether the new value is appended to existing value
+    and only applies to case 1 above. For other cases, is_suffix is neglected.
     """
-    if is_suffix:
-        pattern = f"s/(^{option}.*)/\\1{new_value}/"
-    else:
-        pattern = f"s/(^{option}[[:space:]]*=[[:space:]]*).*/\\1{new_value}/"
-    return f"sed -E '/^\\[{section}\\]/,/^\\[/ {pattern}'"
+    sections_visited = set()
+    options_applied: dict[str, set[str]] = {sec: set() for sec in updates}
+    result_lines = []
+    skip_section = False
+    current_section = ""
+
+    def missing_option_lines(section: str) -> list[str]:
+        """
+        Return formatted lines for options in the given section that
+        were not found (and thus not yet applied). Suffix-only options
+        are skipped since appending to a non-existent line doesn't make sense.
+        """
+        return [
+            f"{opt} = {val}"
+            for opt, (val, is_suffix) in updates[section].items()
+            if opt not in options_applied[section] and not is_suffix
+        ]
+
+    for line in lines:
+        line = line.strip()
+
+        # Detect section headers like [Index] or [Server]
+        if line.startswith("[") and line.endswith("]"):
+            # Before moving to a new section, add any options that
+            # were missing from the section we're leaving (case 2).
+            if current_section in updates:
+                result_lines.extend(missing_option_lines(current_section))
+
+            skip_section = False
+            current_section = line[1:-1]
+            result_lines.append(line)
+
+            if current_section not in updates:
+                skip_section = True
+            else:
+                sections_visited.add(current_section)
+            continue
+
+        # Lines before any section or in sections we don't need to touch
+        if skip_section or current_section not in updates:
+            result_lines.append(line)
+            continue
+
+        # Check if this line matches an option we need to update
+        update_dict = updates[current_section]
+        match = re.match(r"^(\S+)\s*=\s*", line)
+        if not match or match.group(1) not in update_dict:
+            result_lines.append(line)
+            continue
+
+        # Case 1: option exists — replace its value or append suffix
+        option_name = match.group(1)
+        new_value, is_suffix = update_dict[option_name]
+        if is_suffix:
+            result_lines.append(line + new_value)
+        else:
+            # Keep everything up to and including "= " then replace the value
+            prefix = line[: match.end()]
+            result_lines.append(prefix + new_value)
+        options_applied[current_section].add(option_name)
+
+    # Case 2: Add missing options for the last section in the file
+    if current_section in updates:
+        result_lines.extend(missing_option_lines(current_section))
+
+    # Case 3: Append entirely new sections that were never found
+    for sec in updates:
+        if sec not in sections_visited:
+            result_lines.append(f"\n[{sec}]")
+            result_lines.extend(missing_option_lines(sec))
+
+    return result_lines
 
 
 def parse_memory(value: str) -> str:
@@ -467,3 +585,29 @@ def add_memory_options(subparser, index=True, server=True):
                 "defaults that together stay within this limit. "
             ),
         )
+
+
+def tail_log_file(
+    log_file: Path,
+    max_wait_seconds: int = 30,
+) -> subprocess.Popen | None:
+    """
+    Wait for the log file to appear and start tailing it from the
+    beginning. The old log file should be deleted before calling this
+    function.
+
+    Returns the tail process, or None if the log file was not created
+    within `max_wait_seconds`.
+    """
+    waited = 0.0
+    while not log_file.exists():
+        if waited >= max_wait_seconds:
+            log.error(
+                f"Log file {log_file} was not created within "
+                f"{max_wait_seconds} seconds"
+            )
+            return None
+        time.sleep(0.1)
+        waited += 0.1
+    tail_cmd = f"exec tail -n +1 -f {log_file}"
+    return subprocess.Popen(tail_cmd, shell=True)

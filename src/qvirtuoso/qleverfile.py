@@ -2,7 +2,12 @@ from __future__ import annotations
 
 
 def qleverfile_args(all_args: dict[str, dict[str, tuple]]) -> None:
-    """Define additional mdb specific Qleverfile parameters"""
+    """
+    Define Virtuoso-specific Qleverfile parameters for the [index] and
+    [server] sections. These include the isql binary/port for indexing,
+    parallel loader count, memory allocation, and the virtuoso-t server
+    binary with its query memory and timeout settings.
+    """
 
     def arg(*args, **kwargs):
         return (args, kwargs)
@@ -50,7 +55,7 @@ def qleverfile_args(all_args: dict[str, dict[str, tuple]]) -> None:
     server_args["server_binary"] = arg(
         "--server-binary",
         type=str,
-        default="virtuoso-t",
+        default="/opt/virtuoso-opensource/bin/virtuoso-t",
         help=(
             "The binary for starting the server (default: virtuoso-t) "
             "(this requires that you have virtuoso binaries installed "

@@ -5,14 +5,15 @@ from qoxigraph.commands.stop import StopCommand as QoxigraphStopCommand
 
 
 class StopCommand(QoxigraphStopCommand):
+    """
+    Stop a running MillenniumDB server. Matches the mdb server process
+    by its dataset name argument so that only the server for the given
+    dataset is stopped.
+    """
+
     STATUS_COMMAND = StatusCommand()
-    DEFAULT_REGEX = r"mdb.*--port\s%%PORT%%.*"
+    # %%NAME%% is replaced with args.name at execution time
+    DEFAULT_REGEX = r"mdb\s+server.*%%NAME%%_index"
 
     def description(self) -> str:
-        return "Stop MillenniumDB server for a given dataset or port"
-
-    def execute(self, args) -> bool:
-        args.cmdline_regex = args.cmdline_regex.replace(
-            "%%PORT%%", str(args.port)
-        )
-        return super().execute(args)
+        return "Stop MillenniumDB server for a given dataset"

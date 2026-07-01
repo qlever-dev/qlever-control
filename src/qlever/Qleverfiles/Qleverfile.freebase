@@ -12,7 +12,7 @@ DESCRIPTION  = Freebase, RDF NT from ${DATA_URL}, latest (and final) version fro
 
 [index]
 INPUT_FILES     = freebase-rdf-latest.gz
-CAT_INPUT_FILES = zcat ${INPUT_FILES}
+CAT_INPUT_FILES = gunzip -c ${INPUT_FILES}
 SETTINGS_JSON   = { "languages-internal": [ "en" ], "prefixes-external": ["<"], "locale": { "language": "en", "country": "US", "ignore-punctuation": true }, "ascii-prefixes-only": false, "num-triples-per-batch": 10000000 }
 
 [server]

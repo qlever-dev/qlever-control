@@ -53,6 +53,10 @@ def make_args(config: Config, **overrides):
         kill_existing_with_same_port=False,
         no_warmup=True,
         run_in_foreground=False,
+        # Container restart policy for the server (qlever start wraps the
+        # command with `run --restart=<policy>`).
+        restart_policy="unless-stopped",
+        preload_materialized_views=None,
         # INDEX.
         index_container=f"{config.run_id}-index-container",
         cat_input_files=None,
@@ -70,6 +74,10 @@ def make_args(config: Config, **overrides):
         add_has_word_triples=False,
         runtime_parameters=False,
         extend_existing_index=False,
+        materialized_views=None,
+        # Container image rebuild flag used by engines that build their image
+        # from a Dockerfile/repo (qjena, qmdb, qblazegraph index commands).
+        rebuild_image=False,
     )
     return Namespace(**{**base, **overrides})
 

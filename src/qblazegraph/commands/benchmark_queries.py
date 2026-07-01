@@ -6,7 +6,7 @@ from qlever.commands.benchmark_queries import (
 
 
 class BenchmarkQueriesCommand(QleverBenchmarkQueriesCommand):
-    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {
             "data": ["name"],
             "server": ["host_name", "port", "timeout"],

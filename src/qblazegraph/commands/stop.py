@@ -11,6 +11,12 @@ class StopCommand(QoxigraphStopCommand):
     def description(self) -> str:
         return "Stop Blazegraph server for a given dataset or port"
 
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
+        # Add port in the server section to the arguments
+        args = super().relevant_qleverfile_arguments()
+        args.setdefault("server", []).append("port")
+        return args
+
     def execute(self, args) -> bool:
         args.cmdline_regex = args.cmdline_regex.replace(
             "%%PORT%%", str(args.port)

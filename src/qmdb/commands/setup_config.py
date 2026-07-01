@@ -10,8 +10,10 @@ from qoxigraph.commands.setup_config import (
 
 class SetupConfigCommand(QoxigraphSetupConfigCommand):
     """
-    Should behave exactly the same as setup-config command in qoxigraph,
-    just with a different Docker image name and CAT_INPUT_FILES index arg
+    Create a Qleverfile for MillenniumDB from a dataset template. Extends
+    the base setup-config with MillenniumDB-specific memory budget options
+    (--total-index-memory, --total-server-memory) that auto-generate
+    sensible buffer size defaults for indexing and serving.
     """
 
     IMAGE = "adfreiburg/millenniumdb"
@@ -21,6 +23,12 @@ class SetupConfigCommand(QoxigraphSetupConfigCommand):
 
     @staticmethod
     def construct_engine_specific_params(args) -> dict[str, dict[str, str]]:
+        """
+        Derive MillenniumDB-specific Qleverfile parameters from the memory
+        budget. Splits index memory evenly between tensor and string buffers.
+        For server memory >4G, allocates versioned, unversioned, and string
+        buffers using a log-based heuristic.
+        """
         index_memory = int(args.total_index_memory[:-1])
         server_memory = int(args.total_server_memory[:-1])
 

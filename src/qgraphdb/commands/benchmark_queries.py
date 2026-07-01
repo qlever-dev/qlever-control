@@ -6,7 +6,7 @@ from qlever.commands.benchmark_queries import (
 
 
 class BenchmarkQueriesCommand(QleverBenchmarkQueriesCommand):
-    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         qleverfile_args = super().relevant_qleverfile_arguments()
         if qleverfile_args.get("data"):
             qleverfile_args["data"].append("name")
