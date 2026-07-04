@@ -8,6 +8,7 @@ from typing import List, Dict, Tuple
 import rdflib
 
 import sparql_conformance.util as util
+from sparql_conformance import console_report
 try:
     from qlever.log import log
 except ImportError:
@@ -86,12 +87,14 @@ class TestSuite:
     A class to represent a test suite for SPARQL using QLever.
     """
 
-    def __init__(self, name: str, tests: Dict[str, Dict[Tuple[Tuple[str, str], ...], List[TestObject]]], test_count, config: Config, engine_manager: EngineManager, results_dir: str = "./results"):
+    def __init__(self, name: str, tests: Dict[str, Dict[Tuple[Tuple[str, str], ...], List[TestObject]]], test_count, config: Config, engine_manager: EngineManager, results_dir: str = "./results", report_mode: str = "none"):
         """
         Constructs all the necessary attributes for the TestSuite object.
 
         Parameters:
             name (str): Name of the current run.
+            report_mode (str): Console output verbosity; "line" prints a live
+                PASS/FAIL line per test, anything else stays quiet.
         """
         self.name = name
         self.config = config
@@ -102,6 +105,12 @@ class TestSuite:
         self.passed_failed = 0
         self.engine_manager = engine_manager
         self.results_dir = results_dir
+        self.report_mode = report_mode
+
+    def _report_test(self, test: TestObject) -> None:
+        """Print a live per-test result line when in a verbose report mode."""
+        if self.report_mode in ("line", "diff"):
+            console_report.test_line(test)
 
     def evaluate_query(
             self,
@@ -329,6 +338,7 @@ class TestSuite:
                         test.result_format)
                 else:
                     self.process_failed_response(test, query_result)
+                self._report_test(test)
 
             if os.path.exists("./TestSuite.server-log.txt"):
                 server_log = util.read_file("./TestSuite.server-log.txt")
@@ -386,6 +396,7 @@ class TestSuite:
                     self.evaluate_update(expected_state_of_graphs, actual_state_of_graphs, test)
                 else:
                     self.process_failed_response(test, query_update_result)
+                self._report_test(test)
 
             if os.path.exists("./TestSuite.server-log.txt"):
                 server_log = util.read_file("./TestSuite.server-log.txt")
@@ -434,6 +445,7 @@ class TestSuite:
                         status = Status.FAILED
                         error_type = ErrorMessage.EXPECTED_EXCEPTION
                     self.update_test_status(test, status, error_type)
+                self._report_test(test)
 
             if os.path.exists("./TestSuite.server-log.txt"):
                 server_log = util.read_file("./TestSuite.server-log.txt")
@@ -477,6 +489,7 @@ class TestSuite:
                 setattr(test, "protocol_sent", extracted_sent_requests)
                 setattr(test, "response_extracted", extracted_expected_responses)
                 setattr(test, "response", got_responses)
+                self._report_test(test)
             if os.path.exists("./TestSuite.server-log.txt"):
                 server_log = util.read_file("./TestSuite.server-log.txt")
                 self.log_for_all_tests(
@@ -520,6 +533,7 @@ class TestSuite:
                     'response_extracted',
                     extracted_expected_responses)
                 setattr(test, 'response', got_responses)
+                self._report_test(test)
             if os.path.exists('./TestSuite.server-log.txt'):
                 server_log = util.read_file(
                     './TestSuite.server-log.txt')
@@ -554,6 +568,7 @@ class TestSuite:
                         f"{sorted(missing_features)}")
                     self.update_test_status(
                         test, Status.INTENDED, ErrorMessage.NOT_SUPPORTED)
+                    self._report_test(test)
                     continue
                 if i > 0:
                     if not self.engine_manager.reset_graphs(self.config, graph_path):
@@ -572,6 +587,7 @@ class TestSuite:
                     'response_extracted',
                     extracted_expected_responses)
                 setattr(test, 'response', got_responses)
+                self._report_test(test)
             if os.path.exists('./TestSuite.server-log.txt'):
                 server_log = util.read_file(
                     './TestSuite.server-log.txt')
@@ -617,6 +633,7 @@ class TestSuite:
 
                 if not self.prepare_test_environment(graph_key, [test]):
                     mock.stop()
+                    self._report_test(test)
                     continue
 
                 query_result = self.engine_manager.query(self.config, query_text, test.result_format)
@@ -632,6 +649,7 @@ class TestSuite:
                     self.evaluate_query(test.result_file, query_result[1], test, test.result_format)
                 else:
                     self.process_failed_response(test, query_result)
+                self._report_test(test)
 
     def analyze(self):
         """

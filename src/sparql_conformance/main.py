@@ -4,6 +4,7 @@ import json
 import os
 import sys
 
+from sparql_conformance import console_report
 from sparql_conformance.config import Config
 from sparql_conformance.engines.engine_manager import EngineManager
 from sparql_conformance.extract_tests import extract_tests
@@ -130,6 +131,27 @@ def main():
             "Example: --type-alias \"[['xsd:integer','xsd:int']]\""
         ),
     )
+    parser.add_argument(
+        "--report",
+        default="none",
+        choices=["none", "summary", "line"],
+        help=(
+            "Console output verbosity (default: none, only the JSON is written):\n"
+            "  none    - unchanged, no extra console output\n"
+            "  summary - end-of-run totals plus a list of failed tests\n"
+            "  line    - a live PASS/FAIL line per test, plus the summary"
+        ),
+    )
+    parser.add_argument(
+        "--compare-to",
+        default=None,
+        dest="compare_to",
+        metavar="RESULTS_FILE",
+        help=(
+            "Path to a previous <name>.json.bz2 run to compare against; prints "
+            "regressions (newly failing) and fixes (newly passing) at the end."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -180,6 +202,7 @@ def main():
             config=config,
             engine_manager=engine_manager,
             results_dir=args.results_dir,
+            report_mode=args.report,
         )
         suite.run()
         tests_dict, info_dict = suite.build_results_dict()
@@ -197,6 +220,14 @@ def main():
     os.makedirs(args.results_dir, exist_ok=True)
     last_suite.compress_json_bz2(output, os.path.join(args.results_dir, f"{args.name}.json.bz2"))
     print("Finished!")
+
+    if args.report != "none":
+        console_report.print_summary(total_info, suites_data)
+        console_report.print_failures(suites_data)
+
+    if args.compare_to:
+        baseline = console_report.read_json_bz2(args.compare_to)
+        console_report.print_comparison(console_report.compare_runs(baseline, output))
 
 
 if __name__ == "__main__":

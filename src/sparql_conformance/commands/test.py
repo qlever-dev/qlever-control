@@ -3,6 +3,7 @@ from pathlib import Path
 
 from qlever.command import QleverCommand
 from qlever.log import log
+from sparql_conformance import console_report
 from sparql_conformance.config import Config
 from sparql_conformance.engines.blazegraph_manager import BlazegraphManager
 from sparql_conformance.engines.graphdb_manager import GraphdbManager
@@ -65,7 +66,7 @@ class TestCommand(QleverCommand):
             "conformance": ["name", "port", "engine",
                             "graph_store", "sparql11_dir", "sparql10_dir", "custom",
                             "type_alias", "exclude", "include", "binaries_directory",
-                            "results_dir"],
+                            "results_dir", "report", "compare_to"],
             "runtime": ["system"],
             "qlever": ["qlever_image"],
             "oxigraph": ["oxigraph_image"],
@@ -130,7 +131,7 @@ class TestCommand(QleverCommand):
             tests, test_count = extract_tests(config)
             suite = TestSuite(name=args.name, tests=tests, test_count=test_count,
                               config=config, engine_manager=get_engine_manager(args.engine),
-                              results_dir=args.results_dir)
+                              results_dir=args.results_dir, report_mode=args.report)
             suite.run()
             tests_dict, info_dict = suite.build_results_dict()
             suites_data[suite_key] = {"tests": tests_dict, "info": info_dict}
@@ -147,4 +148,13 @@ class TestCommand(QleverCommand):
         os.makedirs(args.results_dir, exist_ok=True)
         last_suite.compress_json_bz2(output, os.path.join(args.results_dir, f"{args.name}.json.bz2"))
         print("Finished!")
+
+        if args.report != "none":
+            console_report.print_summary(total_info, suites_data)
+            console_report.print_failures(suites_data)
+
+        if args.compare_to:
+            baseline = console_report.read_json_bz2(args.compare_to)
+            console_report.print_comparison(console_report.compare_runs(baseline, output))
+
         return True

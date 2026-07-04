@@ -35,6 +35,15 @@ mkdir qlever
 sparql_conformance setup qlever
 sparql_conformance test --include aggregates
 
+# Readable console output while running (default is quiet, only the JSON is written):
+#   --report summary  -> end-of-run totals + list of failed tests
+#   --report line     -> live PASS/FAIL line per test, plus the summary
+sparql_conformance test --report line
+
+# Compare this run against a previous result file; prints regressions
+# (newly failing) and fixes (newly passing). Can be combined with --report.
+sparql_conformance test --compare-to results/old-run.json.bz2
+
 # Example inspecting the engine state after loading test data:
 mkdir qlever
 sparql_conformance setup qlever

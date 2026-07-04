@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import socket
 import subprocess
@@ -60,115 +59,6 @@ class Qleverfile:
     ]
 
     @staticmethod
-    def get_conformance_arguments(arg):
-        """
-        Define all possible parameters for conformance checks.
-        """
-        args = {}
-        args["name"] = arg(
-            "--name",
-            type=str,
-            required=True,
-            help="Name of the result file of the conformance check.",
-        )
-        args["port"] = arg(
-            "--port",
-            type=str,
-            required=True,
-            help="Port which will be used for the SPARQL sever.",
-        )
-        args["graph_store"] = arg(
-            "--graph-store",
-            type=str,
-            required=True,
-            help="Name of the graph store endpoint used for graph store protocol tests.",
-        )
-        args["testsuite_dir"] = arg(
-            "--testsuite-dir",
-            type=str,
-            default=None,
-            help="Path to the test suite directory (used by the analyze command).",
-        )
-        args["sparql11_dir"] = arg(
-            "--sparql11-dir",
-            type=str,
-            default=None,
-            help="Path to the SPARQL 1.1 test suite directory.",
-        )
-        args["sparql10_dir"] = arg(
-            "--sparql10-dir",
-            type=str,
-            default=None,
-            help="Path to the SPARQL 1.0 test suite directory.",
-        )
-        args["custom"] = arg(
-            "--custom",
-            type=json.loads,
-            default=None,
-            help=(
-                "JSON object mapping suite names to directories.\n"
-                "Example: --custom '{\"my-suite\": \"/path/to/dir\"}'"
-            ),
-        )
-        args["type_alias"] = arg(
-            "--type-alias",
-            type=json.loads,
-            required=False,
-            help=("Type mismatches that will be considered intended."
-                  "ex. \"[['http://www.w3.org/2001/XMLSchema#integer', "
-                  "'http://www.w3.org/2001/XMLSchema#int']..."
-                  "['http://www.w3.org/2001/XMLSchema#float',"
-                  "'http://www.w3.org/2001/XMLSchema#double']]\""
-            ),
-        )
-        args["engine"] = arg(
-            "--engine",
-            type=str,
-            choices=[
-                "qlever",
-                "qlever-binaries",
-                "blazegraph",
-                "graphdb",
-                "jena",
-                "mdb",
-                "oxigraph",
-                "virtuoso",
-            ],
-            default="docker",
-            help="Which system to use to run the tests in"
-        )
-        args["exclude"] = arg(
-            "--exclude",
-            type=lambda s: s.split(","),
-            default=[],
-            help=("Tests (names) or test groups to exclude from the run."
-                  "ex. service,entailment,POST - existing graph"
-            )
-        )
-        args["include"] = arg(
-            "--include",
-            type=lambda s: s.split(","),
-            default=None,
-            help=("Tests (names) or test groups to include in the run."
-                  "ex. service,entailment,POST - existing graph"
-            )
-        )
-        args["binaries_directory"] = arg(
-            "--binaries-directory",
-            type=str,
-            required=False,
-            help="Path to the directory of the IndexBuilderMain and ServerMain binaries.",
-            default=""
-        )
-        args["results_dir"] = arg(
-            "--results-dir",
-            type=str,
-            default="./results",
-            help="Directory for the output JSON file (default: ./results).",
-        )
-        return args
-
-    @staticmethod
     def all_arguments():
         """
         Define all possible parameters. A value of `None` means that there is
@@ -188,16 +78,6 @@ class Qleverfile:
         server_args = all_args["server"] = {}
         runtime_args = all_args["runtime"] = {}
         ui_args = all_args["ui"] = {}
-        all_args["conformance"] = Qleverfile.get_conformance_arguments(arg)
-        qlever_binaries_args = all_args["qlever_binaries"] = {}
-        qlever_args = all_args["qlever"] = {}
-        oxigraph_args = all_args["oxigraph"] = {}
-        blazegraph_args = all_args["blazegraph"] = {}
-        graphdb_args = all_args["graphdb"] = {}
-        jena_args = all_args["jena"] = {}
-        mdb_args = all_args["mdb"] = {}
-        virtuoso_args = all_args["virtuoso"] = {}
-        conformance_ui_args = all_args["conformance_ui"] = {}
 
         data_args["name"] = arg(
             "--name", type=str, required=True, help="The name of the dataset"
@@ -552,80 +432,6 @@ class Qleverfile:
             "--ui-container",
             type=str,
             help="The name of the container used for `qlever ui`",
-        )
-
-
-        qlever_args["qlever_image"] = arg(
-            "--qlever-image",
-            type=str,
-            default="docker.io/adfreiburg/qlever:commit-5c6a72a",
-            help="The name of the image when running in a container",
-        )
-
-        from qoxigraph.commands.setup_config import SetupConfigCommand
-        from qvirtuoso.commands.setup_config import (
-            SetupConfigCommand as VirtuosoSetupConfigCommand,
-        )
-
-        oxigraph_args["oxigraph_image"] = arg(
-            "--oxigraph-image",
-            type=str,
-            default="ghcr.io/oxigraph/oxigraph",
-            help="The name of the image when running in a container",
-        )
-
-        blazegraph_args["blazegraph_image"] = arg(
-            "--blazegraph-image",
-            type=str,
-            default="adfreiburg/qblazegraph",
-            help="The name of the image when running in a container",
-        )
-
-        graphdb_args["graphdb_image"] = arg(
-            "--graphdb-image",
-            type=str,
-            default="docker.io/ontotext/graphdb:11.2.1",
-            help="The name of the image when running in a container",
-        )
-
-        jena_args["jena_image"] = arg(
-            "--jena-image",
-            type=str,
-            default="adfreiburg/qjena",
-            help="The name of the image when running in a container",
-        )
-
-        mdb_args["mdb_image"] = arg(
-            "--mdb-image",
-            type=str,
-            default="adfreiburg/millenniumdb",
-            help="The name of the image when running in a container",
-        )
-
-        virtuoso_args["virtuoso_image"] = arg(
-            "--virtuoso-image",
-            type=str,
-            default=VirtuosoSetupConfigCommand.IMAGE,
-            help="The name of the image when running in a container",
-        )
-
-        conformance_ui_args["port"] = arg(
-            '--port',
-            required=False,
-            help='Port of the webserver (default: 3000)',
-            default='3000'
-        )
-        conformance_ui_args["result_directory"] = arg(
-            '--result-directory',
-            required=False,
-            help='Directory containing the results of the SPARQL conformance tests (default: current directory)',
-            default='$(pwd)'
-        )
-        conformance_ui_args["ui_branch"] = arg(
-            '--ui-branch',
-            required=False,
-            help='Branch of sparql-conformance-ui to build the visualization from (default: main)',
-            default='main'
         )
 
         engine_args_module_path = f"{script_name}.qleverfile"
