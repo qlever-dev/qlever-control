@@ -55,7 +55,7 @@ class IndexCommand(QleverCommand):
             working_directory="/opt/index",
         )
 
-    def execute(self, args) -> bool:
+    def execute(self, args, called_from_conformance_test: bool = False) -> bool:
         system = args.system
         input_files = args.input_files
 
@@ -69,7 +69,13 @@ class IndexCommand(QleverCommand):
             f"java {args.jvm_args} -cp {jar_path} com.bigdata.rdf.store.DataLoader "
             f"{args.extra_args} RWStore.properties {input_files}"
         )
-        index_cmd += f" | tee {args.name}.index-log.txt"
+        # Under a conformance test, redirect all output to the log file so the
+        # BlazeGraph banner and DataLoader output do not flood stdout; otherwise
+        # `tee` keeps showing it live.
+        if called_from_conformance_test:
+            index_cmd += f" > {args.name}.index-log.txt 2>&1"
+        else:
+            index_cmd += f" | tee {args.name}.index-log.txt"
 
         image_id = build_cmd = ""
         if args.system == "native":
@@ -129,6 +135,13 @@ class IndexCommand(QleverCommand):
                     "which means that data loading is in progress. Please wait..."
                 )
                 return False
+            # A previously interrupted run can leave a container with this name
+            # in a non-running (Created/Exited) state, which makes the
+            # `docker/podman run --name` below fail with exit code 125. Remove
+            # any such stale container first.
+            Containerize.stop_and_remove_container(
+                args.system, args.index_container
+            )
 
             if not image_id or args.rebuild_image:
                 build_successful = util.build_image(
@@ -150,7 +163,9 @@ class IndexCommand(QleverCommand):
 
         # Run the index command.
         try:
-            util.run_command(index_cmd, show_output=True)
+            util.run_command(
+                index_cmd, show_output=not called_from_conformance_test
+            )
         except Exception as e:
             log.error(f"Building the index failed: {e}")
             return False

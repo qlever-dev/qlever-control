@@ -6,7 +6,7 @@
 SYSTEM = docker
 
 [graphdb]
-GRAPHDB_IMAGE = ontotext/graphdb:10.3.3
+GRAPHDB_IMAGE = ontotext/graphdb:11.2.1
 
 [conformance]
 NAME = graphdb

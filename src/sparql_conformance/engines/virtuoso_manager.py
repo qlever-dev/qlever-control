@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from pathlib import Path
 
 from qlever.log import mute_log
-from qlever.util import run_command
+from qlever.util import is_port_used, run_command
 from qvirtuoso.commands.index import IndexCommand
 from qvirtuoso.commands.query import QueryCommand
 from qvirtuoso.commands.start import StartCommand
@@ -94,6 +95,14 @@ class VirtuosoManager(EngineManager):
                     f"{config.run_id}-index-container "
                     "2>/dev/null || true"
                 )
+                # Docker can keep the host port bound briefly after `rm -f`,
+                # which makes the next test's `run -p <port>:<port>` fail with
+                # "port is already allocated". Wait until the port is actually
+                # free (usually well under a second) before continuing.
+                for _ in range(50):
+                    if not is_port_used(int(config.port)):
+                        break
+                    time.sleep(0.2)
             run_command(
                 f"rm -f {config.run_id}*log.txt "
                 "virtuoso.db virtuoso.trx virtuoso.pxa "

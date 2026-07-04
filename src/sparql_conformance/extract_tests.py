@@ -14,7 +14,7 @@ except ImportError:
 from .config import Config
 from .util import uri_to_path, local_name
 from .test_object import TestObject
-from .protocol_request import ProtocolHeader, ProtocolRequest, ProtocolResponse
+from .protocol_request import ProtocolHeader, ProtocolRequest, ProtocolResponse, render_protocol_requests
 
 # Namespaces
 MF = Namespace("http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#")
@@ -360,6 +360,12 @@ def load_tests_from_manifest(
             protocol_requests = None
             if test_type in ('ProtocolTest', 'GraphStoreProtocolTest'):
                 protocol_requests = extract_protocol_requests(g, action_node)
+                # Structured protocol tests have no textual representation in
+                # the manifest, so render one from the extracted objects. Only
+                # override the comment for the structured path; old-style tests
+                # keep their original rdfs:comment.
+                if protocol_requests:
+                    comment = render_protocol_requests(protocol_requests)
 
             tests.append(TestObject(
                 test=str(test_uri),

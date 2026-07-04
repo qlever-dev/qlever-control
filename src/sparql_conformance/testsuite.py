@@ -254,8 +254,15 @@ class TestSuite:
             self.update_graph_status(list_of_tests, Status.FAILED, ErrorMessage.SERVER_ERROR)
         if index_success and server_success and "Syntax" in list_of_tests[0].type_name:
             self.engine_manager.activate_syntax_test_mode(self.config.server_address, self.config.port)
-        self.log_for_all_tests(list_of_tests, "index_log", index_log)
-        self.log_for_all_tests(list_of_tests, "server_log", server_log)
+        # Cap the logs before copying them onto every test: a verbose engine
+        # (e.g. GraphDB's ~1.9 MB DEBUG index log) would otherwise bloat the
+        # result to gigabytes and exceed the visualize API's max string size.
+        self.log_for_all_tests(
+            list_of_tests, "index_log", util.truncate_log(index_log)
+        )
+        self.log_for_all_tests(
+            list_of_tests, "server_log", util.truncate_log(server_log)
+        )
         return index_success and server_success
 
     def process_failed_response(self, test, query_response: tuple):

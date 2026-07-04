@@ -68,7 +68,14 @@ def config_dict_for_update_ini(
 
 def wrap_cmd_in_container(args, cmd: str) -> str:
     """Wrap the server start command in a container with restart policy."""
-    run_subcommand = "run --restart=unless-stopped --group-add virtuoso"
+    # The container runs rootless (containerize_command adds `-u $(id -u)`),
+    # so add the groups that own the Virtuoso install; otherwise the process
+    # cannot traverse /opt/virtuoso-opensource and exits with code 127.
+    # `virtuoso` covers images where that dir is group-owned by the virtuoso
+    # user; gid 1001 is the owning group in openlink/virtuoso-opensource-7:latest.
+    run_subcommand = (
+        "run --restart=unless-stopped --group-add virtuoso --group-add 1001"
+    )
     if not args.run_in_foreground:
         run_subcommand += " -d"
     return Containerize().containerize_command(

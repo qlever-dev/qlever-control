@@ -287,7 +287,7 @@ class OxigraphManager(EngineManager):
             index_binary=index_binary,
             extra_args="",
             read_only="yes",
-            lenient=True,
+            lenient="yes",
             format="ttl",
         )
         try:

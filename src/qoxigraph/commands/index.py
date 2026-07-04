@@ -123,6 +123,13 @@ class IndexCommand(QleverCommand):
                     "which means that data loading is in progress. Please wait..."
                 )
                 return False
+            # A previously interrupted run can leave a container with this name
+            # in a non-running (Created/Exited) state, which makes the
+            # `docker/podman run --name` below fail with exit code 125. Remove
+            # any such stale container first.
+            Containerize.stop_and_remove_container(
+                args.system, args.index_container
+            )
         else:
             if not util.binary_exists(args.index_binary, "index-binary", args):
                 return False

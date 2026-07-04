@@ -168,7 +168,9 @@ class BlazegraphManager(EngineManager):
         )
         try:
             with mute_log():
-                result = IndexCommand().execute(args)
+                result = IndexCommand().execute(
+                    args, called_from_conformance_test=True
+                )
         except Exception as e:
             return False, str(e)
 

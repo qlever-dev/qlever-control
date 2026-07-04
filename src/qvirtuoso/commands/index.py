@@ -159,10 +159,17 @@ def wrap_cmd_in_container(
     data) into container commands. The server runs detached, while
     ld_dir and rdf_loader_run are executed via `docker exec`.
     """
+    # The container runs rootless (containerize_command adds `-u $(id -u)`),
+    # so add the groups that own the Virtuoso install; otherwise the process
+    # cannot traverse /opt/virtuoso-opensource and exits with code 127.
+    # `virtuoso` covers images where that dir is group-owned by the virtuoso
+    # user; gid 1001 is the owning group in openlink/virtuoso-opensource-7:latest.
     start_cmd = Containerize().containerize_command(
         cmd=f"{start_cmd} -f",
         container_system=args.system,
-        run_subcommand="run -d -e DBA_PASSWORD=dba --group-add virtuoso",
+        run_subcommand=(
+            "run -d -e DBA_PASSWORD=dba --group-add virtuoso --group-add 1001"
+        ),
         image_name=args.image,
         container_name=args.index_container,
         volumes=[("$(pwd)", "/database")],
@@ -313,6 +320,13 @@ class IndexCommand(QleverCommand):
                     "which means that data loading is in progress. Please wait..."
                 )
                 return False
+            # A previously interrupted run can leave a container with this name
+            # in a non-running (Created/Exited) state, which makes the
+            # `docker/podman run --name` below fail with exit code 125. Remove
+            # any such stale container first.
+            Containerize.stop_and_remove_container(
+                args.system, args.index_container
+            )
         else:
             # When running natively, check if the binary exists and works.
             # We use shutil.which instead of util.binary_exists because
