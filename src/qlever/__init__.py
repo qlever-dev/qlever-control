@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pkgutil
 import sys
 from importlib import import_module
 from pathlib import Path
@@ -21,14 +22,21 @@ ENGINE_NAMES = {
 # Default engine_name = script_name without starting 'q' and capitalized
 engine_name = ENGINE_NAMES.get(script_name, script_name[1:].capitalize())
 
-# Each module in `qlever/commands` corresponds to a command. The name
-# of the command is the base name of the module file.
-package_path = Path(__file__).parent.parent / script_name
-command_names = [
-    Path(p).stem
-    for p in package_path.glob("commands/*.py")
-    if p.name != "__init__.py"
-]
+# Each module in `<script_name>/commands` corresponds to a command. The name
+# of the command is the base name of the module file. The commands package is
+# resolved via the import system (not a sibling directory of `qlever`), so
+# command packages from separately installed distributions (e.g.
+# sparql-conformance) and editable installs work alike. When invoked under a
+# name that is no installed package (e.g. via pytest), there are no commands.
+try:
+    _commands_module = import_module(f"{script_name}.commands")
+    command_names = [
+        name
+        for _, name, ispkg in pkgutil.iter_modules(_commands_module.__path__)
+        if not ispkg
+    ]
+except ImportError:
+    command_names = []
 
 # Dynamically load all the command classes and create an object for each.
 command_objects = {}

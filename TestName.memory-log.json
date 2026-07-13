@@ -1,0 +1,14 @@
+{
+  "engine": "_main__",
+  "dataset": "TestName",
+  "start_time": "2026-07-06T22:58:22",
+  "peak_rss_bytes": 0,
+  "peak_rss_human": "0.00 B",
+  "elapsed_s": 0.0,
+  "samples": [
+    {
+      "elapsed_s": 0.0,
+      "rss_bytes": 0
+    }
+  ]
+}

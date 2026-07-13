@@ -21,7 +21,10 @@ classifiers = [
  "Topic :: Database :: Front-Ends"
 ]
 
-dependencies = [ "psutil", "termcolor", "argcomplete", "pyyaml", "rdflib", "requests-sse", "tqdm>=4.60.0" ]
+# sparql-conformance provides the `sparql_conformance` commands package
+# (until it is on PyPI, install it from its repository, e.g.
+# `pip install git+https://github.com/ad-freiburg/sparql-conformance`).
+dependencies = [ "psutil", "termcolor", "argcomplete", "pyyaml", "rdflib", "requests-sse", "tqdm>=4.60.0", "sparql-conformance>=0.1.0" ]
 
 [project.optional-dependencies]
 dev = [ "ruff", "pre-commit" ]
