@@ -44,6 +44,8 @@ class TestStartCommand(unittest.TestCase):
                     "use_patterns",
                     "use_text_index",
                     "metrics_log",
+                    "resource_usage_log",
+                    "resource_usage_interval",
                     "preload_materialized_views",
                     "warmup_cmd",
                     "enable_metrics",

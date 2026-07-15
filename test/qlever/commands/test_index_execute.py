@@ -2,22 +2,13 @@ from __future__ import annotations
 
 import shlex
 import unittest
-from contextlib import contextmanager
-from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
 from qlever.commands.index import IndexCommand
 
 
-@contextmanager
-def fake_resource_monitor(**kwargs):
-    """Stand-in for ResourceMonitor that records no samples."""
-    yield SimpleNamespace(peak_rss=0)
-
-
 # Test execute of index command for basic case with successful execution
 class TestIndexCommand(unittest.TestCase):
-    @patch("qlever.commands.index.ResourceMonitor", new=fake_resource_monitor)
     @patch("qlever.util.run_command")
     @patch("qlever.commands.index.run_command")
     @patch("qlever.commands.index.Containerize")
@@ -59,6 +50,8 @@ class TestIndexCommand(unittest.TestCase):
         args.encode_as_id = None
         args.parser_buffer_size = None
         args.materialized_views = None
+        args.resource_usage_log = "yes"
+        args.resource_usage_interval = 1
 
         # Mock input_files_exist, get_total_file_size,
         # get_existing_index_files, run_command and containerize
@@ -233,7 +226,6 @@ class TestIndexCommand(unittest.TestCase):
         mock_run_command.assert_called_once_with(f"{args.index_binary} --help")
 
     # Test execute for file size > 10gb
-    @patch("qlever.commands.index.ResourceMonitor", new=fake_resource_monitor)
     @patch("qlever.util.run_command")
     @patch("qlever.commands.index.run_command")
     @patch("qlever.commands.index.Containerize")
@@ -275,6 +267,8 @@ class TestIndexCommand(unittest.TestCase):
         args.encode_as_id = None
         args.parser_buffer_size = None
         args.materialized_views = None
+        args.resource_usage_log = "yes"
+        args.resource_usage_interval = 1
 
         # Mock input_files_exist, get_total_file_size,
         # get_existing_index_files, run_command and containerize
@@ -388,6 +382,8 @@ class TestIndexCommand(unittest.TestCase):
         args.encode_as_id = None
         args.parser_buffer_size = None
         args.materialized_views = None
+        args.resource_usage_log = "yes"
+        args.resource_usage_interval = 1
 
         # Mock get_input_options_for_json
         mock_input_json.return_value = "test_input_stream"

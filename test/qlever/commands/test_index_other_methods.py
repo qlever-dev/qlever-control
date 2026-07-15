@@ -47,6 +47,7 @@ class TestIndexCommand(unittest.TestCase):
                     "text_index",
                     "stxxl_memory",
                     "parser_buffer_size",
+                    "resource_usage_log",
                     "resource_usage_interval",
                     "resource_usage_plot_max_points",
                 ],

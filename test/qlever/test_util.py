@@ -1,9 +1,12 @@
+import argparse
+
 import pytest
 
 from qlever.util import (
     container_memory_to_bytes,
     get_random_string,
     parse_git_hash,
+    positive_int,
 )
 
 
@@ -56,6 +59,24 @@ def test_parse_git_hash_reads_first_line_only(first_line, expected, tmp_path):
     # Second line also carries a hash; only the first line should count.
     path.write_text(first_line + "\nsomething git hash deadbeef here\n")
     assert parse_git_hash(path) == expected
+
+
+@pytest.mark.parametrize("value,expected", [("1", 1), ("500", 500)])
+def test_positive_int_accepts(value, expected):
+    assert positive_int(value) == expected
+
+
+@pytest.mark.parametrize("value", ["0", "-3"])
+def test_positive_int_rejects_non_positive(value):
+    with pytest.raises(argparse.ArgumentTypeError):
+        positive_int(value)
+
+
+@pytest.mark.parametrize("value", ["1.5", "abc"])
+def test_positive_int_rejects_non_integer(value):
+    # argparse also treats a plain `ValueError` as invalid input
+    with pytest.raises(ValueError):
+        positive_int(value)
 
 
 def test_parse_git_hash_missing_file(tmp_path):

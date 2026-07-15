@@ -561,6 +561,19 @@ def container_memory_to_bytes(memory_string: str) -> int:
     return 0
 
 
+def positive_int(value: str) -> int:
+    """
+    Parse a CLI value as an `int` and reject anything that is not a
+    positive integer. Used as an argparse `type`.
+    """
+    number = int(value)
+    if number <= 0:
+        raise argparse.ArgumentTypeError(
+            f"Invalid value '{value}'. Must be a positive integer."
+        )
+    return number
+
+
 def add_memory_options(subparser, index=True, server=True):
     """
     Add total memory-related options to a subparser for setup-config command.

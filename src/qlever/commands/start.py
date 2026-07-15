@@ -50,6 +50,15 @@ def construct_command(args) -> str:
         start_cmd += " --enable-metrics"
     if args.metrics_log == "no":
         start_cmd += " --no-metrics-log"
+    # The server samples its own RSS and CPU usage by default. Only
+    # pass the flags for non-default settings, so that older binaries
+    # without these options keep working.
+    if args.resource_usage_log == "no":
+        start_cmd += " --no-resource-usage-log"
+    elif args.resource_usage_interval != 2:
+        start_cmd += (
+            f" --resource-usage-interval-s {args.resource_usage_interval}"
+        )
     preload_materialized_views = vars(args).get("preload_materialized_views")
     if preload_materialized_views:
         start_cmd += " --preload-materialized-views"
@@ -161,6 +170,8 @@ class StartCommand(QleverCommand):
                 "use_patterns",
                 "use_text_index",
                 "metrics_log",
+                "resource_usage_log",
+                "resource_usage_interval",
                 "preload_materialized_views",
                 "warmup_cmd",
                 "enable_metrics",
