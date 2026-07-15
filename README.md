@@ -41,6 +41,8 @@ If you want to make changes to the script, or add new commands, do as follows:
 git clone https://github.com/ad-freiburg/qlever-control
 cd qlever-control
 pip install -e ".[dev]"
+# To also render index resource-usage plots, add the "plot" extra:
+# pip install -e ".[dev,plot]"
 ```
 
 Then you can use `qlever` just as if you had installed it via `pip install

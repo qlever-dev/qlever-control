@@ -264,6 +264,21 @@ class Qleverfile:
             help="File with the documents for the text index (one line "
             "per document, format: `id\tdocument text`)",
         )
+        index_args["resource_usage_interval"] = arg(
+            "--resource-usage-interval",
+            type=float,
+            default=1.0,
+            help="Seconds between resource-usage samples (memory, CPU) "
+            "collected during the index build",
+        )
+        index_args["resource_usage_plot_max_points"] = arg(
+            "--resource-usage-plot-max-points",
+            type=int,
+            default=500,
+            help="Maximum number of points per line (RSS and CPU) in "
+            "the resource-usage plot. Sampling is unaffected; samples "
+            "are bucketed and reduced with max",
+        )
 
         server_args["server_binary"] = arg(
             "--server-binary",
@@ -352,12 +367,27 @@ class Qleverfile:
             help="Whether to use the patterns precomputed during the index "
             "build (see `qlever index --help` for their utility)",
         )
+        server_args["metrics_log"] = arg(
+            "--metrics-log",
+            choices=["yes", "no"],
+            default="yes",
+            help="Whether to produce the per-query metrics log, a JSONL log of "
+            "query start/end events (`.metrics-log.jsonl`)",
+        )
         server_args["use_text_index"] = arg(
             "--use-text-index",
             choices=["yes", "no"],
             default="no",
             help="Whether to use the text index (requires that one was "
             "built, see `qlever index`)",
+        )
+        server_args["preload_materialized_views"] = arg(
+            "-l",
+            "--preload-materialized-views",
+            nargs="+",
+            default=None,
+            help="Names of one or more materialized views to preload on "
+            "startup",
         )
         server_args["warmup_cmd"] = arg(
             "--warmup-cmd",
@@ -399,6 +429,15 @@ class Qleverfile:
             "--server-container",
             type=str,
             help=f"The name of the container used by `{script_name} start`",
+        )
+        runtime_args["restart_policy"] = arg(
+            "--restart-policy",
+            type=str,
+            choices=["no", "always", "unless-stopped", "on-failure"],
+            default="unless-stopped",
+            help="Restart policy for the server container"
+            " (only applies when running in a container)"
+            " (default: unless-stopped)",
         )
 
         ui_args["ui_port"] = arg(

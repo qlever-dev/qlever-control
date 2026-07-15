@@ -162,12 +162,12 @@ class TestCacheStatsCommand(unittest.TestCase):
         # Mock the responses with invalid cache size format
         mock_check_output.side_effect = [
             b'{"pinned-size": 2e9, "non-pinned-size": 1e9}',
-            # Mock cache stats with invalid cache settings
-            b'{"cache-max-size": "1000 MB"}',
+            # Mock cache stats with unparseable cache settings
+            b'{"cache-max-size": "1000 XB"}',
         ]
         mock_json_loads.side_effect = [
             {"pinned-size": 2e9, "non-pinned-size": 1e9},
-            {"cache-max-size": "1000 MB"},
+            {"cache-max-size": "1000 XB"},
         ]
 
         # Execute the command
@@ -175,8 +175,7 @@ class TestCacheStatsCommand(unittest.TestCase):
 
         # Assertions to verify that error was logged
         mock_log.error.assert_called_once_with(
-            "Cache size 1000 MB is not in GB, QLever should return "
-            "bytes instead"
+            'Cannot parse cache size: "1000 XB"'
         )
 
         self.assertFalse(result)

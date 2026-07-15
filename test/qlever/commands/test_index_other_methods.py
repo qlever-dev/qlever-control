@@ -47,6 +47,8 @@ class TestIndexCommand(unittest.TestCase):
                     "text_index",
                     "stxxl_memory",
                     "parser_buffer_size",
+                    "resource_usage_interval",
+                    "resource_usage_plot_max_points",
                 ],
                 "runtime": ["system", "image", "index_container"],
             },
@@ -66,7 +68,11 @@ class TestIndexCommand(unittest.TestCase):
         self.assertEqual(args.overwrite_existing, False)
 
         # Test that the help text for cmdline_regex is correctly set
-        argument_help = subparser._group_actions[-1].help
+        argument_help = next(
+            action
+            for action in subparser._group_actions
+            if action.dest == "overwrite_existing"
+        ).help
         self.assertEqual(
             argument_help,
             "Overwrite an existing index, think twice before using this",

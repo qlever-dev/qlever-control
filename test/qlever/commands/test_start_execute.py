@@ -25,6 +25,7 @@ def test_construct_command_with_if():
     args.use_patterns = "no"
     args.use_text_index = "yes"
     args.enable_metrics = False
+    args.preload_materialized_views = ["view-1", "view-2"]
 
     # Execute the function
     result = qlever.commands.start.construct_command(args)
@@ -43,6 +44,7 @@ def test_construct_command_with_if():
         " --only-pso-and-pos-permutations"
         " --no-patterns"
         " -t"
+        " --preload-materialized-views view-1 view-2"
         f" > {args.name}.server-log.txt 2>&1"
     )
     assert result == start_command
@@ -67,6 +69,7 @@ def test_construct_command_without_if():
     args.use_patterns = True
     args.use_text_index = "no"
     args.enable_metrics = False
+    args.preload_materialized_views = None
 
     # Execute the function
     result = qlever.commands.start.construct_command(args)
@@ -96,6 +99,7 @@ def test_wrap_command_in_container(mock_containerize_command):
     args.system = "native"
     args.image = None
     args.run_in_foreground = False
+    args.restart_policy = "unless-stopped"
 
     # Mock wrap_command_in_container
     mock_containerize_command.return_value = "Test_Container_Command"
@@ -353,6 +357,7 @@ class TestStartCommand(unittest.TestCase):
         args.use_patterns = "no"
         args.use_text_index = "yes"
         args.enable_metrics = False
+        args.preload_materialized_views = None
 
         # Configure Path mock so the log file wait loop is skipped
         self._mock_log_file(mock_path_cls, args.name)
