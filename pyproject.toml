@@ -21,10 +21,7 @@ classifiers = [
  "Topic :: Database :: Front-Ends"
 ]
 
-# sparql-conformance provides the `sparql_conformance` commands package
-# (until it is on PyPI, install it from its repository, e.g.
-# `pip install git+https://github.com/ad-freiburg/sparql-conformance`).
-dependencies = [ "psutil", "termcolor", "argcomplete", "pyyaml", "rdflib", "requests-sse", "tqdm>=4.60.0", "sparql-conformance>=0.1.0" ]
+dependencies = [ "psutil", "termcolor", "argcomplete", "pyyaml", "rdflib", "requests-sse", "tqdm>=4.60.0" ]
 
 [project.optional-dependencies]
 dev = [ "ruff", "pre-commit" ]
@@ -43,7 +40,6 @@ bugtracker = "https://github.com/ad-freiburg/qlever/issues"
 "qmdb" = "qlever.qlever_main:main"
 "qoxigraph" = "qlever.qlever_main:main"
 "qvirtuoso" = "qlever.qlever_main:main"
-"sparql_conformance" = "qlever.qlever_main:main"
 
 [tool.setuptools]
 package-data = { "qlever" = ["Qleverfiles/*", "evaluation/www/*"] }

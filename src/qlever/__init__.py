@@ -22,12 +22,9 @@ ENGINE_NAMES = {
 # Default engine_name = script_name without starting 'q' and capitalized
 engine_name = ENGINE_NAMES.get(script_name, script_name[1:].capitalize())
 
-# Each module in `<script_name>/commands` corresponds to a command. The name
-# of the command is the base name of the module file. The commands package is
-# resolved via the import system (not a sibling directory of `qlever`), so
-# command packages from separately installed distributions (e.g.
-# sparql-conformance) and editable installs work alike. When invoked under a
-# name that is no installed package (e.g. via pytest), there are no commands.
+# Discover commands from `<script_name>.commands`, where each module defines
+# one command. Import-based discovery also supports command packages from
+# separately installed projects, such as `sparql_conformance.commands`.
 try:
     _commands_module = import_module(f"{script_name}.commands")
     command_names = [

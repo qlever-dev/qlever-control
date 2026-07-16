@@ -21,6 +21,15 @@ On other platforms simply install the `qlever` command-line
 [python package using `pipx`/`uv`](https://docs.qlever.dev/quickstart/#others).
 Note: QLever will be executed in a container which will come with a performance penalty.
 
+# Optional SPARQL conformance integration
+
+The `qlever` package is independent of the SPARQL conformance test harness and
+does not install it. To use the integrated
+`sparql_conformance setup|test|analyze|visualize` workflow, install the
+[`sparql-conformance`](https://github.com/SIRDNARch/sparql-conformance)
+package separately. That package owns the `sparql_conformance` command and
+loads qlever-control only when the integration is used.
+
 # Use with your own dataset
 
 To use QLever with your own dataset, you need a `Qleverfile`, like in the
