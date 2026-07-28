@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import glob
 import gzip
+import json
 import random
 import re
 import shutil
@@ -10,7 +11,10 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
+
+from rdflib import Graph, Literal, URIRef
 
 from qlever.command import QleverCommand
 from qlever.log import log
@@ -75,7 +79,8 @@ class CheckSyncWithWikidataCommand(QleverCommand):
     def additional_arguments(self, subparser) -> None:
         subparser.add_argument(
             "--sparql-endpoint",
-            help="URL of the QLever server, default is {host_name}:{port}",
+            help="URL of the QLever server,"
+            " default is http://{host_name}:{port}",
         )
         subparser.add_argument(
             "--entities",
@@ -140,8 +145,6 @@ class CheckSyncWithWikidataCommand(QleverCommand):
         from the entity (plus their references and values), and the sitelink
         article blocks.
         """
-        from rdflib import Graph
-
         e = f"<{WD}{entity_id}>"
         # NOTE: Statement IRIs of old statements contain the entity ID in
         # lowercase.
@@ -210,16 +213,9 @@ class CheckSyncWithWikidataCommand(QleverCommand):
         normalization is done manually, minus the counters (see
         `EXCLUDED_ENTITY_PREDICATES`). Returns `(graph, version)`.
         """
-        from rdflib import Graph, URIRef
-
         if munge_script is not None:
             graph = self.munge(ttl_bytes, munge_script, keep_dir)
-            version = None
-            for o in graph.objects(
-                URIRef(f"{WD}{entity_id}"), URIRef(f"{SCHEMA}version")
-            ):
-                version = str(o)
-            return graph, version
+            return graph, self.entity_version(graph, entity_id)
 
         graph = Graph()
         graph.parse(data=ttl_bytes, format="turtle")
@@ -242,8 +238,6 @@ class CheckSyncWithWikidataCommand(QleverCommand):
         Run the given `munge.sh` on the given canonical TTL and return the
         parsed result.
         """
-        from rdflib import Graph
-
         workdir = Path(tempfile.mkdtemp(prefix="qlever-check-sync."))
         try:
             input_path = workdir / "input.ttl"
@@ -262,6 +256,7 @@ class CheckSyncWithWikidataCommand(QleverCommand):
                 ],
                 capture_output=True,
                 text=True,
+                timeout=300,
             )
             output_path = workdir / "wikidump-000000001.ttl.gz"
             if result.returncode != 0 or not output_path.exists():
@@ -283,8 +278,6 @@ class CheckSyncWithWikidataCommand(QleverCommand):
     # Sampling via the MediaWiki API.
 
     def mediawiki_api(self, params):
-        import json
-
         url = "https://www.wikidata.org/w/api.php?" + urllib.parse.urlencode(
             {**params, "format": "json"}
         )
@@ -350,10 +343,6 @@ class CheckSyncWithWikidataCommand(QleverCommand):
         exact; all other numbers are rounded to 12 significant digits, with a
         unified datatype marker.
         """
-        from decimal import Decimal, InvalidOperation
-
-        from rdflib import Literal
-
         numeric_datatypes = {
             "http://www.w3.org/2001/XMLSchema#decimal",
             "http://www.w3.org/2001/XMLSchema#integer",
@@ -383,8 +372,6 @@ class CheckSyncWithWikidataCommand(QleverCommand):
         `EXCLUDED_ENTITY_PREDICATES`); with munging, the munge script computes
         them on the canonical side, so they are compared like all others.
         """
-        from rdflib import Literal
-
         entity = f"{WD}{entity_id}"
         lines = set()
         for s, p, o in graph:
@@ -423,9 +410,10 @@ class CheckSyncWithWikidataCommand(QleverCommand):
 
         return re.sub(r"-?\d+(\.\d+)?", round_number, wkt.strip().upper())
 
-    def qlever_version(self, graph, entity_id):
-        from rdflib import URIRef
-
+    def entity_version(self, graph, entity_id):
+        """
+        Return the `schema:version` of the given entity in the given graph.
+        """
         for o in graph.objects(
             URIRef(f"{WD}{entity_id}"), URIRef(f"{SCHEMA}version")
         ):
@@ -446,7 +434,7 @@ class CheckSyncWithWikidataCommand(QleverCommand):
             canonical_graph, canonical_version = self.canonical_graph(
                 ttl_bytes, entity_id, munge_script, keep_dir
             )
-            qlever_version = self.qlever_version(qlever_graph, entity_id)
+            qlever_version = self.entity_version(qlever_graph, entity_id)
             if canonical_version is None or qlever_version is None:
                 log.warning(
                     f"{entity_id}: could not determine version"
@@ -515,8 +503,15 @@ class CheckSyncWithWikidataCommand(QleverCommand):
             return True
 
         keep_dir = Path.cwd() if args.keep_files else None
+        if not 0.0 <= args.recent_fraction <= 1.0:
+            log.error("`--recent-fraction` must be between 0.0 and 1.0")
+            return False
         if args.entities:
-            entities = args.entities.split(",")
+            entities = [e.strip() for e in args.entities.split(",")]
+            invalid = [e for e in entities if not re.fullmatch(r"Q\d+", e)]
+            if invalid:
+                log.error(f"Invalid entity IDs: {invalid}")
+                return False
         else:
             log.info(
                 f"Sampling {args.num_entities} entities"
