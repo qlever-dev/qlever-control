@@ -22,6 +22,7 @@ from qlever.monitor_queries.log_reader import (
     open_log_buffer,
     read_first_timestamp,
 )
+from qlever.monitor_queries.resource_data import system_totals
 from qlever.monitor_queries.util import clipboard_install_hint, copy_text
 from qlever.monitor_queries.views.historic import HistoricScreen
 from qlever.monitor_queries.views.live import LiveScreen
@@ -73,6 +74,8 @@ class MonitorQueriesApp(App):
         timeout: int,
         slow_threshold: int,
         refresh_interval: float,
+        resource_log: Path,
+        sample_interval_s: int,
         system: str = "docker",
     ) -> None:
         super().__init__()
@@ -82,6 +85,13 @@ class MonitorQueriesApp(App):
         self.window_pad_ms = 2000 * timeout
         self.slow_threshold = slow_threshold
         self.refresh_interval = refresh_interval
+        self.resource_log = resource_log
+        # Seconds between the log's samples, as the server was started.
+        # Sizes the live buffer and how long a sample counts as fresh.
+        self.sample_interval_s = sample_interval_s
+        # Host-wide RAM/core capacities for the resource plot axes; fixed
+        # for the machine's lifetime and shared by Live and Historic.
+        self.resource_totals = system_totals()
         self.system = system
         self.live_state = LiveState()
         self.log_start_ms = None

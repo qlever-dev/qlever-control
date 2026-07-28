@@ -55,17 +55,40 @@ NavPill:hover {
     background: $accent-lighten-2;
 }
 
-/* LiveStatusRow */
+/* ResourceRow: RSS sparkline | server status | CPU sparkline.
+   Three rows tall; the sparklines spend the top one on their border. */
 
-LiveStatusRow {
-    height: 1;
+ResourceRow {
+    height: 3;
     width: 100%;
-    text-align: center;
-    text-style: italic;
     margin-bottom: 1;
-    color: $text;
+    margin-left: 1;
+    margin-right: 1;
 }
 
+/* A blank top border: it reserves the row and carries the label/reading,
+   but draws no rule, so only the title text shows above the 2 rows of bars.
+   The bars color themselves green→red by load in ResourceSparkline.render. */
+ResourceRow ResourceSparkline {
+    width: 1fr;
+    height: 3;
+    border-top: blank $surface;
+    border-title-align: center;
+    border-title-color: $text;
+}
+
+/* Width is pinned in Python to the widest subtitle line; content-box keeps
+   that the text width so padding adds around it. The sparklines (1fr) split
+   the rest of the row. */
+ResourceRow .resource-center {
+    box-sizing: content-box;
+    height: 3;
+    padding: 0 4;
+    content-align: center bottom;
+    text-align: center;
+    text-style: italic;
+    color: $text;
+}
 
 /* MetricsRow */
 
@@ -77,6 +100,12 @@ MetricsRow {
 
 QueryTable.stale, MetricsRow.stale {
     color: $text-muted;
+}
+
+/* Frozen resource gauges. text-opacity, not color, so the bars'
+   inline per-cell colors dim along with the title and status. */
+ResourceRow.stale {
+    text-opacity: 50%;
 }
 
 /* Timeline (Historic only) */
@@ -134,6 +163,17 @@ QueryTable.stale > .datatable--header {
     height: 1;
     margin-left: 1;
     color: $text-muted;
+}
+
+/* DetailSwitcher */
+
+DetailSwitcher {
+    height: 1fr;
+}
+
+DetailSwitcher ResourcePlotPane {
+    height: 1fr;
+    padding: 0 0 0 1;
 }
 
 /* SparqlPane */
@@ -249,4 +289,21 @@ FilterModal {
 
 #filter-modal Input {
     margin-bottom: 1;
+}
+
+/* ResourcePlotModal */
+
+ResourcePlotModal {
+    align: center middle;
+}
+
+#resource-plot-modal {
+    width: 90%;
+    height: 90%;
+    padding: 1 2;
+    background: $surface;
+}
+
+#resource-plot-modal PlotextPlot {
+    height: 1fr;
 }

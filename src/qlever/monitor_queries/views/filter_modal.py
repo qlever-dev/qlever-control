@@ -52,7 +52,7 @@ class FilterModal(ModalScreen[FilterState | None]):
             for status in FILTER_STATUSES
         ]
         with Vertical(id="filter-modal"):
-            yield Label("Filter", id="filter-title")
+            yield Label("Filter (selected window only)", id="filter-title")
             yield Label("Status (space to toggle)", classes="filter-section")
             yield SelectionList(*selections, id="filter-statuses")
             min_duration = self.filters.min_duration_s
@@ -80,6 +80,8 @@ class FilterModal(ModalScreen[FilterState | None]):
 
     def action_apply(self) -> None:
         """Return a FilterState from the checked statuses and the inputs."""
+        if not self.is_current:
+            return
         selected = self.query_one(SelectionList).selected
         duration = self.query_one("#filter-duration", Input).value.strip()
         min_duration_s = int(duration) if duration.isdigit() else None
@@ -96,7 +98,8 @@ class FilterModal(ModalScreen[FilterState | None]):
 
     def action_cancel(self) -> None:
         """Close without changing the active filters."""
-        self.dismiss(None)
+        if self.is_current:
+            self.dismiss(None)
 
     def on_click(self, event: events.Click) -> None:
         """Cancel when the dimmed area outside the drawer is clicked."""
