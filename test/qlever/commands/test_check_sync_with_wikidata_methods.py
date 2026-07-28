@@ -79,13 +79,17 @@ class TestCheckSyncWithWikidataCommand(unittest.TestCase):
         )
 
     def test_canonical_wkt(self):
-        # Coordinates are rounded to 6 decimal places and the keyword is
+        # Coordinates are rounded to 5 decimal places and the keyword is
         # uppercased, matching the fixed-precision encoding of QLever.
         self.assertEqual(
             self.command.canonical_wkt(
                 "Point(-0.14544444444444 51.566527777778)"
             ),
             self.command.canonical_wkt("POINT(-0.145444 51.566528)"),
+        )
+        self.assertEqual(
+            self.command.canonical_wkt("Point(5.483421 50.642359)"),
+            self.command.canonical_wkt("POINT(5.48342 50.642359)"),
         )
 
     def test_normalize_triples_exclusions(self):

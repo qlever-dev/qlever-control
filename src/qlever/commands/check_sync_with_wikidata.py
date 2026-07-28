@@ -48,8 +48,9 @@ EXCLUDED_TYPE_OBJECTS = {f"{WIKIBASE}Reference"}
 EXCLUDED_PREDICATES = {f"{WIKIBASE}quantityNormalized"}
 
 # Geographic coordinates are stored by QLever in a fixed-precision encoding
-# (roughly 1e-6 degrees) and exported in a normalized form, so they are
-# compared after rounding to 6 decimal places.
+# and exported in a normalized form; differences up to 1e-6 degrees have been
+# observed (5.483421 came back as 5.48342), so they are compared after
+# rounding to 5 decimal places.
 GEO_COMPONENT_PREDICATES = {
     f"{WIKIBASE}geoLatitude",
     f"{WIKIBASE}geoLongitude",
@@ -445,7 +446,7 @@ class CheckSyncWithWikidataCommand(QleverCommand):
             if str(p) in EXCLUDED_PREDICATES:
                 continue
             if str(p) in GEO_COMPONENT_PREDICATES and isinstance(o, Literal):
-                object_string = f'"{round(float(str(o)), 6)}"^^GEO'
+                object_string = f'"{round(float(str(o)), 5)}"^^GEO'
             elif (
                 isinstance(o, Literal)
                 and o.datatype is not None
@@ -460,12 +461,12 @@ class CheckSyncWithWikidataCommand(QleverCommand):
     def canonical_wkt(self, wkt):
         """
         Return a canonical form of the given WKT literal, with the keyword in
-        uppercase and the coordinates rounded to 6 decimal places (the
-        precision of the fixed-precision encoding used by QLever).
+        uppercase and the coordinates rounded to 5 decimal places (see the
+        comment at `GEO_COMPONENT_PREDICATES`).
         """
 
         def round_number(match):
-            return str(round(float(match.group(0)), 6))
+            return str(round(float(match.group(0)), 5))
 
         return re.sub(r"-?\d+(\.\d+)?", round_number, wkt.strip().upper())
 
