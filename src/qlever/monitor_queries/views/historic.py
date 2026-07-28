@@ -57,6 +57,7 @@ from qlever.monitor_queries.widgets.mode_picker import MODES, ModePicker
 from qlever.monitor_queries.widgets.nav_pill import NavPill
 from qlever.monitor_queries.widgets.query_table import HistoricQueryTable
 from qlever.monitor_queries.widgets.resource_plot_pane import (
+    MIN_PLOT_POINTS,
     ResourcePlotPane,
     point_budget,
 )
@@ -327,7 +328,7 @@ class HistoricScreen(Screen, inherit_bindings=False):
 
     @work(thread=True, exclusive=True, group="refresh_data")
     def refresh_data(
-        self, rescan: bool, max_points: int | None = None
+        self, rescan: bool, max_points: int = MIN_PLOT_POINTS
     ) -> None:
         """Scan and/or re-filter the window, push rows + metrics + status.
 
@@ -410,7 +411,7 @@ class HistoricScreen(Screen, inherit_bindings=False):
             self.status_text(len(self.all_rows))
         )
         self.refresh_sort_indicator()
-        self.query_one(DetailSwitcher).replot_if_visible()
+        self.query_one(DetailSwitcher).replot()
 
     def historic_resource_plot(self) -> ResourcePlot:
         """Return the current window's resource plot for the pane to draw.
@@ -455,7 +456,7 @@ class HistoricScreen(Screen, inherit_bindings=False):
     def apply_reload_plot(self, plot: ResourcePlot) -> None:
         """Store the re-read plot and redraw the inline pane if shown."""
         self.resource_plot = plot
-        self.query_one(DetailSwitcher).replot_if_visible()
+        self.query_one(DetailSwitcher).replot()
 
     def action_show_plot(self) -> None:
         """Switch the detail pane to the resource plot.

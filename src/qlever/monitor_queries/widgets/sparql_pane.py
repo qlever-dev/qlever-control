@@ -14,8 +14,8 @@ from qlever.monitor_queries.util import format_timestamp, resolve_client_name
 LIGHT_SYNTAX_THEME = "friendly"
 DARK_SYNTAX_THEME = "monokai"
 
-# Shown when no row is selected. Lives here but is also surfaced in the
-# table status row, since the plot hides this pane by default.
+# Shown when no row is selected. Live also puts it in its table status
+# row, where the plot hides this pane by default.
 SELECT_ROW_HINT = (
     "Press Enter or double-click a row to view its full SPARQL query "
     "and details."

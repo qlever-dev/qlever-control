@@ -1,10 +1,10 @@
-"""Tests for the resource data layer: peek, seek, windowed read, plot."""
+"""Tests for the resource data layer: parse, tail, seek, windowed read, plot."""
 
 import io
 
 import pytest
 
-from qlever.monitor_queries.models import ResourceSample
+from qlever.monitor_queries.models import ResourceSample, ResourceTotals
 from qlever.monitor_queries.resource_data import (
     SEEK_BACKUP_BYTES,
     get_resource_plot,
@@ -14,7 +14,7 @@ from qlever.monitor_queries.resource_data import (
 )
 
 HEADER = "elapsed_s\ttimestamp_ms\trss\tcpu_percent\n"
-TOTALS = (134.0, 64.0)
+TOTALS = ResourceTotals(ram_gb=134.0, cores=64.0)
 
 
 def format_rows(rows):

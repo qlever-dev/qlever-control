@@ -145,6 +145,18 @@ class ResourceSample:
 
 
 @dataclass(frozen=True)
+class ResourceTotals:
+    """Host capacities the gauges and plot axes scale against.
+
+    Read once at startup and fixed for the machine's lifetime. cores is
+    None when the count could not be read.
+    """
+
+    ram_gb: float
+    cores: float | None
+
+
+@dataclass(frozen=True)
 class ResourceSeries:
     """One sparkline's data, already in display units.
 

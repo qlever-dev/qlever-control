@@ -1,3 +1,10 @@
+"""Full-screen modal showing the resource plot.
+
+The pane inside owns the drawing; the modal only handles closing. A
+historic plot re-reads its window at the modal's wider width, so
+maximizing adds detail instead of stretching the inline pane's points.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable

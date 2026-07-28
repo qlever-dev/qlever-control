@@ -97,7 +97,7 @@ class ResourceSparkline(Static):
         total = self.series.total
         if width < 1 or height < 1 or not total or not self.series.values:
             return Text()
-        # One (height, color) per column, both from the column's load ratio.
+        # One (height, color) per column, both from the curved load.
         cells = []
         for value in bucket_max(self.series.values, width):
             load = min(1.0, max(0.0, value / total))

@@ -1,8 +1,8 @@
-"""Data layer for the Live header's resource sparklines.
+"""Data layer for the server's resource-usage log.
 
-Owns the rolling buffer of recent resource samples and turns it into the
-render models the ResourceRow draws. The buffer is the living state; each
-read produces a fresh, immutable snapshot of it.
+Live tails the log into a rolling buffer; Historic reads a past window
+straight off disk. Both turn samples into the immutable render models the
+sparklines and the plot draw, so no widget does unit math of its own.
 """
 
 from collections import deque
@@ -16,39 +16,46 @@ from qlever.monitor_queries.models import (
     ResourcePlot,
     ResourceSample,
     ResourceSeries,
+    ResourceTotals,
     ResourceUsage,
 )
 
-SAMPLE_INTERVAL_S = 2
 LIVE_WINDOW_S = 300
-BUFFER_SIZE = LIVE_WINDOW_S // SAMPLE_INTERVAL_S
 
-# A sample this recent means the qlever-server process is alive right
-# now. Three intervals, so a single missed sample still counts as live.
-RESOURCE_FRESH_S = SAMPLE_INTERVAL_S * 3
+# Intervals without a sample before the server counts as gone. Three, so
+# a single missed sample still counts as live.
+FRESH_INTERVALS = 3
 
-# Bytes to read from the tail when seeding the buffer, a generous 64 per
-# row so the last BUFFER_SIZE rows always fit however large the log grew.
-SEED_TAIL_BYTES = BUFFER_SIZE * 64
+# Bytes to read from the tail per buffered row when seeding, a generous
+# 64 so the whole window always fits however large the log grew.
+SEED_BYTES_PER_ROW = 64
 
 
-def system_totals() -> tuple[float, float | None]:
-    """The sparkline scale denominators: (total RAM in GB, logical cores).
+def buffer_size(sample_interval_s: int) -> int:
+    """Samples the live window holds at this logging interval."""
+    return max(1, LIVE_WINDOW_S // sample_interval_s)
 
-    Read once at screen setup; both stay fixed for the machine's lifetime.
-    """
-    return psutil.virtual_memory().total / 1e9, psutil.cpu_count()
+
+def system_totals() -> ResourceTotals:
+    """Read the host's RAM and core count, the scales everything shows against."""
+    return ResourceTotals(
+        ram_gb=psutil.virtual_memory().total / 1e9,
+        cores=psutil.cpu_count(),
+    )
 
 
 class ResourceHistory:
     """Rolling buffer of the most recent resource samples.
 
-    maxlen makes it a ring: appending past BUFFER_SIZE drops the oldest,
-    so it always holds the last LIVE_WINDOW_S seconds of readings.
+    maxlen makes it a ring: appending past the size drops the oldest, so
+    it always holds the last LIVE_WINDOW_S seconds of readings. The size
+    follows the log's sampling interval, so the window stays 5 minutes
+    whatever interval the server was started with.
     """
 
-    def __init__(self) -> None:
-        self.samples = deque(maxlen=BUFFER_SIZE)
+    def __init__(self, sample_interval_s: int) -> None:
+        self.size = buffer_size(sample_interval_s)
+        self.samples = deque(maxlen=self.size)
 
     def add(self, sample: ResourceSample) -> None:
         self.samples.append(sample)
@@ -85,9 +92,10 @@ class ResourceLogReader:
     before the metrics-log and ping checks.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, buffered_rows: int) -> None:
         self.cursor = 0
         self.last_ts_ms = None
+        self.tail_bytes = buffered_rows * SEED_BYTES_PER_ROW
 
     def seed(self, stream: BinaryIO, now_ms: int) -> list[ResourceSample]:
         """Backfill the last window from the tail of the log, once.
@@ -100,7 +108,7 @@ class ResourceLogReader:
         starts as a true LIVE_WINDOW_S window rather than stale history.
         """
         stream.seek(0, 2)
-        start = max(0, stream.tell() - SEED_TAIL_BYTES)
+        start = max(0, stream.tell() - self.tail_bytes)
         stream.seek(start)
         if start > 0:
             stream.readline()
@@ -132,7 +140,9 @@ class ResourceLogReader:
         return samples
 
 
-def is_resource_sample_fresh(last_ts_ms: int | None, now_ms: int) -> bool:
+def is_resource_sample_fresh(
+    last_ts_ms: int | None, now_ms: int, sample_interval_s: int
+) -> bool:
     """Whether a sample is recent enough to prove the server is alive.
 
     Used only to promote to reachable; its absence is ambiguous (remote
@@ -140,38 +150,39 @@ def is_resource_sample_fresh(last_ts_ms: int | None, now_ms: int) -> bool:
     """
     if last_ts_ms is None:
         return False
-    return now_ms - last_ts_ms <= RESOURCE_FRESH_S * 1000
+    fresh_ms = FRESH_INTERVALS * sample_interval_s * 1000
+    return now_ms - last_ts_ms <= fresh_ms
 
 
-def zero_pad_left(values: tuple[float, ...]) -> tuple[float, ...]:
-    """Left-pad a partial window up to BUFFER_SIZE with zeros.
+def zero_pad_left(values: tuple[float, ...], size: int) -> tuple[float, ...]:
+    """Left-pad a partial window up to `size` with zeros.
 
     A not-yet-full buffer would otherwise stretch its few readings into
     fat bars. Fixing the slot count keeps the bar width constant, with
     the empty pre-monitoring past on the left and 'now' at the right.
     """
-    missing = BUFFER_SIZE - len(values)
+    missing = size - len(values)
     return (0.0,) * missing + values if missing > 0 else values
 
 
 def get_resource_usage(
-    history: ResourceHistory, totals: tuple[float, float | None]
+    history: ResourceHistory, totals: ResourceTotals
 ) -> ResourceUsage:
     """Snapshot the buffer as two display-ready sparkline series.
 
     Walks the buffer once, converting raw samples to display units: rss
-    bytes to GB, cpu percent to cores. totals is (rss_total_gb, cpu_cores).
+    bytes to GB, cpu percent to cores.
     """
-    rss_total_gb, cpu_cores = totals
     rss_values = zero_pad_left(
-        tuple(sample.rss / 1e9 for sample in history.samples)
+        tuple(sample.rss / 1e9 for sample in history.samples), history.size
     )
     cpu_values = zero_pad_left(
-        tuple(sample.cpu_percent / 100 for sample in history.samples)
+        tuple(sample.cpu_percent / 100 for sample in history.samples),
+        history.size,
     )
     return ResourceUsage(
-        rss=ResourceSeries("RSS", rss_values, rss_total_gb, "GB"),
-        cpu=ResourceSeries("CPU", cpu_values, cpu_cores, "cores"),
+        rss=ResourceSeries("RSS", rss_values, totals.ram_gb, "GB"),
+        cpu=ResourceSeries("CPU", cpu_values, totals.cores, "cores"),
     )
 
 
@@ -208,19 +219,18 @@ def build_plot(
     times_s: list[float],
     rss_gb: list[float],
     cpu_cores: list[float],
-    totals: tuple[float, float | None],
+    totals: ResourceTotals,
     start_ms: int,
     end_ms: int,
     restarts: RestartTracker,
 ) -> ResourcePlot:
     """Assemble a ResourcePlot from gathered series, window, and restarts."""
-    rss_total, cpu_total = totals
     return ResourcePlot(
         times_s=tuple(times_s),
         rss_gb=tuple(rss_gb),
         cpu_cores=tuple(cpu_cores),
-        rss_total=rss_total,
-        cpu_total=cpu_total,
+        rss_total=totals.ram_gb,
+        cpu_total=totals.cores,
         start_s=start_ms / 1000,
         end_s=end_ms / 1000,
         stop_times_s=tuple(restarts.stop_times_s),
@@ -230,17 +240,16 @@ def build_plot(
 
 def get_resource_plot(
     samples: list[ResourceSample],
-    totals: tuple[float, float | None],
+    totals: ResourceTotals,
     start_ms: int,
     end_ms: int,
 ) -> ResourcePlot:
     """Turn samples in a time window into the dual-axis plot model.
 
     Keeps only samples inside [start_ms, end_ms] and converts each to
-    display units: rss bytes to GB, cpu percent to cores. totals is
-    (rss_total_gb, cpu_cores). The window edges frame the plot's x-axis
-    and may be wider than the samples that fall inside them. Restarts are
-    detected by RestartTracker.
+    display units: rss bytes to GB, cpu percent to cores. The window
+    edges frame the plot's x-axis and may be wider than the samples that
+    fall inside them. Restarts are detected by RestartTracker.
     """
     times_s = []
     rss_gb = []
@@ -307,7 +316,7 @@ CANCEL_CHECK_ROWS = 50_000
 
 def read_resource_window(
     path: Path,
-    totals: tuple[float, float | None],
+    totals: ResourceTotals,
     start_ms: int,
     end_ms: int,
     max_points: int,
@@ -317,8 +326,8 @@ def read_resource_window(
 
     Seeks near the window start, then streams forward, folding each row
     into one of max_points equal time buckets and keeping the bucket's
-    peak rss and cpu so spikes survive. totals is (rss_total_gb,
-    cpu_cores) for the axes. Restarts are detected by RestartTracker.
+    peak rss and cpu so spikes survive. Restarts are detected by
+    RestartTracker.
     should_cancel is polled while scanning so a long read can abort.
     Memory stays at O(max_points) however large the log is.
     """

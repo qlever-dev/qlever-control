@@ -75,6 +75,7 @@ class MonitorQueriesApp(App):
         slow_threshold: int,
         refresh_interval: float,
         resource_log: Path,
+        sample_interval_s: int,
         system: str = "docker",
     ) -> None:
         super().__init__()
@@ -85,6 +86,9 @@ class MonitorQueriesApp(App):
         self.slow_threshold = slow_threshold
         self.refresh_interval = refresh_interval
         self.resource_log = resource_log
+        # Seconds between the log's samples, as the server was started.
+        # Sizes the live buffer and how long a sample counts as fresh.
+        self.sample_interval_s = sample_interval_s
         # Host-wide RAM/core capacities for the resource plot axes; fixed
         # for the machine's lifetime and shared by Live and Historic.
         self.resource_totals = system_totals()

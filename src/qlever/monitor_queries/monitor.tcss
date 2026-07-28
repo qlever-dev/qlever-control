@@ -55,19 +55,8 @@ NavPill:hover {
     background: $accent-lighten-2;
 }
 
-/* LiveStatusRow */
-
-LiveStatusRow {
-    height: 1;
-    width: 100%;
-    text-align: center;
-    text-style: italic;
-    margin-bottom: 1;
-    color: $text;
-}
-
 /* ResourceRow: RSS sparkline | server status | CPU sparkline.
-   Four rows tall; the side sparklines spend 2 of those on their border. */
+   Three rows tall; the sparklines spend the top one on their border. */
 
 ResourceRow {
     height: 3;
@@ -100,7 +89,6 @@ ResourceRow .resource-center {
     text-style: italic;
     color: $text;
 }
-
 
 /* MetricsRow */
 

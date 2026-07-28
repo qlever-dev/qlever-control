@@ -27,7 +27,6 @@ from qlever.monitor_queries.models import (
 )
 from qlever.monitor_queries.resource_data import (
     LIVE_WINDOW_S,
-    SAMPLE_INTERVAL_S,
     ResourceHistory,
     ResourceLogReader,
     get_resource_plot,
@@ -71,14 +70,13 @@ class LiveScreen(Screen, inherit_bindings=False):
     def __init__(self) -> None:
         """Set the screen's blank default state.
 
-        The app-derived fields (liveness, resource totals) are read in
-        compose, where the app is available.
+        The app-derived fields (liveness, resource totals, the sample
+        buffer and its reader) are read in compose, where the app is
+        available.
         """
         super().__init__()
         self.consecutive_ping_fails = 0
         self.ping_timer = None
-        self.resource_history = ResourceHistory()
-        self.resource_reader = ResourceLogReader()
 
     def compose(self) -> ComposeResult:
         yield HeaderRow(
@@ -97,6 +95,8 @@ class LiveScreen(Screen, inherit_bindings=False):
             "reachable" if is_log_fresh(state, current_ms()) else "checking"
         )
         self.resource_totals = self.app.resource_totals
+        self.resource_history = ResourceHistory(self.app.sample_interval_s)
+        self.resource_reader = ResourceLogReader(self.resource_history.size)
 
         yield ResourceRow(
             LiveSubtitle(
@@ -114,7 +114,7 @@ class LiveScreen(Screen, inherit_bindings=False):
         yield Static("", id="table-status")
         yield DetailSwitcher(
             source=self.live_resource_plot,
-            refresh_interval=SAMPLE_INTERVAL_S,
+            refresh_interval=self.app.sample_interval_s,
         )
         yield Footer()
 
@@ -232,7 +232,7 @@ class LiveScreen(Screen, inherit_bindings=False):
         """
         now = current_ms()
         samples_fresh = is_resource_sample_fresh(
-            self.resource_reader.last_ts_ms, now
+            self.resource_reader.last_ts_ms, now, self.app.sample_interval_s
         )
         self.query_one(ResourceRow).stale = not samples_fresh
         alive = samples_fresh or is_log_fresh(self.app.live_state, now)
@@ -288,11 +288,12 @@ class LiveScreen(Screen, inherit_bindings=False):
         freeze the screen.
         """
         worker = get_current_worker()
+        interval_s = self.app.sample_interval_s
         # The log may not exist yet: the server has not started, or
         # resource logging is off. Wait for it instead of crashing the
         # worker; the sparklines stay empty until it appears.
         while not worker.is_cancelled and not self.app.resource_log.exists():
-            time.sleep(SAMPLE_INTERVAL_S)
+            time.sleep(interval_s)
         if worker.is_cancelled:
             return
         with self.app.resource_log.open("rb") as stream:
@@ -304,7 +305,7 @@ class LiveScreen(Screen, inherit_bindings=False):
                     self.app.call_from_thread(
                         self.apply_resource_samples, fresh
                     )
-                time.sleep(SAMPLE_INTERVAL_S)
+                time.sleep(interval_s)
 
     def apply_resource_samples(self, samples: list[ResourceSample]) -> None:
         """Add new samples to the buffer and repaint; runs on the UI thread."""
@@ -342,7 +343,7 @@ class LiveScreen(Screen, inherit_bindings=False):
         self.app.push_screen(
             ResourcePlotModal(
                 source=self.live_resource_plot,
-                refresh_interval=SAMPLE_INTERVAL_S,
+                refresh_interval=self.app.sample_interval_s,
             )
         )
 

@@ -1,3 +1,9 @@
+"""The Live screen's row of two resource gauges around a server status.
+
+The gauges sit at the edges and the status in the middle, whose width is
+pinned so the centered text never jumps as its wording changes.
+"""
+
 from __future__ import annotations
 
 from textual.app import ComposeResult

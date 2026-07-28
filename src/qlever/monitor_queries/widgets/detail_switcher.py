@@ -1,3 +1,9 @@
+"""Bottom pane that holds the SPARQL view and the resource plot.
+
+Both panes stay mounted and one is shown, so switching keeps the other's
+state: the plot its rolling timer, the SPARQL view its scroll position.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -52,7 +58,6 @@ class DetailSwitcher(ContentSwitcher):
         """Fill the SPARQL pane with the given row's query."""
         self.query_one(SparqlPane).content = content
 
-    def replot_if_visible(self) -> None:
-        """Redraw the plot only while it is the shown pane."""
-        if self.current == PLOT_ID:
-            self.query_one(ResourcePlotPane).replot()
+    def replot(self) -> None:
+        """Redraw the plot; a no-op while the SPARQL pane is shown."""
+        self.query_one(ResourcePlotPane).replot()

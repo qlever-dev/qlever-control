@@ -9,6 +9,8 @@ from qlever.monitor_queries.app import MonitorQueriesApp
 # `LiveLogReader` ingests new log lines every 0.2s, so a faster screen
 # refresh would only re-render the ticking duration; 0.2s is the floor.
 REFRESH_MIN_S = 0.2
+# This timer also re-checks whether the server still looks alive, against
+# a 10s idle log. Half of that keeps two checks per idle window.
 REFRESH_MAX_S = 5.0
 
 
@@ -32,7 +34,12 @@ class MonitorQueriesCommand(QleverCommand):
     def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {
             "data": ["name"],
-            "server": ["host_name", "port", "timeout"],
+            "server": [
+                "host_name",
+                "port",
+                "timeout",
+                "resource_usage_interval",
+            ],
             "runtime": ["system"],
         }
 
@@ -48,6 +55,14 @@ class MonitorQueriesCommand(QleverCommand):
             help=(
                 "QLever's `metrics-log.jsonl` log file "
                 "(default = {name}.metrics-log.jsonl)"
+            ),
+        )
+        subparser.add_argument(
+            "--resource-usage-log",
+            type=Path,
+            help=(
+                "QLever's server resource-usage TSV log "
+                "(default = {name}.server.resource-usage-log.tsv)"
             ),
         )
         subparser.add_argument(
@@ -69,6 +84,10 @@ class MonitorQueriesCommand(QleverCommand):
     def execute(self, args) -> bool:
         if not args.metrics_log:
             args.metrics_log = Path.cwd() / f"{args.name}.metrics-log.jsonl"
+        if not args.resource_usage_log:
+            args.resource_usage_log = (
+                Path.cwd() / f"{args.name}.server.resource-usage-log.tsv"
+            )
         show_msg = (
             f"Reading server logs from {args.metrics_log} to display the "
             "currently active queries on the server"
@@ -106,10 +125,6 @@ class MonitorQueriesCommand(QleverCommand):
             else f"{args.host_name}:{args.port}"
         )
 
-        resource_log = (
-            Path.cwd() / f"{args.name}.server.resource-usage-log.tsv"
-        )
-
         MonitorQueriesApp(
             log_file=args.metrics_log,
             sparql_endpoint=sparql_endpoint,
@@ -117,6 +132,7 @@ class MonitorQueriesCommand(QleverCommand):
             slow_threshold=args.slow_threshold,
             refresh_interval=args.refresh,
             system=args.system,
-            resource_log=resource_log,
+            resource_log=args.resource_usage_log,
+            sample_interval_s=args.resource_usage_interval,
         ).run()
         return True

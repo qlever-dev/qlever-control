@@ -1,3 +1,10 @@
+"""Dual-axis RSS and CPU plot, shared by the inline pane and the modal.
+
+Draws from a source callable rather than owning data, so the same widget
+serves Live's rolling window and Historic's fixed span. Ticks are picked
+by hand because plotext's defaults crowd a short terminal pane.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -208,7 +215,11 @@ class ResourcePlotPane(PlotextPlot):
         window holds no samples, a centered note. Restarts show as an
         orange stop line and a green start line, with the series broken
         across the downtime between them.
+
+        Skipped while hidden; being shown fires a resize that redraws.
         """
+        if not self.display:
+            return
         data = self.source()
         self.plt.clear_figure()
         self.plt.xlim(data.start_s, data.end_s)
