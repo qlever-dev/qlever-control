@@ -7,7 +7,7 @@ import os
 import re
 import signal
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum, auto
 from pathlib import Path
 from threading import Event
@@ -240,6 +240,16 @@ class UpdateWikidataCommand(QleverCommand):
             "(default: no bound on the number of messages)",
         )
         subparser.add_argument(
+            "--triple-history-minutes",
+            type=int,
+            default=30,
+            help="Gate inserts and deletes against the causally newest "
+            "event seen for the same triple within this many minutes of "
+            "stream time, ACROSS batches; the stream can reorder events "
+            "by minutes, so gating only within a batch is not enough "
+            "(0 disables the history)",
+        )
+        subparser.add_argument(
             "--verbose",
             choices=["no", "yes"],
             default="yes",
@@ -390,6 +400,26 @@ class UpdateWikidataCommand(QleverCommand):
 
         return cached_file_name, batch_size
 
+    def prune_triple_history(
+        self, triple_history, latest_event_date, history_minutes
+    ):
+        """
+        Return the given triple history without the entries that are older
+        than `history_minutes` before the given latest event date (the
+        event dates are ISO strings and compare lexicographically).
+        """
+        if not triple_history or latest_event_date is None:
+            return triple_history
+        cutoff_date = (
+            datetime.strptime(latest_event_date, "%Y-%m-%dT%H:%M:%SZ")
+            - timedelta(minutes=history_minutes)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return {
+            triple: history
+            for triple, history in triple_history.items()
+            if history[2] >= cutoff_date
+        }
+
     def execute(self, args) -> bool:
         # Resolve the four args that depend on `--wikimedia-commons`. A
         # `None` value means the user did not pass that arg, so fill in
@@ -511,6 +541,23 @@ class UpdateWikidataCommand(QleverCommand):
             except Exception as e:
                 log.error(f"Error determining offset from stream: {e}")
                 return False
+
+        # History of the causal-order key of the chronologically newest
+        # event seen for each triple, kept ACROSS batches: maps the triple
+        # to `(rev_key, is_insert, event_date)`. The per-batch
+        # `insert_triples` / `delete_triples` below gate out-of-order
+        # events WITHIN a batch, but the stream can reorder events by
+        # minutes, while batches span only seconds when tailing the live
+        # stream. Without this history, a delete that arrives after the
+        # causally newer insert of the same triple was applied in an
+        # earlier batch deletes that triple (observed live: a sitelink
+        # moved from a duplicate entity to the right one, where the
+        # delete for the duplicate arrived two minutes late and stripped
+        # the article triples of the right entity). Entries older than
+        # `--triple-history-minutes` of stream time are pruned at each
+        # batch start.
+        triple_history: dict[str, tuple[tuple[int, int], bool, str]] = {}
+        latest_event_date = None
 
         # Initialize all the statistics variables.
         batch_count = 0
@@ -700,6 +747,14 @@ class UpdateWikidataCommand(QleverCommand):
             insert_triples: dict[str, tuple[int, int]] = {}
             delete_triples: dict[str, tuple[int, int]] = {}
 
+            # Prune old entries from the triple history.
+            if args.triple_history_minutes > 0:
+                triple_history = self.prune_triple_history(
+                    triple_history,
+                    latest_event_date,
+                    args.triple_history_minutes,
+                )
+
             # Check if we can use a cached SPARQL query file
             use_cached_file = False
             cached_file_name = None
@@ -746,6 +801,11 @@ class UpdateWikidataCommand(QleverCommand):
                             # Get the date (rounded *down* to seconds).
                             date = meta.get("dt")
                             date = re.sub(r"\.\d*Z$", "Z", date)
+                            if (
+                                latest_event_date is None
+                                or date > latest_event_date
+                            ):
+                                latest_event_date = date
 
                             # Get the other relevant fields from the message.
                             entity_id = event_data.get("entity_id")
@@ -892,6 +952,35 @@ class UpdateWikidataCommand(QleverCommand):
                                         )
                                         for s, p, o in graph:
                                             triple = f"{s.n3()} {p.n3()} {node_to_sparql(o)}"
+                                            # Cross-batch gate (see `triple_history`): discard
+                                            # this delete if a causally newer (or equally new)
+                                            # insert of the same triple was seen, possibly in an
+                                            # earlier batch that has been applied already. The tie
+                                            # semantics match the per-batch gate below.
+                                            history = (
+                                                triple_history.get(triple)
+                                                if args.triple_history_minutes
+                                                > 0
+                                                else None
+                                            )
+                                            if (
+                                                history is not None
+                                                and history[1]
+                                                and not rev_key > history[0]
+                                            ):
+                                                continue
+                                            if (
+                                                args.triple_history_minutes > 0
+                                                and (
+                                                    history is None
+                                                    or rev_key > history[0]
+                                                )
+                                            ):
+                                                triple_history[triple] = (
+                                                    rev_key,
+                                                    False,
+                                                    date,
+                                                )
                                             # NOTE: In case there was a previous `insert` of that
                                             # triple, it is safe to remove that `insert`, but not
                                             # the `delete` (in case the triple is contained in the
@@ -942,6 +1031,34 @@ class UpdateWikidataCommand(QleverCommand):
                                         )
                                         for s, p, o in graph:
                                             triple = f"{s.n3()} {p.n3()} {node_to_sparql(o)}"
+                                            # Cross-batch gate (see `triple_history`): discard
+                                            # this insert if a causally strictly newer delete of
+                                            # the same triple was seen, possibly in an earlier
+                                            # batch that has been applied already.
+                                            history = (
+                                                triple_history.get(triple)
+                                                if args.triple_history_minutes
+                                                > 0
+                                                else None
+                                            )
+                                            if (
+                                                history is not None
+                                                and not history[1]
+                                                and not rev_key >= history[0]
+                                            ):
+                                                continue
+                                            if (
+                                                args.triple_history_minutes > 0
+                                                and (
+                                                    history is None
+                                                    or rev_key >= history[0]
+                                                )
+                                            ):
+                                                triple_history[triple] = (
+                                                    rev_key,
+                                                    True,
+                                                    date,
+                                                )
                                             # NOTE: In case there was a previous `delete` of that
                                             # triple, it is safe to remove that `delete`, but not
                                             # the `insert` (in case the triple is not contained in
@@ -980,6 +1097,17 @@ class UpdateWikidataCommand(QleverCommand):
 
                         # Message was successfully processed, update batch tracking
                         current_batch_size += 1
+                        if (
+                            args.triple_history_minutes > 0
+                            and current_batch_size % 10000 == 0
+                        ):
+                            # A batch can span hours of stream time during
+                            # catch-up, so also prune within a batch.
+                            triple_history = self.prune_triple_history(
+                                triple_history,
+                                latest_event_date,
+                                args.triple_history_minutes,
+                            )
                         total_num_messages += 1
                         pbar_update_frequency = 100
                         if (current_batch_size % pbar_update_frequency) == 0:
