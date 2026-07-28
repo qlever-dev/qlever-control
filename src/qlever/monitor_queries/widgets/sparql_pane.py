@@ -14,6 +14,13 @@ from qlever.monitor_queries.util import format_timestamp, resolve_client_name
 LIGHT_SYNTAX_THEME = "friendly"
 DARK_SYNTAX_THEME = "monokai"
 
+# Shown when no row is selected. Live also puts it in its table status
+# row, where the plot hides this pane by default.
+SELECT_ROW_HINT = (
+    "Press Enter or double-click a row to view its full SPARQL query "
+    "and details."
+)
+
 
 def format_header(content: SparqlContent, client_name: str) -> str:
     """One-line query identity shown above the SPARQL body."""
@@ -148,10 +155,7 @@ class SparqlPane(Vertical):
         # bindings once layout has settled.
         self.call_after_refresh(self.refresh_bindings)
         if content is None:
-            header.update(
-                "[dim]Press Enter or double-click a row to view its "
-                "full SPARQL query and details.[/dim]"
-            )
+            header.update(f"[dim]{SELECT_ROW_HINT}[/dim]")
             body.code = None
             return
         client_name = self.client_name or content.client_ip

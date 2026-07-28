@@ -21,7 +21,7 @@ classifiers = [
  "Topic :: Database :: Front-Ends"
 ]
 
-dependencies = [ "psutil", "termcolor", "argcomplete", "pyyaml", "rdflib", "requests-sse", "tqdm>=4.60.0", "textual>=8.0", "rich" ]
+dependencies = [ "psutil", "termcolor", "argcomplete", "pyyaml", "rdflib", "requests-sse", "tqdm>=4.60.0", "textual>=8.0", "textual-plotext", "rich" ]
 
 [project.optional-dependencies]
 plot = [ "matplotlib", "numpy" ]
