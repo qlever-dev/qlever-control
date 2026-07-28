@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import traceback
 
@@ -18,6 +19,13 @@ from qlever.log import log, log_levels
 
 
 def main():
+    # Color the output even when stdout is not a terminal (e.g. when piping
+    # through `tee`). Setting `NO_COLOR` still disables all colors, because
+    # `termcolor` gives it precedence over `FORCE_COLOR`. Note that
+    # `termcolor` evaluates these variables on each call to `colored`, so it
+    # is enough to set this here (and not before the imports above).
+    os.environ.setdefault("FORCE_COLOR", "1")
+
     # Parse the command line arguments and read the Qleverfile.
     try:
         qlever_config = QleverConfig()
