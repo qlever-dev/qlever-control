@@ -26,6 +26,8 @@ WD = "http://www.wikidata.org/entity/"
 SCHEMA = "http://schema.org/"
 WIKIBASE = "http://wikiba.se/ontology#"
 STATEMENT = "http://www.wikidata.org/entity/statement/"
+REFERENCE = "http://www.wikidata.org/reference/"
+VALUE = "http://www.wikidata.org/value/"
 
 # Entity-level counter triples that are contained in the full dump (and hence
 # in the index), but NOT in the output of `Special:EntityData`. They are
@@ -106,6 +108,14 @@ class CheckSyncWithWikidataCommand(QleverCommand):
             type=int,
             default=42,
             help="Seed for the random sample (default: 42)",
+        )
+        subparser.add_argument(
+            "--batch-size",
+            type=int,
+            default=50,
+            help="Number of entities munged together in one run of"
+            " `munge.sh` (default: 50); this amortizes the JVM startup,"
+            " which dominates the cost of checking a single entity",
         )
         subparser.add_argument(
             "--munge",
@@ -203,20 +213,15 @@ class CheckSyncWithWikidataCommand(QleverCommand):
             redirected_to = match.group(1)
         return body, redirected_to
 
-    def canonical_graph(self, ttl_bytes, entity_id, munge_script, keep_dir):
+    def canonical_graph(self, ttl_bytes, entity_id):
         """
-        Parse the canonical TTL and normalize it for comparison. With a munge
-        script, the ORIGINAL data must be munged (the script needs the
-        document node to detect the entity, and itself grafts the version and
-        modification date onto the entity, drops the document node, and
-        computes the entity-level counters). Without one, the same
-        normalization is done manually, minus the counters (see
+        Parse the canonical TTL and normalize it like `munge.sh` would, for
+        a comparison WITHOUT munging: graft the version and modification date
+        from the document node onto the entity and drop the document node.
+        Unlike `munge.sh`, this cannot compute the entity-level counters,
+        which is why they are excluded from the comparison in this mode (see
         `EXCLUDED_ENTITY_PREDICATES`). Returns `(graph, version)`.
         """
-        if munge_script is not None:
-            graph = self.munge(ttl_bytes, munge_script, keep_dir)
-            return graph, self.entity_version(graph, entity_id)
-
         graph = Graph()
         graph.parse(data=ttl_bytes, format="turtle")
         entity = URIRef(f"{WD}{entity_id}")
@@ -232,6 +237,58 @@ class CheckSyncWithWikidataCommand(QleverCommand):
                         version = str(o)
                 graph.remove((doc, p, o))
         return graph, version
+
+    def extract_document(self, graph, entity_id):
+        """
+        Extract the document of the given entity from the given graph: the
+        triples with the entity as subject, the statement nodes of the
+        entity (recognized by their IRI prefix), the references and values
+        reachable from those statements, the sitelink article blocks, and
+        the wiki metadata. This mirrors exactly the queries of
+        `qlever_entity_graph`, so that the two sides of the comparison cover
+        the same universe. It is what makes munging in batches possible: the
+        munged output of a batch is one graph without entity boundaries, and
+        this reconstructs them (references and values are shared between
+        entities and are assigned to every entity that reaches them, on both
+        sides).
+        """
+        entity = URIRef(f"{WD}{entity_id}")
+        statement_prefixes = (
+            f"{STATEMENT}{entity_id}-",
+            f"{STATEMENT}{entity_id.lower()}-",
+        )
+        document = Graph()
+        statements = set()
+        for p, o in graph.predicate_objects(entity):
+            document.add((entity, p, o))
+            if isinstance(o, URIRef) and str(o).startswith(statement_prefixes):
+                statements.add(o)
+        references_and_values = set()
+        for statement in statements:
+            for p, o in graph.predicate_objects(statement):
+                document.add((statement, p, o))
+                if isinstance(o, URIRef) and str(o).startswith(
+                    (REFERENCE, VALUE)
+                ):
+                    references_and_values.add(o)
+        # References can point to values.
+        for node in list(references_and_values):
+            for _, o in graph.predicate_objects(node):
+                if isinstance(o, URIRef) and str(o).startswith(VALUE):
+                    references_and_values.add(o)
+        for node in references_and_values:
+            for p, o in graph.predicate_objects(node):
+                document.add((node, p, o))
+        wikis = set()
+        for article in graph.subjects(URIRef(f"{SCHEMA}about"), entity):
+            for p, o in graph.predicate_objects(article):
+                document.add((article, p, o))
+                if str(p) == f"{SCHEMA}isPartOf":
+                    wikis.add(o)
+        for wiki in wikis:
+            for p, o in graph.predicate_objects(wiki):
+                document.add((wiki, p, o))
+        return document
 
     def munge(self, ttl_bytes, munge_script, keep_dir):
         """
@@ -422,63 +479,116 @@ class CheckSyncWithWikidataCommand(QleverCommand):
             return str(o)
         return None
 
-    def check_entity(self, entity_id, endpoint, munge_script, keep_dir):
+    def compare_entity(
+        self, entity_id, qlever_graph, canonical_document, exclude_counters
+    ):
         """
-        Check a single entity. Returns one of `match`, `divergent`,
-        `undecidable`, `redirect`, or `error`.
+        Compare the two documents of the given entity. Returns one of
+        `match`, `divergent`, `undecidable`, or `error`.
         """
-        try:
-            ttl_bytes, redirected_to = self.fetch_canonical(entity_id)
-            if redirected_to is not None:
-                log.info(f"{entity_id}: redirect to {redirected_to}, skipped")
-                return "redirect"
-            qlever_graph = self.qlever_entity_graph(endpoint, entity_id)
-            canonical_graph, canonical_version = self.canonical_graph(
-                ttl_bytes, entity_id, munge_script, keep_dir
+        canonical_version = self.entity_version(canonical_document, entity_id)
+        qlever_version = self.entity_version(qlever_graph, entity_id)
+        if canonical_version is None or qlever_version is None:
+            log.warning(
+                f"{entity_id}: could not determine version"
+                f" (canonical: {canonical_version},"
+                f" endpoint: {qlever_version})"
             )
-            qlever_version = self.entity_version(qlever_graph, entity_id)
-            if canonical_version is None or qlever_version is None:
-                log.warning(
-                    f"{entity_id}: could not determine version"
-                    f" (canonical: {canonical_version},"
-                    f" endpoint: {qlever_version})"
-                )
-                return "error"
-            if canonical_version != qlever_version:
-                log.info(
-                    f"{entity_id}: version mismatch (canonical:"
-                    f" {canonical_version}, endpoint: {qlever_version}),"
-                    f" edited since the endpoint's stream position"
-                )
-                return "undecidable"
-            exclude_counters = munge_script is None
-            canonical = self.normalize_triples(
-                canonical_graph, entity_id, exclude_counters
-            )
-            qlever = self.normalize_triples(
-                qlever_graph, entity_id, exclude_counters
-            )
-            missing = canonical - qlever
-            extra = qlever - canonical
-            if not missing and not extra:
-                log.info(
-                    f"{entity_id}: exact match at version"
-                    f" {qlever_version} ({len(qlever):,} triples)"
-                )
-                return "match"
-            log.error(
-                f"{entity_id}: DIVERGENT at version {qlever_version}"
-                f" ({len(missing)} triples missing on the endpoint,"
-                f" {len(extra)} extra)"
-            )
-            for line in sorted(missing)[:5]:
-                log.error(f"  missing: {line}")
-            for line in sorted(extra)[:5]:
-                log.error(f"  extra:   {line}")
-            return "divergent"
-        except Exception as e:
-            log.warning(f"{entity_id}: check failed ({e})")
             return "error"
+        if canonical_version != qlever_version:
+            log.info(
+                f"{entity_id}: version mismatch (canonical:"
+                f" {canonical_version}, endpoint: {qlever_version}),"
+                f" edited since the endpoint's stream position"
+            )
+            return "undecidable"
+        canonical = self.normalize_triples(
+            canonical_document, entity_id, exclude_counters
+        )
+        qlever = self.normalize_triples(
+            qlever_graph, entity_id, exclude_counters
+        )
+        missing = canonical - qlever
+        extra = qlever - canonical
+        if not missing and not extra:
+            log.info(
+                f"{entity_id}: exact match at version"
+                f" {qlever_version} ({len(qlever):,} triples)"
+            )
+            return "match"
+        log.error(
+            f"{entity_id}: DIVERGENT at version {qlever_version}"
+            f" ({len(missing)} triples missing on the endpoint,"
+            f" {len(extra)} extra)"
+        )
+        for line in sorted(missing)[:5]:
+            log.error(f"  missing: {line}")
+        for line in sorted(extra)[:5]:
+            log.error(f"  extra:   {line}")
+        return "divergent"
+
+    def check_batch(self, batch, endpoint, munge_script, keep_dir):
+        """
+        Check a batch of entities: download the canonical data and query the
+        endpoint pairwise (so that the version gate has the best chance),
+        then munge the whole batch in ONE run of `munge.sh`, and compare
+        entity by entity. Returns a dict from entity ID to outcome.
+        """
+        outcomes = {}
+        snapshots = []
+        for entity_id in batch:
+            try:
+                ttl_bytes, redirected_to = self.fetch_canonical(entity_id)
+                if redirected_to is not None:
+                    log.info(
+                        f"{entity_id}: redirect to {redirected_to}, skipped"
+                    )
+                    outcomes[entity_id] = "redirect"
+                else:
+                    qlever_graph = self.qlever_entity_graph(
+                        endpoint, entity_id
+                    )
+                    snapshots.append((entity_id, ttl_bytes, qlever_graph))
+            except Exception as e:
+                log.warning(f"{entity_id}: check failed ({e})")
+                outcomes[entity_id] = "error"
+            time.sleep(1)
+        batch_graph = None
+        if munge_script is not None and snapshots:
+            try:
+                batch_graph = self.munge(
+                    b"".join(ttl for _, ttl, _ in snapshots),
+                    munge_script,
+                    keep_dir,
+                )
+            except Exception as e:
+                log.warning(f"Munging the batch failed ({e})")
+                for entity_id, _, _ in snapshots:
+                    outcomes[entity_id] = "error"
+                return outcomes
+        for entity_id, ttl_bytes, qlever_graph in snapshots:
+            try:
+                if batch_graph is not None:
+                    canonical_document = self.extract_document(
+                        batch_graph, entity_id
+                    )
+                    exclude_counters = False
+                else:
+                    graph, _ = self.canonical_graph(ttl_bytes, entity_id)
+                    canonical_document = self.extract_document(
+                        graph, entity_id
+                    )
+                    exclude_counters = True
+                outcomes[entity_id] = self.compare_entity(
+                    entity_id,
+                    qlever_graph,
+                    canonical_document,
+                    exclude_counters,
+                )
+            except Exception as e:
+                log.warning(f"{entity_id}: check failed ({e})")
+                outcomes[entity_id] = "error"
+        return outcomes
 
     def execute(self, args) -> bool:
         endpoint = (
@@ -525,19 +635,30 @@ class CheckSyncWithWikidataCommand(QleverCommand):
             )
         log.info(f"Entities: {', '.join(entities)}")
 
+        if args.batch_size < 1:
+            log.error("`--batch-size` must be at least 1")
+            return False
+
+        def batches(entity_ids):
+            for i in range(0, len(entity_ids), args.batch_size):
+                yield entity_ids[i : i + args.batch_size]
+
         outcomes = {}
-        for entity_id in entities:
-            outcome = self.check_entity(
-                entity_id, endpoint, munge_script, keep_dir
+        for batch in batches(entities):
+            outcomes.update(
+                self.check_batch(batch, endpoint, munge_script, keep_dir)
             )
-            if outcome == "undecidable":
-                time.sleep(5)
-                log.info(f"{entity_id}: retrying once ...")
-                outcome = self.check_entity(
-                    entity_id, endpoint, munge_script, keep_dir
+        retry = [e for e, o in outcomes.items() if o == "undecidable"]
+        if retry:
+            log.info(
+                f"Retrying {len(retry)} entities that were edited"
+                f" during the check ..."
+            )
+            time.sleep(5)
+            for batch in batches(retry):
+                outcomes.update(
+                    self.check_batch(batch, endpoint, munge_script, keep_dir)
                 )
-            outcomes[entity_id] = outcome
-            time.sleep(1)
 
         counts = {
             status: sum(1 for o in outcomes.values() if o == status)

@@ -150,13 +150,56 @@ class TestCheckSyncWithWikidataCommand(unittest.TestCase):
             schema:dateModified "2026-07-28T00:00:00Z"^^xsd:dateTime .
         wd:Q42 schema:name "Douglas Adams"@en .
         """
-        graph, version = self.command.canonical_graph(
-            ttl.encode(), "Q42", None, None
-        )
+        graph, version = self.command.canonical_graph(ttl.encode(), "Q42")
         self.assertEqual(version, "123")
         self.assertEqual(self.command.entity_version(graph, "Q42"), "123")
         subjects = set(str(s) for s in graph.subjects())
         self.assertEqual(subjects, {f"{WD}Q42"})
+
+    def test_extract_document(self):
+        # The document of Q42 consists of its subject triples, its statement
+        # nodes (also with the lowercase IRIs of old statements), the
+        # references and values reachable from them, and the sitelink
+        # article blocks with their wiki metadata; the statement of the
+        # OTHER entity Q43 does not belong to it.
+        turtle = f"""
+        @prefix schema: <http://schema.org/> .
+        @prefix wd: <{WD}> .
+        @prefix wds: <http://www.wikidata.org/entity/statement/> .
+        @prefix wdref: <http://www.wikidata.org/reference/> .
+        @prefix wdv: <http://www.wikidata.org/value/> .
+        @prefix p: <http://www.wikidata.org/prop/> .
+        @prefix prov: <http://www.w3.org/ns/prov#> .
+        wd:Q42 p:P31 wds:Q42-aaa , wds:q42-bbb .
+        wds:Q42-aaa prov:wasDerivedFrom wdref:ref1 .
+        wds:q42-bbb p:P2 wdv:value1 .
+        wdref:ref1 p:P3 wdv:value2 .
+        wdv:value1 p:P4 "x" .
+        wdv:value2 p:P5 "y" .
+        <https://en.wikipedia.org/wiki/A> schema:about wd:Q42 ;
+            schema:isPartOf <https://en.wikipedia.org/> .
+        <https://en.wikipedia.org/> p:P6 "wiki" .
+        wd:Q43 p:P31 wds:Q43-ccc .
+        wds:Q43-ccc p:P7 "other" .
+        """
+        graph = Graph()
+        graph.parse(data=turtle, format="turtle")
+        document = self.command.extract_document(graph, "Q42")
+        subjects = set(str(s) for s in document.subjects())
+        self.assertEqual(
+            subjects,
+            {
+                f"{WD}Q42",
+                "http://www.wikidata.org/entity/statement/Q42-aaa",
+                "http://www.wikidata.org/entity/statement/q42-bbb",
+                "http://www.wikidata.org/reference/ref1",
+                "http://www.wikidata.org/value/value1",
+                "http://www.wikidata.org/value/value2",
+                "https://en.wikipedia.org/wiki/A",
+                "https://en.wikipedia.org/",
+            },
+        )
+        self.assertEqual(len(document), 10)
 
 
 if __name__ == "__main__":
