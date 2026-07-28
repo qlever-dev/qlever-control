@@ -340,8 +340,10 @@ class CheckSyncWithWikidataCommand(QleverCommand):
         `"+190"^^xsd:decimal` is exported as `"190"^^xsd:decimal`,
         `"25.9816937839249"^^xsd:decimal` as `"25.98169378392"^^xsd:decimal`,
         and a decimal can even come back as `xsd:double`. Integers are kept
-        exact; all other numbers are rounded to 12 significant digits, with a
-        unified datatype marker.
+        exact; all other numbers are rounded to 10 significant digits, with a
+        unified datatype marker (the encoding used by the index rounds
+        slightly differently than IEEE string parsing, with differences
+        observed in the 12th significant digit).
         """
         numeric_datatypes = {
             "http://www.w3.org/2001/XMLSchema#decimal",
@@ -359,7 +361,7 @@ class CheckSyncWithWikidataCommand(QleverCommand):
                 if value == value.to_integral_value() and abs(value) < 2**60:
                     lexical = str(int(value))
                 else:
-                    lexical = format(float(value), ".12g")
+                    lexical = format(float(value), ".10g")
                 return f'"{lexical}"^^NUM'
             except (InvalidOperation, OverflowError):
                 pass

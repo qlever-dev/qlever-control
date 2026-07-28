@@ -47,13 +47,18 @@ class TestCheckSyncWithWikidataCommand(unittest.TestCase):
             self.command.canonical_term(literal("190.0", "double")),
             '"190"^^NUM',
         )
-        # Values are rounded to 12 significant digits (the index stores
-        # decimals with limited precision).
+        # Values are rounded to 10 significant digits (the index stores
+        # decimals with limited precision and rounds slightly differently
+        # than IEEE string parsing).
         self.assertEqual(
             self.command.canonical_term(
                 literal("25.9816937839249", "decimal")
             ),
             self.command.canonical_term(literal("25.98169378392", "decimal")),
+        )
+        self.assertEqual(
+            self.command.canonical_term(literal("168.73846826", "decimal")),
+            self.command.canonical_term(literal("168.738468261", "decimal")),
         )
         # Large integers are kept exact.
         self.assertEqual(
