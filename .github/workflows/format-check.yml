@@ -20,12 +20,14 @@ jobs:
         id: lint
         continue-on-error: true
         with:
+          version: "0.15.2"
           args: "check"
       - name: Format
         uses: astral-sh/ruff-action@v4.0.0
         id: format
         continue-on-error: true
         with:
+          version: "0.15.2"
           args: "format --diff"
       - name: Fail if any check failed
         if: steps.lint.outcome == 'failure' || steps.format.outcome == 'failure'
