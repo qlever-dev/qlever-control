@@ -1,4 +1,7 @@
+import io
 import unittest
+import urllib.error
+from unittest import mock
 
 from rdflib import Graph, Literal, URIRef
 
@@ -67,6 +70,36 @@ class TestCheckSyncWithWikidataCommand(unittest.TestCase):
             ),
             '"123456789012345678"^^NUM',
         )
+
+    def test_fetch_canonical_retries_server_errors(self):
+        # A transient HTTP 5xx on the download is retried once.
+        error = urllib.error.HTTPError(
+            "url", 500, "Internal Server Error", {}, io.BytesIO()
+        )
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = b"ttl"
+        response.__enter__.return_value.url = (
+            "https://www.wikidata.org/wiki/Special:EntityData/Q42.ttl"
+        )
+        with (
+            mock.patch(
+                "urllib.request.urlopen", side_effect=[error, response]
+            ),
+            mock.patch("time.sleep"),
+        ):
+            ttl_bytes, redirected_to = self.command.fetch_canonical("Q42")
+        self.assertEqual(ttl_bytes, b"ttl")
+        self.assertIsNone(redirected_to)
+        # A client error (4xx) is not retried.
+        client_error = urllib.error.HTTPError(
+            "url", 404, "Not Found", {}, io.BytesIO()
+        )
+        with (
+            mock.patch("urllib.request.urlopen", side_effect=[client_error]),
+            mock.patch("time.sleep"),
+        ):
+            with self.assertRaises(urllib.error.HTTPError):
+                self.command.fetch_canonical("Q42")
 
     def test_canonical_term_datetime(self):
         # The export omits the timezone designator for years outside

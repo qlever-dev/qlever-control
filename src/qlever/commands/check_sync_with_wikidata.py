@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from decimal import Decimal, InvalidOperation
@@ -205,7 +206,8 @@ class CheckSyncWithWikidataCommand(QleverCommand):
         """
         Download the canonical TTL for the entity from `Special:EntityData`.
         Returns `(ttl_bytes, redirected_to)`, where `redirected_to` is not
-        `None` if the entity is a redirect.
+        `None` if the entity is a redirect. A transient server error
+        (HTTP 5xx) is retried once.
         """
         url = (
             "https://www.wikidata.org/wiki/Special:EntityData/"
@@ -214,9 +216,17 @@ class CheckSyncWithWikidataCommand(QleverCommand):
         request = urllib.request.Request(
             url, headers={"User-Agent": USER_AGENT}
         )
-        with urllib.request.urlopen(request, timeout=60) as response:
-            body = response.read()
-            final_url = response.url
+        for attempt in (1, 2):
+            try:
+                with urllib.request.urlopen(request, timeout=60) as response:
+                    body = response.read()
+                    final_url = response.url
+                break
+            except urllib.error.HTTPError as e:
+                if attempt == 1 and e.code >= 500:
+                    time.sleep(5)
+                    continue
+                raise
         match = re.search(r"EntityData/(Q\d+)", final_url)
         redirected_to = None
         if match and match.group(1) != entity_id:
