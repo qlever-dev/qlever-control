@@ -57,6 +57,13 @@ class MaterializedViewCommand(QleverCommand):
             default=False,
             help="Load an existing materialized view instead of creating one",
         )
+        subparser.add_argument(
+            "--delete",
+            action="store_true",
+            default=False,
+            help="Delete an existing materialized view instead of "
+            "creating one",
+        )
 
     def execute(self, args) -> bool:
         # SPARQL endpoint to use.
@@ -73,6 +80,34 @@ class MaterializedViewCommand(QleverCommand):
                 f"the regex {self.materialized_view_name_regex}"
             )
             return False
+
+        if args.load and args.delete:
+            log.error("Cannot use `--load` and `--delete` together")
+            return False
+
+        # If `--delete` is set, delete an existing materialized view.
+        if args.delete:
+            url = (
+                f"{sparql_endpoint}"
+                f"?cmd=delete-materialized-view"
+                f"&view-name={args.view_name}"
+            )
+            delete_cmd = (
+                f"curl -s {shlex.quote(url)} "
+                f"-H 'Authorization: Bearer {args.access_token}'"
+            )
+            self.show(delete_cmd, only_show=args.show)
+            if args.show:
+                return True
+            try:
+                result = run_command(delete_cmd, return_output=True)
+                result_json = json.loads(result)
+                view_name = result_json.get("materialized-view-deleted")
+                log.info(f"Materialized view '{view_name}' deleted")
+            except Exception as e:
+                log.error(f"Deleting the materialized view failed: {e}")
+                return False
+            return True
 
         # If `--load` is set, load an existing materialized view.
         if args.load:
@@ -102,7 +137,8 @@ class MaterializedViewCommand(QleverCommand):
         if args.view_query is None:
             log.error(
                 "A query is required when creating a materialized view"
-                " (use --load to load an existing one)"
+                " (use --load to load an existing one, or --delete to"
+                " delete one)"
             )
             return False
 
