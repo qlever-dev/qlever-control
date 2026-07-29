@@ -68,6 +68,26 @@ class TestCheckSyncWithWikidataCommand(unittest.TestCase):
             '"123456789012345678"^^NUM',
         )
 
+    def test_canonical_term_datetime(self):
+        # The export omits the timezone designator for years outside
+        # [-9999, 9999], so dates are compared without it.
+        self.assertEqual(
+            self.command.canonical_term(
+                literal("-11700-01-01T00:00:00Z", "dateTime")
+            ),
+            self.command.canonical_term(
+                literal("-11700-01-01T00:00:00", "dateTime")
+            ),
+        )
+        self.assertNotEqual(
+            self.command.canonical_term(
+                literal("2020-01-01T00:00:00Z", "dateTime")
+            ),
+            self.command.canonical_term(
+                literal("2021-01-01T00:00:00Z", "dateTime")
+            ),
+        )
+
     def test_canonical_term_non_numeric(self):
         self.assertEqual(
             self.command.canonical_term(Literal("hello", lang="en")),

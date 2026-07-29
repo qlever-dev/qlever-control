@@ -62,6 +62,11 @@ GEO_COMPONENT_PREDICATES = {
 WKT_DATATYPE = "http://www.opengis.net/ont/geosparql#wktLiteral"
 GEO_TOLERANCE = 2e-5
 
+# The redirect marker written by a Wikidata merge. An entity can become a
+# redirect DURING the check (observed live); it is then reported as a
+# redirect, like the redirects that are already detected at download time.
+OWL_SAMEAS = "http://www.w3.org/2002/07/owl#sameAs"
+
 
 class CheckSyncWithWikidataCommand(QleverCommand):
     """
@@ -407,6 +412,17 @@ class CheckSyncWithWikidataCommand(QleverCommand):
         slightly differently than IEEE string parsing, with differences
         observed in the 12th significant digit).
         """
+        # QLever's export omits the timezone designator for dates with
+        # years outside [-9999, 9999] ("-11700-01-01T00:00:00" instead of
+        # "-11700-01-01T00:00:00Z"), so compare dates without it (all times
+        # in Wikidata are UTC, so it carries no information here).
+        if (
+            isinstance(term, Literal)
+            and term.datatype is not None
+            and str(term.datatype)
+            == "http://www.w3.org/2001/XMLSchema#dateTime"
+        ):
+            return f'"{str(term).rstrip("Z")}"^^DATE'
         numeric_datatypes = {
             "http://www.w3.org/2001/XMLSchema#decimal",
             "http://www.w3.org/2001/XMLSchema#integer",
@@ -521,6 +537,15 @@ class CheckSyncWithWikidataCommand(QleverCommand):
         Compare the two documents of the given entity. Returns one of
         `match`, `divergent`, `undecidable`, or `error`.
         """
+        for graph in (qlever_graph, canonical_document):
+            for target in graph.objects(
+                URIRef(f"{WD}{entity_id}"), URIRef(OWL_SAMEAS)
+            ):
+                log.info(
+                    f"{entity_id}: redirect to"
+                    f" {str(target).rsplit('/', 1)[-1]}, skipped"
+                )
+                return "redirect"
         canonical_version = self.entity_version(canonical_document, entity_id)
         qlever_version = self.entity_version(qlever_graph, entity_id)
         if canonical_version is None or qlever_version is None:
@@ -581,6 +606,24 @@ class CheckSyncWithWikidataCommand(QleverCommand):
         for entity_id in batch:
             try:
                 ttl_bytes, redirected_to = self.fetch_canonical(entity_id)
+                if redirected_to is None and b"sameAs" in ttl_bytes:
+                    # A recently merged entity is served as a redirect stub
+                    # (no HTTP redirect yet). It must not go into the munged
+                    # batch: its dangling document node makes `munge.sh`
+                    # graft its version onto the NEXT entity of the batch.
+                    stub = Graph()
+                    stub.parse(data=ttl_bytes, format="turtle")
+                    target = next(
+                        iter(
+                            stub.objects(
+                                URIRef(f"{WD}{entity_id}"),
+                                URIRef(OWL_SAMEAS),
+                            )
+                        ),
+                        None,
+                    )
+                    if target is not None:
+                        redirected_to = str(target).rsplit("/", 1)[-1]
                 if redirected_to is not None:
                     log.info(
                         f"{entity_id}: redirect to {redirected_to}, skipped"
