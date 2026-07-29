@@ -78,19 +78,27 @@ class TestCheckSyncWithWikidataCommand(unittest.TestCase):
             f"<{WD}Q42>",
         )
 
-    def test_canonical_wkt(self):
-        # Coordinates are rounded to 5 decimal places and the keyword is
-        # uppercased, matching the fixed-precision encoding of QLever.
-        self.assertEqual(
-            self.command.canonical_wkt(
-                "Point(-0.14544444444444 51.566527777778)"
-            ),
-            self.command.canonical_wkt("POINT(-0.145444 51.566528)"),
+    def test_geo_values_match(self):
+        # The observed encoding differences (up to 1e-5) must compare as
+        # equal, a difference above the tolerance must not.
+        key = "<http://www.wikidata.org/value/abc> <p>"
+        self.assertTrue(
+            self.command.geo_values_match(
+                {key: [[5.483421, 50.642359]]},
+                {key: [[5.48342, 50.642359]]},
+            )
         )
-        self.assertEqual(
-            self.command.canonical_wkt("Point(5.483421 50.642359)"),
-            self.command.canonical_wkt("POINT(5.48342 50.642359)"),
+        self.assertTrue(
+            self.command.geo_values_match(
+                {key: [[50.81588]]}, {key: [[50.81587]]}
+            )
         )
+        self.assertFalse(
+            self.command.geo_values_match(
+                {key: [[50.81588]]}, {key: [[50.816]]}
+            )
+        )
+        self.assertFalse(self.command.geo_values_match({key: [[50.8]]}, {}))
 
     def test_normalize_triples_exclusions(self):
         graph = Graph()
@@ -121,24 +129,33 @@ class TestCheckSyncWithWikidataCommand(unittest.TestCase):
                 URIRef("http://www.wikidata.org/value/def"),
             )
         )
-        with_counters = self.command.normalize_triples(graph, "Q42", False)
-        without_counters = self.command.normalize_triples(graph, "Q42", True)
+        with_counters, _ = self.command.normalize_triples(graph, "Q42", False)
+        without_counters, _ = self.command.normalize_triples(
+            graph, "Q42", True
+        )
         # The reference type and the normalized-quantity link are always
         # excluded; the counter only with `exclude_counters`.
         self.assertEqual(len(with_counters), 2)
         self.assertEqual(len(without_counters), 1)
 
     def test_normalize_triples_geo(self):
-        # The two lexical forms of the same coordinate (canonical vs. the
-        # export of the fixed-precision encoding) must compare equal.
+        # Geographic values enter the set comparison only via a placeholder
+        # (so the presence of the triple is still compared exactly), and
+        # the values are collected for the tolerance comparison.
         canonical, qlever = Graph(), Graph()
         value = URIRef("http://www.wikidata.org/value/abc")
         latitude = URIRef(f"{WIKIBASE}geoLatitude")
         canonical.add((value, latitude, literal("51.566527777778", "double")))
         qlever.add((value, latitude, literal("51.56652777778", "decimal")))
-        self.assertEqual(
-            self.command.normalize_triples(canonical, "Q42", False),
-            self.command.normalize_triples(qlever, "Q42", False),
+        canonical_lines, canonical_geo = self.command.normalize_triples(
+            canonical, "Q42", False
+        )
+        qlever_lines, qlever_geo = self.command.normalize_triples(
+            qlever, "Q42", False
+        )
+        self.assertEqual(canonical_lines, qlever_lines)
+        self.assertTrue(
+            self.command.geo_values_match(canonical_geo, qlever_geo)
         )
 
     def test_canonical_graph_without_munging(self):

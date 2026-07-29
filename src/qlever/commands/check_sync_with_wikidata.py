@@ -48,15 +48,19 @@ EXCLUDED_TYPE_OBJECTS = {f"{WIKIBASE}Reference"}
 EXCLUDED_PREDICATES = {f"{WIKIBASE}quantityNormalized"}
 
 # Geographic coordinates are stored by QLever in a fixed-precision encoding
-# and exported in a normalized form; differences up to 1e-6 degrees have been
-# observed (5.483421 came back as 5.48342), so they are compared after
-# rounding to 5 decimal places.
+# and exported in a normalized form; differences up to 1e-5 degrees have
+# been observed (5.483421 came back as 5.48342, and 50.81588 as 50.81587).
+# Rounding cannot absorb such differences reliably (whatever the number of
+# decimal places, an encoding error can straddle a rounding boundary), so
+# the geographic values are excluded from the exact set comparison and
+# compared separately with the following tolerance.
 GEO_COMPONENT_PREDICATES = {
     f"{WIKIBASE}geoLatitude",
     f"{WIKIBASE}geoLongitude",
     f"{WIKIBASE}geoPrecision",
 }
 WKT_DATATYPE = "http://www.opengis.net/ont/geosparql#wktLiteral"
+GEO_TOLERANCE = 2e-5
 
 
 class CheckSyncWithWikidataCommand(QleverCommand):
@@ -427,13 +431,19 @@ class CheckSyncWithWikidataCommand(QleverCommand):
 
     def normalize_triples(self, graph, entity_id, exclude_counters):
         """
-        Return the set of N-Triples lines of the graph. Without munging, the
-        entity-level counter triples are excluded (see
-        `EXCLUDED_ENTITY_PREDICATES`); with munging, the munge script computes
-        them on the canonical side, so they are compared like all others.
+        Return `(lines, geo_values)`: the set of N-Triples lines of the
+        graph, and the geographic values, which take part in the set
+        comparison only via a placeholder (so that the PRESENCE of each such
+        triple is still compared exactly) and whose values are compared
+        separately with a tolerance (see `GEO_TOLERANCE`). Without munging,
+        the entity-level counter triples are excluded (see
+        `EXCLUDED_ENTITY_PREDICATES`); with munging, the munge script
+        computes them on the canonical side, so they are compared like all
+        others.
         """
         entity = f"{WD}{entity_id}"
         lines = set()
+        geo_values = {}
         for s, p, o in graph:
             if (
                 exclude_counters
@@ -445,30 +455,54 @@ class CheckSyncWithWikidataCommand(QleverCommand):
                 continue
             if str(p) in EXCLUDED_PREDICATES:
                 continue
-            if str(p) in GEO_COMPONENT_PREDICATES and isinstance(o, Literal):
-                object_string = f'"{round(float(str(o)), 5)}"^^GEO'
-            elif (
+            is_geo_component = str(
+                p
+            ) in GEO_COMPONENT_PREDICATES and isinstance(o, Literal)
+            is_wkt = (
                 isinstance(o, Literal)
                 and o.datatype is not None
                 and str(o.datatype) == WKT_DATATYPE
-            ):
-                object_string = self.canonical_wkt(str(o))
+            )
+            if is_geo_component or is_wkt:
+                object_string = "GEO"
+                numbers = [
+                    float(match.group(0))
+                    for match in re.finditer(r"-?\d+(\.\d+)?", str(o))
+                ]
+                geo_values.setdefault(f"{s.n3()} {p.n3()}", []).append(numbers)
             else:
                 object_string = self.canonical_term(o)
             lines.add(f"{s.n3()} {p.n3()} {object_string}")
-        return lines
+        return lines, geo_values
 
-    def canonical_wkt(self, wkt):
+    def geo_values_match(self, canonical_values, qlever_values):
         """
-        Return a canonical form of the given WKT literal, with the keyword in
-        uppercase and the coordinates rounded to 5 decimal places (see the
-        comment at `GEO_COMPONENT_PREDICATES`).
+        Compare the two dicts of geographic values (as returned by
+        `normalize_triples`): for each subject and predicate, each list of
+        numbers on the one side must have a counterpart on the other side
+        whose numbers are all within `GEO_TOLERANCE`.
         """
+        if set(canonical_values) != set(qlever_values):
+            return False
 
-        def round_number(match):
-            return str(round(float(match.group(0)), 5))
+        def close(numbers_1, numbers_2):
+            return len(numbers_1) == len(numbers_2) and all(
+                abs(a - b) <= GEO_TOLERANCE
+                for a, b in zip(numbers_1, numbers_2)
+            )
 
-        return re.sub(r"-?\d+(\.\d+)?", round_number, wkt.strip().upper())
+        for key, canonical_list in canonical_values.items():
+            qlever_list = list(qlever_values[key])
+            if len(canonical_list) != len(qlever_list):
+                return False
+            for numbers in canonical_list:
+                counterpart = next(
+                    (q for q in qlever_list if close(numbers, q)), None
+                )
+                if counterpart is None:
+                    return False
+                qlever_list.remove(counterpart)
+        return True
 
     def entity_version(self, graph, entity_id):
         """
@@ -503,15 +537,22 @@ class CheckSyncWithWikidataCommand(QleverCommand):
                 f" edited since the endpoint's stream position"
             )
             return "undecidable"
-        canonical = self.normalize_triples(
+        canonical, canonical_geo = self.normalize_triples(
             canonical_document, entity_id, exclude_counters
         )
-        qlever = self.normalize_triples(
+        qlever, qlever_geo = self.normalize_triples(
             qlever_graph, entity_id, exclude_counters
         )
         missing = canonical - qlever
         extra = qlever - canonical
         if not missing and not extra:
+            if not self.geo_values_match(canonical_geo, qlever_geo):
+                log.error(
+                    f"{entity_id}: DIVERGENT at version {qlever_version}"
+                    f" (geographic values differ by more than"
+                    f" {GEO_TOLERANCE})"
+                )
+                return "divergent"
             log.info(
                 f"{entity_id}: exact match at version"
                 f" {qlever_version} ({len(qlever):,} triples)"
