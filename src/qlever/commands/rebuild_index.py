@@ -63,7 +63,7 @@ class RebuildIndexCommand(QleverCommand):
                 "most-recent-only",
                 "original-and-most-recent",
             ],
-            default="all",
+            default="original-and-most-recent",
             help="Which `previous.*` index directories to keep after a "
             "successful rebuild: "
             "all (keep all), "
@@ -71,7 +71,7 @@ class RebuildIndexCommand(QleverCommand):
             "original-only (keep only the very first), "
             "most-recent-only (keep only the most recently created), "
             "original-and-most-recent (keep both) "
-            "(default: all)",
+            "(default: original-and-most-recent)",
         )
 
     def execute(self, args) -> bool:
