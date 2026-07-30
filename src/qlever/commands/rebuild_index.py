@@ -212,13 +212,12 @@ class RebuildIndexCommand(QleverCommand):
                     action = (
                         "KEEP" if is_original or is_most_recent else "DELETE"
                     )
-                log.info(f"  {dir.name:<50} {action}")
+                log.info(f"{dir.name}  ->  {action}")
                 if action == "DELETE":
                     try:
                         shutil.rmtree(dir)
-                        log.info(f"    → Deleted {dir.name}")
                     except Exception as e:
-                        log.error(f"    → Failed to delete {dir.name}: {e}")
+                        log.error(f"Failed to delete {dir.name}: {e}")
             log.info("")
 
         return True
