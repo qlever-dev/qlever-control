@@ -199,6 +199,7 @@ class RebuildIndexCommand(QleverCommand):
                     color="blue",
                 )
             )
+            log.info("")
             for i, dir in enumerate(previous_index_dirs):
                 is_original = i == 0
                 is_most_recent = i == len(previous_index_dirs) - 1
@@ -218,6 +219,5 @@ class RebuildIndexCommand(QleverCommand):
                         shutil.rmtree(dir)
                     except Exception as e:
                         log.error(f"Failed to delete {dir.name}: {e}")
-            log.info("")
 
         return True
