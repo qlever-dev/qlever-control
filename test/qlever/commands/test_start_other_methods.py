@@ -40,6 +40,7 @@ class TestStartCommand(unittest.TestCase):
                     "num_threads",
                     "timeout",
                     "persist_updates",
+                    "rebuild_index_strategy",
                     "only_pso_and_pos_permutations",
                     "use_patterns",
                     "use_text_index",

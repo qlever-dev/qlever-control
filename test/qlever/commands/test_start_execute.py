@@ -20,6 +20,7 @@ def test_construct_command_with_if():
     args.cache_max_num_entries = 1000
     args.timeout = True
     args.persist_updates = False
+    args.rebuild_index_strategy = "100000"
     args.access_token = True
     args.only_pso_and_pos_permutations = True
     args.use_patterns = "no"
@@ -42,6 +43,7 @@ def test_construct_command_with_if():
         f" -k {args.cache_max_num_entries}"
         f" -s {args.timeout}"
         f" -a {args.access_token}"
+        " --rebuild-index-strategy 100000"
         " --only-pso-and-pos-permutations"
         " --no-patterns"
         " -t"
@@ -66,6 +68,7 @@ def test_construct_command_without_if():
     args.cache_max_num_entries = 1000
     args.timeout = False
     args.persist_updates = False
+    args.rebuild_index_strategy = "manual"
     args.access_token = False
     args.only_pso_and_pos_permutations = False
     args.use_patterns = True
@@ -368,6 +371,7 @@ class TestStartCommand(unittest.TestCase):
         args.run_in_foreground = False
         args.timeout = True
         args.persist_updates = False
+        args.rebuild_index_strategy = "manual"
         args.access_token = True
         args.only_pso_and_pos_permutations = True
         args.use_patterns = "no"
