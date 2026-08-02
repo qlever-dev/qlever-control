@@ -9,6 +9,7 @@ from qlever.monitor_queries.resource_data import (
     SEEK_BACKUP_BYTES,
     get_resource_plot,
     line_ts_ms,
+    parse_tsv_row,
     read_resource_window,
     seek_to_window_start,
 )
@@ -54,6 +55,18 @@ def sample(elapsed, ts, rss, cpu):
     return ResourceSample(
         elapsed_s=elapsed, ts_ms=ts, rss=rss, cpu_percent=cpu
     )
+
+
+def test_parse_tsv_row_accepts_extra_columns():
+    # Newer QLever versions append I/O and page-cache columns after the four
+    # columns used here; they must be ignored, not break the parse.
+    row = "2.0\t1000\t2048\t50.0\t0.5\t100\t200\t4096"
+    assert parse_tsv_row(row) == sample(2.0, 1000, 2048, 50.0)
+
+
+def test_parse_tsv_row_rejects_short_or_malformed_rows():
+    assert parse_tsv_row("2.0\t1000\t2048") is None
+    assert parse_tsv_row(HEADER.strip()) is None
 
 
 def test_line_ts_ms_reads_the_timestamp_column():

@@ -68,9 +68,11 @@ def parse_tsv_row(line: str) -> ResourceSample | None:
     return None, so the caller never special-cases them.
     """
     fields = line.split("\t")
-    if len(fields) != 4:
+    # Newer QLever versions append further columns (I/O and page-cache
+    # statistics) after the four we use here, so accept four OR MORE.
+    if len(fields) < 4:
         return None
-    elapsed, ts, rss, cpu = fields
+    elapsed, ts, rss, cpu = fields[:4]
     try:
         return ResourceSample(
             elapsed_s=float(elapsed),
