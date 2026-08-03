@@ -20,7 +20,7 @@ def test_construct_command_with_if():
     args.cache_max_num_entries = 1000
     args.timeout = True
     args.persist_updates = False
-    args.rebuild_index_strategy = "10000:1000000:0.1"
+    args.rebuild_index_strategy = "automatic:10000:1000000:0.1"
     args.access_token = True
     args.only_pso_and_pos_permutations = True
     args.use_patterns = "no"
@@ -43,7 +43,7 @@ def test_construct_command_with_if():
         f" -k {args.cache_max_num_entries}"
         f" -s {args.timeout}"
         f" -a {args.access_token}"
-        " --rebuild-index-strategy 10000:1000000:0.1"
+        " --rebuild-index-strategy automatic:10000:1000000:0.1"
         " --only-pso-and-pos-permutations"
         " --no-patterns"
         " -t"
