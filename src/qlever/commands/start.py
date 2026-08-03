@@ -43,7 +43,7 @@ def construct_command(args) -> str:
     # Only pass the flag for a non-default value, so that older server
     # binaries without this option keep working.
     if args.rebuild_index_strategy != "manual":
-        start_cmd += f" --rebuild-index-strategy {shlex.quote(args.rebuild_index_strategy)}"
+        start_cmd += f" --rebuild-index-strategy {args.rebuild_index_strategy}"
     if args.only_pso_and_pos_permutations:
         start_cmd += " --only-pso-and-pos-permutations"
     if args.use_patterns == "no":
