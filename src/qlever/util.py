@@ -606,11 +606,13 @@ def add_memory_options(subparser, index=True, server=True):
 def tail_log_file(
     log_file: Path,
     max_wait_seconds: int = 30,
+    start_offset: int = 0,
 ) -> subprocess.Popen | None:
     """
-    Wait for the log file to appear and start tailing it from the
-    beginning. The old log file should be deleted before calling this
-    function.
+    Wait for the log file to appear and start tailing it from byte offset
+    `start_offset` (with the default of 0, from the beginning). The log file
+    is opened in append mode, so pass the size of the file from before the
+    current run to only show the output of that run.
 
     Returns the tail process, or None if the log file was not created
     within `max_wait_seconds`.
@@ -625,7 +627,7 @@ def tail_log_file(
             return None
         time.sleep(0.1)
         waited += 0.1
-    tail_cmd = f"exec tail -n +1 -f {log_file}"
+    tail_cmd = f"exec tail -c +{start_offset + 1} -f {log_file}"
     return subprocess.Popen(tail_cmd, shell=True)
 
 
