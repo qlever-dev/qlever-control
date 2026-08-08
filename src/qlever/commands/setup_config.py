@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import subprocess
 from os import environ
 from pathlib import Path
 
@@ -49,6 +48,10 @@ class SetupConfigCommand(QleverCommand):
             choices=self.qleverfile_names,
             help="The name of the pre-configured Qleverfile to create",
         )
+        # Override defaults to None so that arguments explicitly passed
+        # by the user can be told apart from plain defaults.
+        for section, arg_name in self.override_args:
+            subparser.set_defaults(**{arg_name: None})
 
     def check_qleverfile_exists(self) -> bool:
         """Return True if a Qleverfile already exists (and log an error)."""
@@ -75,37 +78,49 @@ class SetupConfigCommand(QleverCommand):
                 "(since inside the container, QLever should run natively)"
             )
             log.info("")
-        # Construct the command line and show it.
+        # Build the updates for the copied Qleverfile.
         qleverfile_path = (
             self.qleverfiles_path / f"Qleverfile.{args.config_name}"
         )
-        setup_config_cmd = f"cat {qleverfile_path} | {util.get_ini_sed_cmd('server', 'ACCESS_TOKEN', util.get_random_string(12), True)}"
+        updates = {
+            "server": {
+                "ACCESS_TOKEN": (util.get_random_string(12), True),
+            },
+        }
         if qlever_is_running_in_container:
-            setup_config_cmd += (
-                f" | {util.get_ini_sed_cmd('runtime', 'SYSTEM', 'native')}"
-            )
+            updates.setdefault("runtime", {})["SYSTEM"] = ("native", False)
         else:
             for section, arg_name in self.override_args:
                 if arg_value := getattr(args, arg_name, None):
-                    setup_config_cmd += f" | {util.get_ini_sed_cmd(section, arg_name.upper(), arg_value)}"
+                    updates.setdefault(section, {})[arg_name.upper()] = (
+                        str(arg_value),
+                        False,
+                    )
 
-        setup_config_cmd += "> Qleverfile"
-        self.show(setup_config_cmd, only_show=args.show)
+        # Show the changes that will be applied to the copied template.
+        show_lines = [
+            f"Copy {qleverfile_path} to Qleverfile with the following changes:"
+        ]
+        for section, option_dict in updates.items():
+            show_lines.append(f"\n[{section}]")
+            for option, (value, is_suffix) in option_dict.items():
+                shown_value = (
+                    "*" * len(value) if option == "ACCESS_TOKEN" else value
+                )
+                show_lines.append(f"{option} = {shown_value}")
+        self.show("\n".join(show_lines), only_show=args.show)
         if args.show:
             return True
 
         if self.check_qleverfile_exists():
             return False
 
-        # Copy the Qleverfile to the current directory.
+        # Copy the Qleverfile to the current directory, with the updates
+        # applied.
         try:
-            subprocess.run(
-                setup_config_cmd,
-                shell=True,
-                check=True,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-            )
+            lines = qleverfile_path.read_text().splitlines()
+            result = util.update_ini_values(lines, updates)
+            Path("Qleverfile").write_text("\n".join(result) + "\n")
         except Exception as e:
             log.error(
                 f'Could not copy "{qleverfile_path}" to current directory: {e}'

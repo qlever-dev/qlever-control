@@ -1,0 +1,71 @@
+name: End-to-end test for qoxigraph
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  qoxigraph-end-to-end-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        system: [native, docker, podman]
+
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install qoxigraph (qlever-control) with the plot extra
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[plot]"
+
+      - name: Install the latest oxigraph release binary on PATH
+        if: matrix.system == 'native'
+        run: |
+          url=$(curl -sL https://api.github.com/repos/oxigraph/oxigraph/releases/latest \
+            | grep -oE 'https://[^"]+x86_64_linux_gnu' | head -1)
+          echo "Downloading oxigraph binary from $url"
+          curl -sL "$url" -o oxigraph
+          chmod +x oxigraph
+          sudo mv oxigraph /usr/local/bin/oxigraph
+          oxigraph --version
+
+      - name: Make sure the container runtime is available and pull the image
+        if: matrix.system != 'native'
+        run: |
+          command -v ${{matrix.system}} || (sudo apt-get update && sudo apt-get install -y ${{matrix.system}})
+          ${{matrix.system}} --version
+          ${{matrix.system}} pull ghcr.io/oxigraph/oxigraph
+
+      - name: End-to-end test on the imdb dataset (${{matrix.system}})
+        run: |
+          export QLEVER_ARGCOMPLETE_ENABLED=1
+          mkdir -p qoxigraph-e2e && cd qoxigraph-e2e
+          qoxigraph setup-config imdb --system ${{matrix.system}} 
+          qoxigraph get-data
+          qoxigraph index
+
+          echo "Checking that the resource-usage log and plot were produced"
+          test -s imdb.index.resource-usage-log.tsv
+          test -f imdb.resource-usage-plot.png
+
+          qoxigraph index-stats
+          qoxigraph start
+          qoxigraph status
+          qoxigraph query "SELECT * WHERE { ?s ?p ?o } LIMIT 1"
+          qoxigraph stop
+          ls -lh

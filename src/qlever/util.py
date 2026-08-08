@@ -508,6 +508,125 @@ def get_container_image_id(system: str, image: str) -> str:
     return image_id
 
 
+def edit_option_line(
+    line: str, new_value: str, is_suffix: bool, comment_prefix: str | None
+) -> str:
+    """
+    Return `line` with its value replaced by `new_value`, or with
+    `new_value` appended to it if `is_suffix` is true. An inline
+    comment after the value is kept.
+    """
+    # Split off an inline comment (whitespace followed by the comment
+    # prefix) so that only the value part is edited.
+    value_part = line
+    comment_part = ""
+    if comment_prefix is not None:
+        comment_match = re.search(rf"\s{re.escape(comment_prefix)}", line)
+        if comment_match:
+            value_part = line[: comment_match.start()]
+            comment_part = "\t" + line[comment_match.start() :].strip()
+
+    if is_suffix:
+        new_line = value_part.rstrip() + new_value
+    else:
+        # Keep everything up to and including the `=` and the spacing
+        # after it, replace the old value.
+        prefix_end = re.match(r"^\s*\S+\s*=\s*", value_part).end()
+        new_line = value_part[:prefix_end] + new_value
+    return new_line + comment_part
+
+
+def update_ini_values(
+    lines: list[str],
+    updates: dict[str, dict[str, tuple[str, bool]]],
+    comment_prefix: str | None = None,
+) -> list[str]:
+    """
+    Update values in INI-style file content given as `lines` and return
+    the modified lines, preserving comments and unrelated lines.
+
+    `updates` maps `{section: {option: (new_value, is_suffix)}}`. An
+    existing option gets its value replaced, or `new_value` appended to
+    it if `is_suffix` is true. A missing option is added at the end of
+    its section, a missing section at the end of the file (suffix
+    entries are skipped there, they have no value to append to).
+
+    `comment_prefix` is the inline comment character of the format
+    (`;` for `virtuoso.ini`). If None, the format has no inline
+    comments and the whole line is treated as the value.
+    """
+    options_applied = {section: set() for section in updates}
+    sections_seen = set()
+    result_lines = []
+    current_section = None
+
+    def missing_option_lines(section: str) -> list[str]:
+        """
+        Lines for options of `section` that were not found in the file.
+        """
+        return [
+            f"{option} = {value}"
+            for option, (value, is_suffix) in updates[section].items()
+            if option not in options_applied[section] and not is_suffix
+        ]
+
+    def flush_missing_options(section: str):
+        """
+        Insert options of `section` that were not found in the file,
+        before any blank lines that separate it from the next section.
+        """
+        insert_at = len(result_lines)
+        while insert_at > 0 and result_lines[insert_at - 1].strip() == "":
+            insert_at -= 1
+        result_lines[insert_at:insert_at] = missing_option_lines(section)
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Section headers like `[Parameters]`. Commented-out headers
+        # like `;[Striping]` do not match because of the `^` anchor.
+        header_match = re.match(r"^\[([^\]]+)\]", stripped)
+        if header_match:
+            # Add options that were missing from the section we leave.
+            if current_section in updates:
+                flush_missing_options(current_section)
+            current_section = header_match.group(1)
+            sections_seen.add(current_section)
+            result_lines.append(line)
+            continue
+
+        if current_section not in updates:
+            result_lines.append(line)
+            continue
+
+        option_match = re.match(r"^(\S+)\s*=\s*", stripped)
+        if (
+            option_match is None
+            or option_match.group(1) not in updates[current_section]
+        ):
+            result_lines.append(line)
+            continue
+
+        option_name = option_match.group(1)
+        new_value, is_suffix = updates[current_section][option_name]
+        result_lines.append(
+            edit_option_line(line, new_value, is_suffix, comment_prefix)
+        )
+        options_applied[current_section].add(option_name)
+
+    # Add options missing from the last section in the file.
+    if current_section in updates:
+        flush_missing_options(current_section)
+
+    # Add sections that were not in the file at all.
+    for section in updates:
+        if section not in sections_seen:
+            result_lines.append(f"\n[{section}]")
+            result_lines.extend(missing_option_lines(section))
+
+    return result_lines
+
+
 def get_ini_sed_cmd(
     section: str, option: str, new_value: str, is_suffix: bool = False
 ) -> str:

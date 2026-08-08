@@ -18,13 +18,7 @@ from qlever.util import (
 )
 
 
-def render_usage_plot(
-    dataset: str,
-    stxxl_memory: str,
-    settings_json: str,
-    plot_max_points: int,
-    plot_only: bool,
-) -> Path | None:
+def render_usage_plot(args, plot_only: bool) -> Path | None:
     """Render the resource-usage plot.
 
     When the plotting libraries are missing, this is an error if the
@@ -32,7 +26,7 @@ def render_usage_plot(
     how to get the plot at info level since the index build succeeded.
     """
     try:
-        from qlever.resource_usage import usage_plot
+        from qlever.resource_usage.usage_plot import UsagePlot
     except ImportError:
         if plot_only:
             log.error(
@@ -46,12 +40,9 @@ def render_usage_plot(
                 "`qlever index --resource-usage-plot-only`."
             )
         return None
-    return usage_plot.render_usage_plot(
-        dataset,
-        stxxl_memory=stxxl_memory,
-        settings_json=settings_json,
-        plot_max_points=plot_max_points,
-    )
+    return UsagePlot(
+        args.name, args, plot_max_points=args.resource_usage_plot_max_points
+    ).render()
 
 
 class IndexCommand(QleverCommand):
@@ -233,13 +224,7 @@ class IndexCommand(QleverCommand):
         # Render the resource-usage plot from the existing log without
         # rebuilding the index.
         if args.resource_usage_plot_only:
-            plot_path = render_usage_plot(
-                args.name,
-                stxxl_memory=args.stxxl_memory or "",
-                settings_json=args.settings_json,
-                plot_max_points=args.resource_usage_plot_max_points,
-                plot_only=True,
-            )
+            plot_path = render_usage_plot(args, plot_only=True)
             if plot_path is None:
                 return False
             log.info(f"Resource-usage plot saved to `{plot_path.name}`")
@@ -407,13 +392,7 @@ class IndexCommand(QleverCommand):
             Path(f"{args.name}.index.resource-usage-log.tsv").exists()
             or Path(f"{args.name}.resource-usage-log.tsv").exists()
         ):
-            plot_path = render_usage_plot(
-                args.name,
-                stxxl_memory=args.stxxl_memory or "",
-                settings_json=args.settings_json,
-                plot_max_points=args.resource_usage_plot_max_points,
-                plot_only=False,
-            )
+            plot_path = render_usage_plot(args, plot_only=False)
             if plot_path is not None:
                 log.info(f"Resource-usage plot saved to `{plot_path.name}`")
 
