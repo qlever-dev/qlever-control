@@ -14,10 +14,10 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Footer
 from textual.worker import get_current_worker
 
 from qlever.monitor_queries.models import ResourcePlot
+from qlever.monitor_queries.widgets.footer import Footer
 from qlever.monitor_queries.widgets.resource_plot_pane import ResourcePlotPane
 
 

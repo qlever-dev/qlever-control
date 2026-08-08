@@ -7,7 +7,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.reactive import reactive
 from textual.screen import Screen
-from textual.widgets import Footer, Static
+from textual.widgets import Static
 from textual.worker import get_current_worker
 
 from qlever.monitor_queries.live_data import (
@@ -40,6 +40,7 @@ from qlever.monitor_queries.widgets.detail_switcher import (
     PLOT_ID,
     DetailSwitcher,
 )
+from qlever.monitor_queries.widgets.footer import Footer
 from qlever.monitor_queries.widgets.header_row import HeaderRow
 from qlever.monitor_queries.widgets.metrics_row import MetricsRow
 from qlever.monitor_queries.widgets.nav_pill import NavPill

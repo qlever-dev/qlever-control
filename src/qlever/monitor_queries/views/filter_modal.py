@@ -6,10 +6,11 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.validation import Integer
-from textual.widgets import Footer, Input, Label, SelectionList
+from textual.widgets import Input, Label, SelectionList
 from textual.widgets.selection_list import Selection
 
 from qlever.monitor_queries.models import FilterState
+from qlever.monitor_queries.widgets.footer import Footer
 
 # Statuses offered in the filter, in display order: the terminal
 # statuses a completed query can carry, plus orphaned crash survivors.
