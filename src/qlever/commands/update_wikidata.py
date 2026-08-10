@@ -129,6 +129,9 @@ class UpdateWikidataCommand(QleverCommand):
         self.ctrl_c_pressed = Event()
         # Set to `True` when finished.
         self.finished = False
+        # Size of the triple history right after the last prune (see
+        # `prune_triple_history`).
+        self.triple_history_size_after_last_prune = 0
 
     def description(self) -> str:
         return "Update from given SSE stream"
@@ -410,18 +413,31 @@ class UpdateWikidataCommand(QleverCommand):
         Return the given triple history without the entries that are older
         than `history_minutes` before the given latest event date (the
         event dates are ISO strings and compare lexicographically).
+
+        A prune is linear in the size of the history, so it only actually
+        happens when the history has at least doubled in size since the
+        last prune; the total pruning cost is then linear in the total
+        number of insertions, no matter how often this is called. Keeping
+        entries longer than `history_minutes` is harmless for correctness,
+        the window is only a bound on the memory usage.
         """
         if not triple_history or latest_event_date is None:
+            return triple_history
+        if len(triple_history) < max(
+            2 * self.triple_history_size_after_last_prune, 10_000
+        ):
             return triple_history
         cutoff_date = (
             datetime.strptime(latest_event_date, "%Y-%m-%dT%H:%M:%SZ")
             - timedelta(minutes=history_minutes)
         ).strftime("%Y-%m-%dT%H:%M:%SZ")
-        return {
+        triple_history = {
             triple: history
             for triple, history in triple_history.items()
             if history[2] >= cutoff_date
         }
+        self.triple_history_size_after_last_prune = len(triple_history)
+        return triple_history
 
     def check_and_update_triple_history(
         self,
