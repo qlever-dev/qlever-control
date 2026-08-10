@@ -58,7 +58,14 @@ class Footer(TextualFooter):
         yield from super().compose()
 
     def bindings_changed(self, screen: Screen) -> None:
-        """Rebuild only when the keys have changed."""
-        if shown_keys(screen) == self.drawn_keys:
+        """Rebuild only when the keys the footer shows have changed."""
+        # Only this footer's own screen drives its rows, and only while it
+        # is attached, which is exactly where the parent redraws. For any
+        # other screen defer to the parent, which turns it into a no-op.
+        if (
+            self.is_attached
+            and screen is self.screen
+            and shown_keys(screen) == self.drawn_keys
+        ):
             return
         super().bindings_changed(screen)
