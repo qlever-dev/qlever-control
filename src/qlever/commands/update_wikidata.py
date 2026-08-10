@@ -608,6 +608,7 @@ class UpdateWikidataCommand(QleverCommand):
         # batch start.
         triple_history: dict[str, tuple[tuple[int, int], bool, str]] = {}
         latest_event_date = None
+        use_triple_history = args.triple_history_minutes > 0
 
         # Initialize all the statistics variables.
         batch_count = 0
@@ -798,7 +799,7 @@ class UpdateWikidataCommand(QleverCommand):
             delete_triples: dict[str, tuple[int, int]] = {}
 
             # Prune old entries from the triple history.
-            if args.triple_history_minutes > 0:
+            if use_triple_history:
                 triple_history = self.prune_triple_history(
                     triple_history,
                     latest_event_date,
@@ -1012,13 +1013,13 @@ class UpdateWikidataCommand(QleverCommand):
                                             # Cross-batch check, see
                                             # `check_and_update_triple_history`.
                                             if (
-                                                args.triple_history_minutes > 0
+                                                use_triple_history
                                                 and not self.check_and_update_triple_history(
                                                     triple_history,
                                                     triple,
                                                     rev_key,
-                                                    False,
-                                                    date,
+                                                    is_insert=False,
+                                                    event_date=date,
                                                 )
                                             ):
                                                 continue
@@ -1075,13 +1076,13 @@ class UpdateWikidataCommand(QleverCommand):
                                             # Cross-batch check, see
                                             # `check_and_update_triple_history`.
                                             if (
-                                                args.triple_history_minutes > 0
+                                                use_triple_history
                                                 and not self.check_and_update_triple_history(
                                                     triple_history,
                                                     triple,
                                                     rev_key,
-                                                    True,
-                                                    date,
+                                                    is_insert=True,
+                                                    event_date=date,
                                                 )
                                             ):
                                                 continue
@@ -1124,7 +1125,7 @@ class UpdateWikidataCommand(QleverCommand):
                         # Message was successfully processed, update batch tracking
                         current_batch_size += 1
                         if (
-                            args.triple_history_minutes > 0
+                            use_triple_history
                             and current_batch_size % 10000 == 0
                         ):
                             # A batch can span hours of stream time during
