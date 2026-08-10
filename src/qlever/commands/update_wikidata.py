@@ -243,11 +243,11 @@ class UpdateWikidataCommand(QleverCommand):
             "--triple-history-minutes",
             type=int,
             default=30,
-            help="Gate inserts and deletes against the causally newest "
-            "event seen for the same triple within this many minutes of "
-            "stream time, ACROSS batches; the stream can reorder events "
-            "by minutes, so gating only within a batch is not enough "
-            "(0 disables the history)",
+            help="Remember the causally newest event for each triple for "
+            "this many minutes of stream time, ACROSS batches, and ignore "
+            "inserts and deletes that are superseded by such an event; the "
+            "stream can reorder events by minutes, so checking only within "
+            "a batch is not enough (0 disables the history)",
         )
         subparser.add_argument(
             "--verbose",
@@ -401,8 +401,11 @@ class UpdateWikidataCommand(QleverCommand):
         return cached_file_name, batch_size
 
     def prune_triple_history(
-        self, triple_history, latest_event_date, history_minutes
-    ):
+        self,
+        triple_history: dict[str, tuple[tuple[int, int], bool, str]],
+        latest_event_date: str | None,
+        history_minutes: int,
+    ) -> dict[str, tuple[tuple[int, int], bool, str]]:
         """
         Return the given triple history without the entries that are older
         than `history_minutes` before the given latest event date (the
@@ -419,6 +422,37 @@ class UpdateWikidataCommand(QleverCommand):
             for triple, history in triple_history.items()
             if history[2] >= cutoff_date
         }
+
+    def check_and_update_triple_history(
+        self,
+        triple_history: dict[str, tuple[tuple[int, int], bool, str]],
+        triple: str,
+        rev_key: tuple[int, int],
+        is_insert: bool,
+        event_date: str,
+    ) -> bool:
+        """
+        Check the given event against the history of the causally newest
+        event per triple (see `triple_history` in `execute`) and return
+        whether the event should be applied. An insert is superseded by a
+        causally strictly newer delete of the same triple, a delete by a
+        causally newer or equally new insert (an insert wins a tie, a
+        delete does not, matching the per-batch tie semantics). If the
+        event is the causally newest one for its triple so far, it is
+        recorded in the history (which is modified in place).
+        """
+        history = triple_history.get(triple)
+        is_newest = history is None or (
+            rev_key >= history[0] if is_insert else rev_key > history[0]
+        )
+        if is_newest:
+            triple_history[triple] = (rev_key, is_insert, event_date)
+            return True
+
+        # An event that is not the causally newest one is superseded only
+        # by an event of the other kind (a delete by an insert and vice
+        # versa); a duplicate of the same kind is harmless.
+        return history[1] == is_insert
 
     def execute(self, args) -> bool:
         # Resolve the four args that depend on `--wikimedia-commons`. A
@@ -545,7 +579,7 @@ class UpdateWikidataCommand(QleverCommand):
         # History of the causal-order key of the chronologically newest
         # event seen for each triple, kept ACROSS batches: maps the triple
         # to `(rev_key, is_insert, event_date)`. The per-batch
-        # `insert_triples` / `delete_triples` below gate out-of-order
+        # `insert_triples` / `delete_triples` below catch out-of-order
         # events WITHIN a batch, but the stream can reorder events by
         # minutes, while batches span only seconds when tailing the live
         # stream. Without this history, a delete that arrives after the
@@ -742,8 +776,8 @@ class UpdateWikidataCommand(QleverCommand):
             # DELETE and the target's ADD for a transferred article URL share
             # the same `dt` and the target often arrives first). Tracking the
             # `rev_id` per triple makes the cross-set "remove from the other
-            # side" step gated by causal order, so the chronologically last
-            # event for a given triple wins regardless of arrival order.
+            # side" step respect the causal order, so the chronologically
+            # last event for a given triple wins regardless of arrival order.
             insert_triples: dict[str, tuple[int, int]] = {}
             delete_triples: dict[str, tuple[int, int]] = {}
 
@@ -756,6 +790,13 @@ class UpdateWikidataCommand(QleverCommand):
                 )
 
             # Check if we can use a cached SPARQL query file
+            #
+            # NOTE: A cached batch is applied without processing its events,
+            # so it contributes nothing to `triple_history`. For events in
+            # such a batch, the protection against out-of-order events is
+            # therefore only as good as it was before the introduction of
+            # `triple_history` (namely, within the batch that produced the
+            # cached file).
             use_cached_file = False
             cached_file_name = None
             if (
@@ -952,35 +993,19 @@ class UpdateWikidataCommand(QleverCommand):
                                         )
                                         for s, p, o in graph:
                                             triple = f"{s.n3()} {p.n3()} {node_to_sparql(o)}"
-                                            # Cross-batch gate (see `triple_history`): discard
-                                            # this delete if a causally newer (or equally new)
-                                            # insert of the same triple was seen, possibly in an
-                                            # earlier batch that has been applied already. The tie
-                                            # semantics match the per-batch gate below.
-                                            history = (
-                                                triple_history.get(triple)
-                                                if args.triple_history_minutes
-                                                > 0
-                                                else None
-                                            )
-                                            if (
-                                                history is not None
-                                                and history[1]
-                                                and not rev_key > history[0]
-                                            ):
-                                                continue
+                                            # Cross-batch check, see
+                                            # `check_and_update_triple_history`.
                                             if (
                                                 args.triple_history_minutes > 0
-                                                and (
-                                                    history is None
-                                                    or rev_key > history[0]
-                                                )
-                                            ):
-                                                triple_history[triple] = (
+                                                and not self.check_and_update_triple_history(
+                                                    triple_history,
+                                                    triple,
                                                     rev_key,
                                                     False,
                                                     date,
                                                 )
+                                            ):
+                                                continue
                                             # NOTE: In case there was a previous `insert` of that
                                             # triple, it is safe to remove that `insert`, but not
                                             # the `delete` (in case the triple is contained in the
@@ -1031,38 +1056,23 @@ class UpdateWikidataCommand(QleverCommand):
                                         )
                                         for s, p, o in graph:
                                             triple = f"{s.n3()} {p.n3()} {node_to_sparql(o)}"
-                                            # Cross-batch gate (see `triple_history`): discard
-                                            # this insert if a causally strictly newer delete of
-                                            # the same triple was seen, possibly in an earlier
-                                            # batch that has been applied already.
-                                            history = (
-                                                triple_history.get(triple)
-                                                if args.triple_history_minutes
-                                                > 0
-                                                else None
-                                            )
-                                            if (
-                                                history is not None
-                                                and not history[1]
-                                                and not rev_key >= history[0]
-                                            ):
-                                                continue
+                                            # Cross-batch check, see
+                                            # `check_and_update_triple_history`.
                                             if (
                                                 args.triple_history_minutes > 0
-                                                and (
-                                                    history is None
-                                                    or rev_key >= history[0]
-                                                )
-                                            ):
-                                                triple_history[triple] = (
+                                                and not self.check_and_update_triple_history(
+                                                    triple_history,
+                                                    triple,
                                                     rev_key,
                                                     True,
                                                     date,
                                                 )
+                                            ):
+                                                continue
                                             # NOTE: In case there was a previous `delete` of that
                                             # triple, it is safe to remove that `delete`, but not
                                             # the `insert` (in case the triple is not contained in
-                                            # the original data). Use `>=` on the cross-set gate
+                                            # the original data). Use `>=` on the cross-set check
                                             # so that a same-event delete-then-add (deletes are
                                             # processed first in the per-event loop) lets the
                                             # add win, matching the previous within-event
