@@ -360,6 +360,18 @@ class Qleverfile:
             help="Persist updates to the index (write updates to disk and "
             "read them back in when restarting the server)",
         )
+        server_args["rebuild_index_strategy"] = arg(
+            "--rebuild-index-strategy",
+            type=str,
+            default="manual",
+            help="When to rebuild the index from the current data (including "
+            'updates): "manual" (only when explicitly requested via '
+            '`qlever rebuild-index`) or "automatic:min:max:fraction" (additionally '
+            "rebuild automatically in the background once the number of delta "
+            "triples reaches the given `fraction` of the number of index "
+            "triples, but never below `min` and always at `max`, "
+            'e.g. "automatic:10000:1000000:0.1")',
+        )
         server_args["only_pso_and_pos_permutations"] = arg(
             "--only-pso-and-pos-permutations",
             action="store_true",

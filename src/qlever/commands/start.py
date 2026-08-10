@@ -40,6 +40,10 @@ def construct_command(args) -> str:
         start_cmd += f" -a {args.access_token}"
     if args.persist_updates:
         start_cmd += " --persist-updates"
+    # Only pass the flag for a non-default value, so that older server
+    # binaries without this option keep working.
+    if args.rebuild_index_strategy != "manual":
+        start_cmd += f" --rebuild-index-strategy {args.rebuild_index_strategy}"
     if args.only_pso_and_pos_permutations:
         start_cmd += " --only-pso-and-pos-permutations"
     if args.use_patterns == "no":
@@ -166,6 +170,7 @@ class StartCommand(QleverCommand):
                 "num_threads",
                 "timeout",
                 "persist_updates",
+                "rebuild_index_strategy",
                 "only_pso_and_pos_permutations",
                 "use_patterns",
                 "use_text_index",
