@@ -20,6 +20,7 @@ from qlever.util import (
 
 def render_usage_plot(
     dataset: str,
+    engine_display: str,
     stxxl_memory: str,
     settings_json: str,
     plot_max_points: int,
@@ -48,6 +49,7 @@ def render_usage_plot(
         return None
     return usage_plot.render_usage_plot(
         dataset,
+        engine_display,
         stxxl_memory=stxxl_memory,
         settings_json=settings_json,
         plot_max_points=plot_max_points,
@@ -235,6 +237,7 @@ class IndexCommand(QleverCommand):
         if args.resource_usage_plot_only:
             plot_path = render_usage_plot(
                 args.name,
+                args.engine_display,
                 stxxl_memory=args.stxxl_memory or "",
                 settings_json=args.settings_json,
                 plot_max_points=args.resource_usage_plot_max_points,
@@ -356,7 +359,7 @@ class IndexCommand(QleverCommand):
             return False
 
         # Check if all of the input files exist.
-        if not input_files_exist(args.input_files):
+        if not input_files_exist(args.input_files, args.command_prefix):
             return False
 
         # Check if index files (name.index.*) already exist.
@@ -409,6 +412,7 @@ class IndexCommand(QleverCommand):
         ):
             plot_path = render_usage_plot(
                 args.name,
+                args.engine_display,
                 stxxl_memory=args.stxxl_memory or "",
                 settings_json=args.settings_json,
                 plot_max_points=args.resource_usage_plot_max_points,

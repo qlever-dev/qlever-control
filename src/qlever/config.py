@@ -10,7 +10,7 @@ from pathlib import Path
 import argcomplete
 from termcolor import colored
 
-from qlever import command_objects, engine_name, script_name
+from qlever import command_objects
 from qlever.log import log, log_levels
 from qlever.qleverfile import Qleverfile
 
@@ -137,6 +137,12 @@ class QleverConfig:
         )
 
     def parse_args(self):
+        # The engine is fixed for the `qlever` script. The `qeval` front-end
+        # sets these per engine instead, which is what lets `qeval qlever
+        # <command>` behave exactly like `qlever <command>`.
+        engine = command_prefix = "qlever"
+        engine_display = "QLever"
+
         # Determine whether we are in autocomplete mode or not.
         autocomplete_mode = "COMP_LINE" in os.environ
 
@@ -145,12 +151,11 @@ class QleverConfig:
         argcomplete_enabled = os.environ.get("QLEVER_ARGCOMPLETE_ENABLED")
         if not argcomplete_enabled and not argcomplete_check_off:
             log.info("")
-            log.warn(
-                f"To enable autocompletion, run the following command, "
-                f"and consider adding it to your `.bashrc` or `.zshrc`:"
-                f"\n\n"
-                f'eval "$(register-python-argcomplete {script_name})"'
-                f" && export QLEVER_ARGCOMPLETE_ENABLED=1"
+            log.warning(
+                "To enable autocompletion, run the following command, "
+                "and consider adding it to your `.bashrc` or `.zshrc`:\n\n"
+                'eval "$(register-python-argcomplete qlever)" '
+                "&& export QLEVER_ARGCOMPLETE_ENABLED=1"
             )
             log.info("")
 
@@ -197,7 +202,7 @@ class QleverConfig:
         # we then parse the Qleverfile or not.
         if qleverfile_exists and not autocomplete_mode:
             try:
-                qleverfile_config = Qleverfile.read(qleverfile_path)
+                qleverfile_config = Qleverfile.read(qleverfile_path, engine)
             except Exception as e:
                 log.info("")
                 log.error(f"Error parsing Qleverfile `{qleverfile_path}`: {e}")
@@ -212,21 +217,27 @@ class QleverConfig:
         # an object of each class is created and stored in `command_objects`.
         parser = argparse.ArgumentParser(
             description=colored(
-                f"This is the {script_name} command line tool, "
-                f"it's all you need to work with {engine_name}",
+                f"This is the {command_prefix} command line tool, "
+                f"it's all you need to work with {engine_display}",
                 attrs=["bold"],
             )
         )
-        if script_name == "qlever":
-            parser.add_argument(
-                "--version",
-                action="version",
-                version=f"%(prog)s {version('qlever')}",
-            )
+
+        parser.set_defaults(
+            engine=engine,
+            command_prefix=command_prefix,
+            engine_display=engine_display,
+        )
+
+        parser.add_argument(
+            "--version",
+            action="version",
+            version=f"%(prog)s {version('qlever')}",
+        )
         add_qleverfile_option(parser)
         subparsers = parser.add_subparsers(dest="command")
         subparsers.required = True
-        all_args = Qleverfile.all_arguments()
+        all_args = Qleverfile.all_arguments(command_prefix)
         for command_name, command_object in command_objects.items():
             self.add_subparser_for_command(
                 subparsers,

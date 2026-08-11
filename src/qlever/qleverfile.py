@@ -5,10 +5,8 @@ import socket
 import subprocess
 from argparse import ArgumentTypeError
 from configparser import ConfigParser, ExtendedInterpolation, RawConfigParser
-from importlib import import_module
 from pathlib import Path
 
-from qlever import script_name
 from qlever.containerize import Containerize
 from qlever.log import log
 from qlever.util import positive_int
@@ -72,7 +70,7 @@ class Qleverfile:
     ]
 
     @staticmethod
-    def all_arguments():
+    def all_arguments(command_prefix: str):
         """
         Define all possible parameters. A value of `None` means that there is
         no default value.
@@ -366,7 +364,7 @@ class Qleverfile:
             default="manual",
             help="When to rebuild the index from the current data (including "
             'updates): "manual" (only when explicitly requested via '
-            '`qlever rebuild-index`) or "automatic:min:max:fraction" (additionally '
+            f'`{command_prefix} rebuild-index`) or "automatic:min:max:fraction" (additionally '
             "rebuild automatically in the background once the number of delta "
             "triples reaches the given `fraction` of the number of index "
             "triples, but never below `min` and always at `max`, "
@@ -384,7 +382,7 @@ class Qleverfile:
             choices=["yes", "no"],
             default="yes",
             help="Whether to use the patterns precomputed during the index "
-            "build (see `qlever index --help` for their utility)",
+            f"build (see `{command_prefix} index --help` for their utility)",
         )
         server_args["metrics_log"] = arg(
             "--metrics-log",
@@ -411,7 +409,7 @@ class Qleverfile:
             choices=["yes", "no"],
             default="no",
             help="Whether to use the text index (requires that one was "
-            "built, see `qlever index`)",
+            f"built, see `{command_prefix} index`)",
         )
         server_args["preload_materialized_views"] = arg(
             "-l",
@@ -425,8 +423,8 @@ class Qleverfile:
             "--warmup-cmd",
             type=str,
             help="Command executed after the server has started "
-            " (executed as part of `qlever start` unless "
-            " `--no-warmup` is specified, or with `qlever warmup`)",
+            f" (executed as part of `{command_prefix} start` unless "
+            f" `--no-warmup` is specified, or with `{command_prefix} warmup`)",
         )
         server_args["enable_metrics"] = arg(
             "--enable-metrics",
@@ -455,12 +453,12 @@ class Qleverfile:
         runtime_args["index_container"] = arg(
             "--index-container",
             type=str,
-            help=f"The name of the container used by `{script_name} index`",
+            help=f"The name of the container used by `{command_prefix} index`",
         )
         runtime_args["server_container"] = arg(
             "--server-container",
             type=str,
-            help=f"The name of the container used by `{script_name} start`",
+            help=f"The name of the container used by `{command_prefix} start`",
         )
         runtime_args["restart_policy"] = arg(
             "--restart-policy",
@@ -476,7 +474,7 @@ class Qleverfile:
             "--ui-port",
             type=int,
             default=8176,
-            help="The port of the Qlever UI when running `qlever ui`",
+            help=f"The port of the Qlever UI when running `{command_prefix} ui`",
         )
         ui_args["ui_config"] = arg(
             "--ui-config",
@@ -490,36 +488,26 @@ class Qleverfile:
             type=str,
             choices=Containerize.supported_systems(),
             default="docker",
-            help="Which container system to use for `qlever ui`"
-            " (unlike for `qlever index` and `qlever start`, "
+            help=f"Which container system to use for `{command_prefix} ui`"
+            f" (unlike for `{command_prefix} index` and `{command_prefix} start`, "
             ' "native" is not yet supported here)',
         )
         ui_args["ui_image"] = arg(
             "--ui-image",
             type=str,
             default="docker.io/adfreiburg/qlever-ui",
-            help="The name of the image used for `qlever ui`",
+            help=f"The name of the image used for `{command_prefix} ui`",
         )
         ui_args["ui_container"] = arg(
             "--ui-container",
             type=str,
-            help="The name of the container used for `qlever ui`",
+            help=f"The name of the container used for `{command_prefix} ui`",
         )
-
-        engine_args_module_path = f"{script_name}.qleverfile"
-        try:
-            if script_name != "qlever":
-                module = import_module(engine_args_module_path)
-                module.qleverfile_args(all_args)
-        except (ImportError, AttributeError) as e:
-            log.debug(
-                f"Could not import module {engine_args_module_path}: {e}"
-            )
 
         return all_args
 
     @staticmethod
-    def read(qleverfile_path):
+    def read(qleverfile_path: Path, engine: str) -> ConfigParser:
         """
         Read the given Qleverfile (the function assumes that it exists) and
         return a `ConfigParser` object with all the options and their values.
@@ -576,9 +564,9 @@ class Qleverfile:
             name = config["data"]["name"]
             runtime = config["runtime"]
             if "server_container" not in runtime:
-                runtime["server_container"] = f"{script_name}.server.{name}"
+                runtime["server_container"] = f"{engine}.server.{name}"
             if "index_container" not in runtime:
-                runtime["index_container"] = f"{script_name}.index.{name}"
+                runtime["index_container"] = f"{engine}.index.{name}"
             if "ui_container" not in config["ui"]:
                 config["ui"]["ui_container"] = f"qlever.ui.{name}"
             index = config["index"]
@@ -587,12 +575,12 @@ class Qleverfile:
             if "text_docs_file" not in index:
                 index["text_docs_file"] = f"{name}.docsfile.tsv"
             server = config["server"]
-        if index.get("text_index", "none") != "none":
-            server["use_text_index"] = "yes"
-        if index.get("only_pso_and_pos_permutations", "false") == "true":
-            index["use_patterns"] = "no"
-        if index.get("use_patterns", None) == "no":
-            server["use_patterns"] = "no"
+            if index.get("text_index", "none") != "none":
+                server["use_text_index"] = "yes"
+            if index.get("only_pso_and_pos_permutations", "false") == "true":
+                index["use_patterns"] = "no"
+            if index.get("use_patterns", None) == "no":
+                server["use_patterns"] = "no"
 
         # Add other non-trivial default values.
         try:

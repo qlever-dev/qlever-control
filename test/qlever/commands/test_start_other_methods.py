@@ -93,7 +93,7 @@ class TestStartCommand(unittest.TestCase):
         self.assertEqual(argument_help, "Do not execute the warmup command")
 
     def test_preload_materialized_views_qleverfile_argument(self):
-        args, kwargs = Qleverfile.all_arguments()["server"][
+        args, kwargs = Qleverfile.all_arguments("qlever")["server"][
             "preload_materialized_views"
         ]
 
