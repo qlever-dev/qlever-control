@@ -16,9 +16,9 @@ import rdflib
 import yaml
 from termcolor import colored
 
-from qlever import command_objects
 from qlever.command import QleverCommand
 from qlever.commands.clear_cache import ClearCacheCommand
+from qlever.commands.index_stats import IndexStatsCommand
 from qlever.commands.ui import dict_to_yaml
 from qlever.log import log, mute_log
 from qlever.util import (
@@ -341,7 +341,7 @@ def compute_index_stats() -> tuple[float | None, float | None]:
     """
     Compute the index size (Bytes) and time (seconds) if available
     """
-    index_stats = command_objects["index-stats"]
+    index_stats = IndexStatsCommand()
     index_time = index_size = None
     index_log_file = next(Path.cwd().glob("*.index-log.txt"), None)
 
