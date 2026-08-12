@@ -1,12 +1,8 @@
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 import time
-from pathlib import Path
-
-from termcolor import colored
 
 from qlever.command import QleverCommand
 from qlever.log import log
@@ -53,25 +49,6 @@ class RebuildIndexCommand(QleverCommand):
             default=False,
             help="After the rebuild, send a simple test query to the server "
             "and report whether it succeeds",
-        )
-        subparser.add_argument(
-            "--keep-previous-index-dirs",
-            choices=[
-                "all",
-                "none",
-                "original-only",
-                "most-recent-only",
-                "original-and-most-recent",
-            ],
-            default="original-and-most-recent",
-            help="Which `previous.*` index directories to keep after a "
-            "successful rebuild: "
-            "all (keep all), "
-            "none (delete all), "
-            "original-only (keep only the very first), "
-            "most-recent-only (keep only the most recently created), "
-            "original-and-most-recent (keep both) "
-            "(default: original-and-most-recent)",
         )
 
     def execute(self, args) -> bool:
@@ -175,49 +152,5 @@ class RebuildIndexCommand(QleverCommand):
             else:
                 log.error("Test query failed")
                 return False
-
-        # Clean up previous index directories according to
-        # `--keep-previous-index-dirs`. Find all subdirectories starting with
-        # `previous.`, ordered from oldest to newest (by creation time), and
-        # keep or delete them according to the specified policy.
-        if args.keep_previous_index_dirs != "all":
-            previous_index_dirs = sorted(
-                [
-                    dir
-                    for dir in Path(".").iterdir()
-                    if dir.is_dir() and dir.name.startswith("previous.")
-                ],
-                key=lambda dir: dir.stat().st_ctime,
-            )
-            policy = args.keep_previous_index_dirs
-            log.info("")
-            log.info(
-                colored(
-                    f"Iterate over previous index directories (oldest"
-                    f" to newest), and check which ones to keep or"
-                    f" delete (keep_previous_index_dirs = {policy}):",
-                    color="blue",
-                )
-            )
-            log.info("")
-            for i, dir in enumerate(previous_index_dirs):
-                is_original = i == 0
-                is_most_recent = i == len(previous_index_dirs) - 1
-                if policy == "none":
-                    action = "DELETE"
-                elif policy == "original-only":
-                    action = "KEEP" if is_original else "DELETE"
-                elif policy == "most-recent-only":
-                    action = "KEEP" if is_most_recent else "DELETE"
-                elif policy == "original-and-most-recent":
-                    action = (
-                        "KEEP" if is_original or is_most_recent else "DELETE"
-                    )
-                log.info(f"{dir.name}  ->  {action}")
-                if action == "DELETE":
-                    try:
-                        shutil.rmtree(dir)
-                    except Exception as e:
-                        log.error(f"Failed to delete {dir.name}: {e}")
 
         return True
