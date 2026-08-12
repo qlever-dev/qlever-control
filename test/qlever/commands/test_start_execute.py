@@ -21,6 +21,7 @@ def test_construct_command_with_if():
     args.timeout = True
     args.persist_updates = False
     args.rebuild_index_strategy = "automatic:10000:1000000:0.1"
+    args.rebuild_keep_previous_index_dirs = "most-recent-only"
     args.access_token = True
     args.only_pso_and_pos_permutations = True
     args.use_patterns = "no"
@@ -44,6 +45,7 @@ def test_construct_command_with_if():
         f" -s {args.timeout}"
         f" -a {args.access_token}"
         " --rebuild-index-strategy automatic:10000:1000000:0.1"
+        " --rebuild-keep-previous-index-dirs most-recent-only"
         " --only-pso-and-pos-permutations"
         " --no-patterns"
         " -t"
@@ -69,6 +71,7 @@ def test_construct_command_without_if():
     args.timeout = False
     args.persist_updates = False
     args.rebuild_index_strategy = "manual"
+    args.rebuild_keep_previous_index_dirs = "original-and-most-recent"
     args.access_token = False
     args.only_pso_and_pos_permutations = False
     args.use_patterns = True
@@ -372,6 +375,7 @@ class TestStartCommand(unittest.TestCase):
         args.timeout = True
         args.persist_updates = False
         args.rebuild_index_strategy = "manual"
+        args.rebuild_keep_previous_index_dirs = "original-and-most-recent"
         args.access_token = True
         args.only_pso_and_pos_permutations = True
         args.use_patterns = "no"
