@@ -29,6 +29,8 @@ class ConfigException(Exception):
         super().__init__(full_message)
 
 
+SCRIPT_NAME = "qlever"
+
 # Default name of the Qleverfile. Also needed by `qeval`, which has to parse
 # this option before its real parser exists.
 QLEVERFILE_DEFAULT_NAME = "Qleverfile"
@@ -241,13 +243,14 @@ def parse_command_line() -> argparse.Namespace:
     # The engine is fixed for the `qlever` script. The `qeval` front-end
     # sets these per engine instead, which is what lets `qeval qlever
     # <command>` behave exactly like `qlever <command>`.
-    engine = command_prefix = "qlever"
+    engine = "qlever"
+    command_prefix = SCRIPT_NAME
     engine_display = "QLever"
 
     # Determine whether we are in autocomplete mode or not.
     autocomplete_mode = "COMP_LINE" in os.environ
 
-    warn_if_not_registered_for_argcomplete("qlever")
+    warn_if_not_registered_for_argcomplete(SCRIPT_NAME)
 
     # Create a temporary parser only to parse the `--qleverfile` option, in
     # case it is given, and to determine whether a command was given that
