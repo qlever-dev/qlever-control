@@ -20,7 +20,7 @@ def add_engine_qleverfile_args(
     engine: str, all_args: dict[str, dict[str, tuple]]
 ) -> None:
     """
-    Add the engine's own Qleverfile arguments to qlever's `all_args`, 
+    Add the engine's own Qleverfile arguments to qlever's `all_args`,
     overriding the shared ones where they differ.
     """
     package = ENGINES[engine].package
