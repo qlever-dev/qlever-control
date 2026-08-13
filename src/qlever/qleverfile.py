@@ -37,25 +37,36 @@ class Qleverfile:
     SERVER_RUNTIME_PARAMETERS = [
         "cache-max-num-entries",
         "cache-max-size",
+        "cache-max-size-lazy-result",
         "cache-max-size-single-entry",
         "cache-service-results",
+        "construct-deduplication",
         "default-query-timeout",
         "disable-caching",
         "division-by-zero-is-undef",
         "enable-distributive-union",
+        "enable-materialized-view-query-rewrite",
         "enable-prefilter-on-index-scans",
         "group-by-disable-index-scan-optimizations",
         "group-by-hash-map-enabled",
         "lazy-index-scan-max-size-materialization",
         "lazy-index-scan-num-threads",
         "lazy-index-scan-queue-size",
-        "lazy-result-max-cache-size",
+        "log-level",
+        "materialized-view-writer-memory",
+        "parallel-sort-num-threads",
+        "pattern-trick-num-threads",
         "permutation-writer-num-threads",
+        "prefiltered-optional-join",
         "query-planning-budget",
+        "rebuild-index-scan-num-threads",
+        "rebuild-max-concurrent-permutation-pairs",
+        "rebuild-permutation-writer-num-threads",
         "request-body-limit",
         "service-allowed-iri-prefixes",
         "service-max-redirects",
         "service-max-value-rows",
+        "small-index-scan-size-estimate-divisor",
         "sort-estimate-cancellation-factor",
         "sort-in-memory-threshold",
         "sparql-results-json-with-time",
@@ -66,7 +77,9 @@ class Qleverfile:
         "throw-on-unbound-variables",
         "treat-default-graph-as-named-graph",
         "use-binsearch-transitive-path",
+        "vacuum-minimum-block-size",
         "websocket-updates-enabled",
+        "zero-cost-estimate-for-cached-subtree",
     ]
 
     @staticmethod
@@ -369,6 +382,25 @@ class Qleverfile:
             "triples reaches the given `fraction` of the number of index "
             "triples, but never below `min` and always at `max`, "
             'e.g. "automatic:10000:1000000:0.1")',
+        )
+        server_args["rebuild_keep_previous_index_dirs"] = arg(
+            "--rebuild-keep-previous-index-dirs",
+            choices=[
+                "all",
+                "none",
+                "original-only",
+                "most-recent-only",
+                "original-and-most-recent",
+            ],
+            default="original-and-most-recent",
+            help="Which `previous.*` index directories the server keeps after "
+            "a successful index rebuild, manual or automatic (each rebuild "
+            "moves the index that was served so far into such a directory): "
+            "all (keep all), "
+            "none (delete all), "
+            "original-only (keep only the very first), "
+            "most-recent-only (keep only the most recently created), "
+            "original-and-most-recent (keep both)",
         )
         server_args["only_pso_and_pos_permutations"] = arg(
             "--only-pso-and-pos-permutations",
