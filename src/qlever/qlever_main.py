@@ -7,15 +7,25 @@
 
 from __future__ import annotations
 
+import argparse
 import os
+import re
 import traceback
+from collections.abc import Callable
 
-from qlever.command import execute_command
+from termcolor import colored
+
 from qlever.config import ConfigException, parse_command_line
 from qlever.log import log, log_levels
 
 
-def main() -> None:
+def parse_args(
+    command_line_parser: Callable[[], argparse.Namespace],
+) -> argparse.Namespace:
+    """
+    Parse the command line with the given parser and set the log level. The
+    parser is the only thing that differs between `qlever` and `qeval` scripts.
+    """
     # Color the output even when stdout is not a terminal (e.g. when piping
     # through `tee`). Setting `NO_COLOR` still disables all colors, because
     # `termcolor` gives it precedence over `FORCE_COLOR`. Note that
@@ -25,7 +35,7 @@ def main() -> None:
 
     # Parse the command line arguments and read the Qleverfile.
     try:
-        args = parse_command_line()
+        args = command_line_parser()
     except ConfigException as e:
         log.error(e)
         log.info("")
@@ -34,4 +44,68 @@ def main() -> None:
 
     # Execute the command.
     log.setLevel(log_levels[args.log_level])
-    execute_command(args)
+    return args
+
+
+def execute_command(args: argparse.Namespace) -> None:
+    """
+    Run the command selected by `args` and handle its failure modes. Shared by
+    the `qlever` and `qeval` entry points so that both behave identically.
+    """
+    command_object = args.command_object
+    try:
+        log.info("")
+        log.info(colored(f"Command: {args.command}", attrs=["bold"]))
+        log.info("")
+        command_successful = command_object.execute(args)
+        log.info("")
+        if not command_successful:
+            exit(1)
+    except KeyboardInterrupt:
+        log.warning("\rCtrl-C pressed, exiting ...")
+        log.info("")
+        exit(1)
+    except Exception as e:
+        # Check if it's a certain kind of `AttributeError` and give a hint in
+        # that case.
+        log.debug(
+            "Command failed with exception, full traceback: "
+            f"{traceback.format_exc()}"
+        )
+        # Path of this engine's command modules (`qlever/commands`, later
+        # `qeval/oxigraph/commands`), so the hint below only fires for
+        # tracebacks coming from them.
+        package = type(command_object).__module__.split(".commands.")[0]
+        commands_path = package.replace(".", "/") + "/commands"
+
+        match_error = re.search(r"object has no attribute '(.+)'", str(e))
+        match_trace = re.search(
+            rf"({commands_path}/.+\.py)\", line (\d+)",
+            traceback.format_exc(),
+        )
+        if isinstance(e, AttributeError) and match_error and match_trace:
+            attribute = match_error.group(1)
+            trace_command = match_trace.group(1)
+            trace_line = match_trace.group(2)
+            log.error(f"{e} in `{trace_command}` at line {trace_line}")
+            log.info("")
+            log.info(
+                f"Likely cause: you used `args.{attribute}`, but it was "
+                f"neither defined in `relevant_qleverfile_arguments` "
+                f"nor in `additional_arguments`"
+            )
+            log.info("")
+            log.info(
+                f"If you did not implement `{trace_command}` yourself, "
+                f"please report this issue"
+            )
+            log.info("")
+        else:
+            log.error(f"An unexpected error occurred: {e}")
+            log.info("")
+            log.info(traceback.format_exc())
+        exit(1)
+
+
+def main() -> None:
+    execute_command(parse_args(parse_command_line))
