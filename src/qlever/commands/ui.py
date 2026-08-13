@@ -98,15 +98,15 @@ class UiCommand(QleverCommand):
         )
         if qlever_is_running_in_container:
             log.error(
-                "The environment variable `QLEVER_OVERRIDE_DISABLE_UI` is set, "
-                "therefore `qlever ui` is not available (it should not be called "
-                "from inside a container)"
+                "The environment variable `QLEVER_OVERRIDE_DISABLE_UI` is "
+                f"set, therefore `{args.command_prefix} ui` is not available "
+                "(it should not be called from inside a container)"
             )
             log.info("")
             if not args.show:
                 log.info(
                     "For your information, showing the commands that are "
-                    "executed when `qlever ui` is available:"
+                    f"executed when `{args.command_prefix} ui` is available:"
                 )
                 log.info("")
 
@@ -265,6 +265,6 @@ class UiCommand(QleverCommand):
         )
         log.info(
             f"You can modify the config file at `{ui_config_file}` "
-            f"and then just run `qlever ui` again"
+            f"and then just run `{args.command_prefix} ui` again"
         )
         return True

@@ -9,7 +9,7 @@ from qlever.log import log
 
 class QleverCommand(ABC):
     """
-    Abstract base class for all the commands in `qlever/commands`.
+    Abstract base class for all the commands in `<engine>/commands`.
     """
 
     @abstractmethod
@@ -21,15 +21,13 @@ class QleverCommand(ABC):
         assignments, if any) because we create one object per command and
         initialize each of them.
         """
-        pass
 
     @abstractmethod
     def description(self) -> str:
         """
         A concise description of the command, which will be shown when the user
-        types `qlever --help` or `qlever <command> --help`.
+        asks for the help of the engine or of the command itself.
         """
-        pass
 
     @abstractmethod
     def should_have_qleverfile(self) -> bool:
@@ -39,7 +37,6 @@ class QleverCommand(ABC):
         specified, the command can still be executed if all the required
         arguments are specified on the command line, but there will be warning.
         """
-        pass
 
     @abstractmethod
     def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
@@ -48,7 +45,6 @@ class QleverCommand(ABC):
         the names of `all_arguments` defined in `Qleverfile`. Only these
         arguments can then be used in the `execute` method.
         """
-        pass
 
     @abstractmethod
     def additional_arguments(self, subparser):
@@ -58,7 +54,6 @@ class QleverCommand(ABC):
         to the given `subparser`. If there are no additional arguments, just
         implement as `pass`.
         """
-        pass
 
     @abstractmethod
     def execute(self, args) -> bool:
@@ -68,7 +63,6 @@ class QleverCommand(ABC):
         the problem could be identified and handled. In all other cases, raise
         a `CommandException`.
         """
-        pass
 
     @staticmethod
     def show(command_description: str, only_show: bool = False):

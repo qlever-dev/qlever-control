@@ -11,7 +11,7 @@ class TestStartCommand(unittest.TestCase):
             StartCommand().description(),
             "Start the "
             "QLever server (requires that you have built "
-            "an index with `qlever index` before)",
+            "an index with the `index` command before)",
         )
 
     def test_should_have_qleverfile(self):

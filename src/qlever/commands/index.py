@@ -21,6 +21,7 @@ from qlever.util import (
 def render_usage_plot(
     dataset: str,
     engine_display: str,
+    command_prefix: str,
     stxxl_memory: str,
     settings_json: str,
     plot_max_points: int,
@@ -44,7 +45,7 @@ def render_usage_plot(
             log.info(
                 "To plot the resource-usage log, install matplotlib and "
                 "numpy (`pip install qlever[plot]`), then run "
-                "`qlever index --resource-usage-plot-only`."
+                f"`{command_prefix} index --resource-usage-plot-only`."
             )
         return None
     return usage_plot.render_usage_plot(
@@ -238,6 +239,7 @@ class IndexCommand(QleverCommand):
             plot_path = render_usage_plot(
                 args.name,
                 args.engine_display,
+                args.command_prefix,
                 stxxl_memory=args.stxxl_memory or "",
                 settings_json=args.settings_json,
                 plot_max_points=args.resource_usage_plot_max_points,
@@ -281,7 +283,10 @@ class IndexCommand(QleverCommand):
                 "multiple input streams)"
             )
             log.info("")
-            log.info("See `qlever index --help` for more information")
+            log.info(
+                f"See `{args.command_prefix} index --help` for more "
+                "information"
+            )
             return False
 
         # Add remaining options.
@@ -413,6 +418,7 @@ class IndexCommand(QleverCommand):
             plot_path = render_usage_plot(
                 args.name,
                 args.engine_display,
+                args.command_prefix,
                 stxxl_memory=args.stxxl_memory or "",
                 settings_json=args.settings_json,
                 plot_max_points=args.resource_usage_plot_max_points,
