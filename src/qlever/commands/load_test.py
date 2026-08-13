@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from importlib.metadata import version
 
 import yaml
 from termcolor import colored
@@ -273,6 +274,14 @@ class LoadTestCommand(QleverCommand):
         if args.show:
             return True
 
+        # Send a descriptive `User-Agent` header. Public endpoints like WDQS
+        # reject the default curl user agent outright with HTTP 429 (see the
+        # Wikimedia User-Agent policy), independently of the request rate.
+        user_agent = (
+            f"qlever-load-test/{version('qlever')}"
+            f" (https://github.com/qlever-dev/qlever-control)"
+        )
+
         # Shared state for the worker threads.
         lock = threading.Lock()
         num_launched = 0
@@ -294,6 +303,7 @@ class LoadTestCommand(QleverCommand):
                 ) as result_file:
                     curl_cmd = (
                         f"curl -s {sparql_endpoint}"
+                        f" -A {shlex.quote(user_agent)}"
                         f' -H "Accept: application/qlever-results+json"'
                         f" --data-urlencode query={shlex.quote(query)}"
                         f" --max-time {query_timeout_secs:g}"
