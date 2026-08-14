@@ -491,6 +491,7 @@ class LoadTestCommand(QleverCommand):
             "429": "Too Many Requests",
             "500": "Internal Server Error",
             "502": "Bad Gateway",
+            "504": "Gateway Timeout",
         }
         with lock:
             codes = dict(status_codes)
