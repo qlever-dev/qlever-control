@@ -75,7 +75,7 @@ def construct_command(args) -> str:
             f" {shlex.quote(view_name)}"
             for view_name in preload_materialized_views
         )
-    start_cmd += f" > {args.name}.server-log.txt 2>&1"
+    start_cmd += f" >> {args.name}.server-log.txt 2>&1"
     return start_cmd
 
 
@@ -306,10 +306,12 @@ class StartCommand(QleverCommand):
         #                   f" (use `lsof -i :{port}` to find out which one)")
         #         return False
 
-        # Remove old log file so that the wait loop below correctly
-        # waits for the server to create a fresh one.
+        # The server log is opened in append mode, so that the log of a
+        # previous run (in particular, the last messages before a crash) is
+        # not lost. Remember the current size, so that the tail below only
+        # shows the output of the new server process.
         log_file = Path(f"{args.name}.server-log.txt")
-        log_file.unlink(missing_ok=True)
+        log_offset = log_file.stat().st_size if log_file.exists() else 0
 
         # Execute the command line.
         try:
@@ -335,7 +337,7 @@ class StartCommand(QleverCommand):
                 f" (Ctrl-C stops following the log, but NOT the server)"
             )
         log.info("")
-        tail_proc = tail_log_file(log_file)
+        tail_proc = tail_log_file(log_file, start_offset=log_offset)
         if tail_proc is None:
             return False
         while not is_qlever_server_alive(args.endpoint_url):
