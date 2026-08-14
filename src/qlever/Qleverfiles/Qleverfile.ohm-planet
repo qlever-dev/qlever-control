@@ -23,6 +23,8 @@ STXXL_MEMORY       = 5G
 PARSER_BUFFER_SIZE = 50M
 SETTINGS_JSON      = { "num-triples-per-batch": 5000000 }
 ENCODE_AS_ID       = https://www.openhistoricalmap.org/node/ http://www.openhistoricalmap.org/node/ https://www.openhistoricalmap.org/way/ https://www.openhistoricalmap.org/relation/ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#ohmnode_tagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#ohmnode_untagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#ohmway_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#ohmrel_ https://www.openstreetmap.org/changeset/
+VOCABULARY_TYPE    = on-disk-compressed-geo-split
+MATERIALIZED_VIEWS = { "geometries" : "PREFIX geo: <http://www.opengis.net/ont/geosparql#> PREFIX geof: <http://www.opengis.net/def/function/geosparql/> SELECT ?subject ?intermediate ?geometry ?centroid ?area ?length WHERE { ?subject geo:hasGeometry ?intermediate . ?intermediate geo:asWKT ?geometry . BIND(geof:centroid(?geometry) AS ?centroid) BIND(geof:metricArea(?geometry) AS ?area) BIND(geof:metricLength(?geometry) AS ?length) BIND(ql:envelopeLowerLeft(?geometry) AS ?lower_left) BIND(ql:envelopeUpperRight(?geometry) AS ?upper_right) }" }
 
 [server]
 PORT                        = 7037
@@ -32,6 +34,7 @@ CACHE_MAX_SIZE              = 5G
 TIMEOUT                     = 600s
 CACHE_MAX_SIZE_SINGLE_ENTRY = 4G
 WARMUP_CMD                  = curl -s https://qlever.cs.uni-freiburg.de/petrimaps/query --data-urlencode "query=PREFIX geo: <http://www.opengis.net/ont/geosparql#> PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> PREFIX osm: <https://www.openstreetmap.org/> SELECT ?osm_id ?geometry WHERE { ?osm_id geo:hasGeometry/geo:asWKT ?geometry . ?osm_id rdf:type osm:node } LIMIT 1" --data-urlencode "backend=https://qlever.cs.uni-freiburg.de/api/${data:NAME}" > /dev/null
+PRELOAD_MATERIALIZED_VIEWS = geometries
 
 [runtime]
 SYSTEM = docker
