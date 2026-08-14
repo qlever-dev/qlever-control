@@ -72,14 +72,17 @@ def execute_command(args: argparse.Namespace) -> None:
             "Command failed with exception, full traceback: "
             f"{traceback.format_exc()}"
         )
-        # Path of this engine's command modules (`qlever/commands`, later
-        # `qeval/oxigraph/commands`), so the hint below only fires for
-        # tracebacks coming from them.
-        package = type(command_object).__module__.split(".commands.")[0]
-        commands_path = package.replace(".", "/") + "/commands"
+        # Path of this engine's command modules, so that the hint below only
+        # fires for tracebacks coming from them. A command class defined
+        # outside a `commands` package gets no hint.
+        module = type(command_object).__module__
+        package, separator, _ = module.rpartition(".commands.")
+        commands_path = (
+            package.replace(".", "/") + "/commands" if separator else None
+        )
 
         match_error = re.search(r"object has no attribute '(.+)'", str(e))
-        match_trace = re.search(
+        match_trace = commands_path and re.search(
             rf"({commands_path}/.+\.py)\", line (\d+)",
             traceback.format_exc(),
         )

@@ -83,7 +83,7 @@ class Qleverfile:
     ]
 
     @staticmethod
-    def all_arguments(command_prefix: str):
+    def all_arguments(command_prefix: str) -> dict:
         """
         Define all possible parameters. A value of `None` means that there is
         no default value.
@@ -377,7 +377,8 @@ class Qleverfile:
             default="manual",
             help="When to rebuild the index from the current data (including "
             'updates): "manual" (only when explicitly requested via '
-            f'`{command_prefix} rebuild-index`) or "automatic:min:max:fraction" (additionally '
+            f"`{command_prefix} rebuild-index`) or "
+            '"automatic:min:max:fraction" (additionally '
             "rebuild automatically in the background once the number of delta "
             "triples reaches the given `fraction` of the number of index "
             "triples, but never below `min` and always at `max`, "
@@ -506,7 +507,9 @@ class Qleverfile:
             "--ui-port",
             type=int,
             default=8176,
-            help=f"The port of the Qlever UI when running `{command_prefix} ui`",
+            help=(
+                f"The port of the Qlever UI when running `{command_prefix} ui`"
+            ),
         )
         ui_args["ui_config"] = arg(
             "--ui-config",
@@ -520,9 +523,12 @@ class Qleverfile:
             type=str,
             choices=Containerize.supported_systems(),
             default="docker",
-            help=f"Which container system to use for `{command_prefix} ui`"
-            f" (unlike for `{command_prefix} index` and `{command_prefix} start`, "
-            ' "native" is not yet supported here)',
+            help=(
+                f"Which container system to use for `{command_prefix} ui` "
+                f"(unlike for `{command_prefix} index` and "
+                f'`{command_prefix} start`, "native" is not yet supported '
+                "here)"
+            ),
         )
         ui_args["ui_image"] = arg(
             "--ui-image",

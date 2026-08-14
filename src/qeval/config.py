@@ -94,8 +94,8 @@ def parse_command_line() -> argparse.Namespace:
                 attrs=["bold"],
             ),
         )
+        # `args.engine` is already set by the subparsers action above.
         engine_parser.set_defaults(
-            engine=engine,
             engine_display=display_name,
             command_prefix=command_prefix,
         )

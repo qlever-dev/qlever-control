@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from importlib import import_module
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from qlever.command import QleverCommand
+if TYPE_CHECKING:
+    from qlever.command import QleverCommand
 
 
 # Helper function to turn "snake_case" into "CamelCase".

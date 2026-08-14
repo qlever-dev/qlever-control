@@ -37,6 +37,11 @@ QLEVERFILE_DEFAULT_NAME = "Qleverfile"
 
 
 def add_qleverfile_option(parser: argparse.ArgumentParser) -> None:
+    """
+    Add the `--qleverfile` option. Each script declares it twice, once on
+    the throwaway parser that peeks at it and once on the real parser, so
+    both have to agree on the name and the default.
+    """
     parser.add_argument(
         "--qleverfile", "-q", type=str, default=QLEVERFILE_DEFAULT_NAME
     )
@@ -291,8 +296,7 @@ def parse_command_line() -> argparse.Namespace:
         version=f"%(prog)s {version('qlever')}",
     )
     add_qleverfile_option(parser)
-    subparsers = parser.add_subparsers(dest="command")
-    subparsers.required = True
+    subparsers = parser.add_subparsers(dest="command", required=True)
     all_args = Qleverfile.all_arguments(command_prefix)
     command_objects = load_commands("qlever")
     for command_name, command_object in command_objects.items():
