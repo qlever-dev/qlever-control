@@ -283,6 +283,7 @@ class LoadTestCommand(QleverCommand):
                 "Stop after launching the last query, without running"
                 " all queries to completion"
             )
+            log.info("")
         if args.show:
             return True
 
@@ -375,7 +376,6 @@ class LoadTestCommand(QleverCommand):
             log.info(header)
             log.info(separator)
 
-        log.info("")
         print_table_header()
 
         def print_status(elapsed: float):
