@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 import time
 from pathlib import Path
 
@@ -39,12 +40,41 @@ def construct_command(args) -> str:
         start_cmd += f" -a {args.access_token}"
     if args.persist_updates:
         start_cmd += " --persist-updates"
+    # Only pass the flags for non-default values, so that older server
+    # binaries without these options keep working.
+    if args.rebuild_index_strategy != "manual":
+        start_cmd += f" --rebuild-index-strategy {args.rebuild_index_strategy}"
+    if args.rebuild_keep_previous_index_dirs != "original-and-most-recent":
+        start_cmd += (
+            f" --rebuild-keep-previous-index-dirs"
+            f" {args.rebuild_keep_previous_index_dirs}"
+        )
     if args.only_pso_and_pos_permutations:
         start_cmd += " --only-pso-and-pos-permutations"
     if args.use_patterns == "no":
         start_cmd += " --no-patterns"
     if args.use_text_index == "yes":
         start_cmd += " -t"
+    if args.enable_metrics:
+        start_cmd += " --enable-metrics"
+    if args.metrics_log == "no":
+        start_cmd += " --no-metrics-log"
+    # The server samples its own RSS and CPU usage by default. Only
+    # pass the flags for non-default settings, so that older binaries
+    # without these options keep working.
+    if args.resource_usage_log == "no":
+        start_cmd += " --no-resource-usage-log"
+    elif args.resource_usage_interval != 2:
+        start_cmd += (
+            f" --resource-usage-interval-s {args.resource_usage_interval}"
+        )
+    preload_materialized_views = vars(args).get("preload_materialized_views")
+    if preload_materialized_views:
+        start_cmd += " --preload-materialized-views"
+        start_cmd += "".join(
+            f" {shlex.quote(view_name)}"
+            for view_name in preload_materialized_views
+        )
     start_cmd += f" > {args.name}.server-log.txt 2>&1"
     return start_cmd
 
@@ -145,10 +175,17 @@ class StartCommand(QleverCommand):
                 "num_threads",
                 "timeout",
                 "persist_updates",
+                "rebuild_index_strategy",
+                "rebuild_keep_previous_index_dirs",
                 "only_pso_and_pos_permutations",
                 "use_patterns",
                 "use_text_index",
+                "metrics_log",
+                "resource_usage_log",
+                "resource_usage_interval",
+                "preload_materialized_views",
                 "warmup_cmd",
+                "enable_metrics",
             ],
             "runtime": [
                 "system",

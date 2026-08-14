@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import socket
 import subprocess
+from argparse import ArgumentTypeError
 from configparser import ConfigParser, ExtendedInterpolation, RawConfigParser
 from importlib import import_module
 from pathlib import Path
@@ -10,6 +11,18 @@ from pathlib import Path
 from qlever import script_name
 from qlever.containerize import Containerize
 from qlever.log import log
+from qlever.util import positive_int
+
+
+def bool_type(val: str) -> bool:
+    if val in ["True", "true", "1", "on", "yes"]:
+        return True
+    elif val in ["False", "false", "0", "off", "no"]:
+        return False
+    else:
+        raise ArgumentTypeError(
+            f'"{val}" is not a valid boolean value. Use True/False, true/false, yes/no, 1/0 or on/off.'
+        )
 
 
 class QleverfileException(Exception):
@@ -26,25 +39,36 @@ class Qleverfile:
     SERVER_RUNTIME_PARAMETERS = [
         "cache-max-num-entries",
         "cache-max-size",
+        "cache-max-size-lazy-result",
         "cache-max-size-single-entry",
         "cache-service-results",
+        "construct-deduplication",
         "default-query-timeout",
         "disable-caching",
         "division-by-zero-is-undef",
         "enable-distributive-union",
+        "enable-materialized-view-query-rewrite",
         "enable-prefilter-on-index-scans",
         "group-by-disable-index-scan-optimizations",
         "group-by-hash-map-enabled",
         "lazy-index-scan-max-size-materialization",
         "lazy-index-scan-num-threads",
         "lazy-index-scan-queue-size",
-        "lazy-result-max-cache-size",
+        "log-level",
+        "materialized-view-writer-memory",
+        "parallel-sort-num-threads",
+        "pattern-trick-num-threads",
         "permutation-writer-num-threads",
+        "prefiltered-optional-join",
         "query-planning-budget",
+        "rebuild-index-scan-num-threads",
+        "rebuild-max-concurrent-permutation-pairs",
+        "rebuild-permutation-writer-num-threads",
         "request-body-limit",
         "service-allowed-iri-prefixes",
         "service-max-redirects",
         "service-max-value-rows",
+        "small-index-scan-size-estimate-divisor",
         "sort-estimate-cancellation-factor",
         "sort-in-memory-threshold",
         "sparql-results-json-with-time",
@@ -55,7 +79,9 @@ class Qleverfile:
         "throw-on-unbound-variables",
         "treat-default-graph-as-named-graph",
         "use-binsearch-transitive-path",
+        "vacuum-minimum-block-size",
         "websocket-updates-enabled",
+        "zero-cost-estimate-for-cached-subtree",
     ]
 
     @staticmethod
@@ -252,6 +278,27 @@ class Qleverfile:
             help="File with the documents for the text index (one line "
             "per document, format: `id\tdocument text`)",
         )
+        index_args["resource_usage_log"] = arg(
+            "--resource-usage-log",
+            choices=["yes", "no"],
+            default="yes",
+            help="Whether the index binary writes a TSV log of its RSS "
+            "and CPU usage (`<name>.index.resource-usage-log.tsv`)",
+        )
+        index_args["resource_usage_interval"] = arg(
+            "--resource-usage-interval",
+            type=positive_int,
+            default=1,
+            help="Seconds between the samples in the resource-usage log",
+        )
+        index_args["resource_usage_plot_max_points"] = arg(
+            "--resource-usage-plot-max-points",
+            type=positive_int,
+            default=500,
+            help="Maximum number of points per line (RSS and CPU) in "
+            "the resource-usage plot. Sampling is unaffected; samples "
+            "are bucketed and reduced with max",
+        )
 
         server_args["server_binary"] = arg(
             "--server-binary",
@@ -326,6 +373,37 @@ class Qleverfile:
             help="Persist updates to the index (write updates to disk and "
             "read them back in when restarting the server)",
         )
+        server_args["rebuild_index_strategy"] = arg(
+            "--rebuild-index-strategy",
+            type=str,
+            default="manual",
+            help="When to rebuild the index from the current data (including "
+            'updates): "manual" (only when explicitly requested via '
+            '`qlever rebuild-index`) or "automatic:min:max:fraction" (additionally '
+            "rebuild automatically in the background once the number of delta "
+            "triples reaches the given `fraction` of the number of index "
+            "triples, but never below `min` and always at `max`, "
+            'e.g. "automatic:10000:1000000:0.1")',
+        )
+        server_args["rebuild_keep_previous_index_dirs"] = arg(
+            "--rebuild-keep-previous-index-dirs",
+            choices=[
+                "all",
+                "none",
+                "original-only",
+                "most-recent-only",
+                "original-and-most-recent",
+            ],
+            default="original-and-most-recent",
+            help="Which `previous.*` index directories the server keeps after "
+            "a successful index rebuild, manual or automatic (each rebuild "
+            "moves the index that was served so far into such a directory): "
+            "all (keep all), "
+            "none (delete all), "
+            "original-only (keep only the very first), "
+            "most-recent-only (keep only the most recently created), "
+            "original-and-most-recent (keep both)",
+        )
         server_args["only_pso_and_pos_permutations"] = arg(
             "--only-pso-and-pos-permutations",
             action="store_true",
@@ -340,6 +418,26 @@ class Qleverfile:
             help="Whether to use the patterns precomputed during the index "
             "build (see `qlever index --help` for their utility)",
         )
+        server_args["metrics_log"] = arg(
+            "--metrics-log",
+            choices=["yes", "no"],
+            default="yes",
+            help="Whether to produce the per-query metrics log, a JSONL log of "
+            "query start/end events (`.metrics-log.jsonl`)",
+        )
+        server_args["resource_usage_log"] = arg(
+            "--resource-usage-log",
+            choices=["yes", "no"],
+            default="yes",
+            help="Whether the server writes a TSV log of its RSS and "
+            "CPU usage (`<name>.server.resource-usage-log.tsv`)",
+        )
+        server_args["resource_usage_interval"] = arg(
+            "--resource-usage-interval",
+            type=positive_int,
+            default=2,
+            help="Seconds between the samples in the resource-usage log",
+        )
         server_args["use_text_index"] = arg(
             "--use-text-index",
             choices=["yes", "no"],
@@ -347,12 +445,26 @@ class Qleverfile:
             help="Whether to use the text index (requires that one was "
             "built, see `qlever index`)",
         )
+        server_args["preload_materialized_views"] = arg(
+            "-l",
+            "--preload-materialized-views",
+            nargs="+",
+            default=None,
+            help="Names of one or more materialized views to preload on "
+            "startup",
+        )
         server_args["warmup_cmd"] = arg(
             "--warmup-cmd",
             type=str,
             help="Command executed after the server has started "
             " (executed as part of `qlever start` unless "
             " `--no-warmup` is specified, or with `qlever warmup`)",
+        )
+        server_args["enable_metrics"] = arg(
+            "--enable-metrics",
+            type=bool_type,
+            default=False,
+            help="Enable the metrics endpoint at `/metrics` (only available with the access token)",
         )
 
         runtime_args["system"] = arg(

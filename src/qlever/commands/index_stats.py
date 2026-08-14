@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-import re
 from datetime import datetime
 from pathlib import Path
 
 from qlever.command import QleverCommand
 from qlever.log import log
-from qlever.util import get_total_file_size
+from qlever.util import (
+    get_total_file_size,
+    iter_permutation_phases,
+    parse_phase_markers,
+)
 
 
 def compute_durations(
@@ -22,87 +25,18 @@ def compute_durations(
     an empty dict on error.
     """
 
-    # Helper function that finds the next line matching the given `regex`,
-    # starting from `current_line`, and extracts the time. Returns a tuple
-    # of the time and the regex match object.
-    #
-    # If `update_current_line` is `False`, then `current_line` will not be
-    # updated by this call.
-    #
-    # Otherwise, and this is the default behavior, `current_line` will be
-    # updated to the line after the first match, or one beyond the last
-    # line if no match is found.
-    current_line = 0
-
-    def find_next_line(regex: str, update_current_line: bool = True):
-        nonlocal lines
-        nonlocal current_line
-        current_line_backup = current_line
-        # Find starting from `current_line`.
-        while current_line < len(lines):
-            line = lines[current_line]
-            current_line += 1
-            timestamp_regex = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}"
-            timestamp_format = "%Y-%m-%d %H:%M:%S"
-            regex_match = re.search(regex, line)
-            if regex_match:
-                try:
-                    return datetime.strptime(
-                        re.match(timestamp_regex, line).group(),
-                        timestamp_format,
-                    ), regex_match
-                except Exception as e:
-                    log.error(
-                        f"Could not parse timestamp of form "
-                        f'"{timestamp_regex}" from line '
-                        f' "{line.rstrip()}" ({e})'
-                    )
-        # If we get here, we did not find a matching line.
-        if not update_current_line:
-            current_line = current_line_backup
-        return None, None
-
-    # Find the lines matching the key_lines_regex and extract the time
-    # information from them.
-    overall_begin, _ = find_next_line(r"INFO:\s*Processing")
-    merge_begin, _ = find_next_line(r"INFO:\s*Merging partial vocab")
-    convert_begin, _ = find_next_line(r"INFO:\s*Converting triples")
-    perm_begin_and_info = []
-    while True:
-        # Find the next line that starts a permutation.
-        #
-        # NOTE: Should work for the old and new format of the index log
-        # file (old format: "Creating a pair" + names of permutations in
-        # line "Writing meta data for ..."; new format: name of
-        # permutations already in line "Creating permutations ...").
-        perm_begin, _ = find_next_line(
-            r"INFO:\s*Creating a pair", update_current_line=False
-        )
-        if perm_begin is None:
-            perm_begin, perm_info = find_next_line(
-                r"INFO:\s*Creating permutations ([A-Z]+ and [A-Z]+)",
-                update_current_line=False,
-            )
-        else:
-            _, perm_info = find_next_line(
-                r"INFO:\s*Writing meta data for ([A-Z]+ and [A-Z]+)",
-                update_current_line=False,
-            )
-        if perm_info is None:
-            break
-        perm_begin_and_info.append((perm_begin, perm_info))
-    convert_end = (
-        perm_begin_and_info[0][0] if len(perm_begin_and_info) > 0 else None
-    )
-    normal_end, _ = find_next_line(r"INFO:\s*Index build completed")
-    text_begin, _ = find_next_line(
-        r"INFO:\s*Adding text index", update_current_line=False
-    )
-    text_end, _ = find_next_line(
-        r"INFO:\s*Text index build comp", update_current_line=False
-    )
+    markers = parse_phase_markers(lines)
+    overall_begin = markers.overall_begin
+    merge_begin = markers.merge_begin
+    convert_begin = markers.convert_begin
+    permutations = markers.permutations
+    normal_end = markers.normal_end
+    text_begin = markers.text_begin
+    text_end = markers.text_end
     if ignore_text_index:
         text_begin = text_end = None
+
+    convert_end = permutations[0][0] if len(permutations) > 0 else None
 
     # Check whether at least the first phase is done.
     if overall_begin is None:
@@ -157,25 +91,10 @@ def compute_durations(
         duration([(convert_begin, convert_end)]),
         resolved_time_unit,
     )
-    for i in range(len(perm_begin_and_info)):
-        perm_begin, perm_info = perm_begin_and_info[i]
-        perm_end = (
-            perm_begin_and_info[i + 1][0]
-            if i + 1 < len(perm_begin_and_info)
-            else normal_end
-        )
-        perm_info_text = (
-            perm_info.group(1).replace(" and ", " & ")
-            if perm_info
-            else f"#{i + 1}"
-        )
-        perm_key = f"Permutation {perm_info_text}"
-        if perm_key in durations:
-            suffix = 2
-            while f"{perm_key} ({suffix})" in durations:
-                suffix += 1
-            perm_key = f"{perm_key} ({suffix})"
-        durations[perm_key] = (
+    for name, perm_begin, perm_end in iter_permutation_phases(
+        permutations, normal_end
+    ):
+        durations[f"Permutation {name}"] = (
             duration([(perm_begin, perm_end)]),
             resolved_time_unit,
         )

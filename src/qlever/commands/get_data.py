@@ -33,9 +33,11 @@ class GetDataCommand(QleverCommand):
         if args.show:
             return True
 
-        # Execute the command line.
+        # Execute the command line. We show both stdout and stderr, so that the
+        # progress/log output of the GET_DATA_CMD (which many tools write to
+        # stderr, e.g. `csv2rdf`) is visible live during `get-data`.
         try:
-            run_command(args.get_data_cmd, show_output=True)
+            run_command(args.get_data_cmd, show_output=True, show_stderr=True)
         except Exception as e:
             log.error(f'Problem executing "{args.get_data_cmd}": {e}')
             return False

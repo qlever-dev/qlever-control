@@ -20,10 +20,15 @@ def test_construct_command_with_if():
     args.cache_max_num_entries = 1000
     args.timeout = True
     args.persist_updates = False
+    args.rebuild_index_strategy = "automatic:10000:1000000:0.1"
+    args.rebuild_keep_previous_index_dirs = "most-recent-only"
     args.access_token = True
     args.only_pso_and_pos_permutations = True
     args.use_patterns = "no"
     args.use_text_index = "yes"
+    args.enable_metrics = False
+    args.resource_usage_log = "no"
+    args.preload_materialized_views = ["view-1", "view-2"]
 
     # Execute the function
     result = qlever.commands.start.construct_command(args)
@@ -39,9 +44,13 @@ def test_construct_command_with_if():
         f" -k {args.cache_max_num_entries}"
         f" -s {args.timeout}"
         f" -a {args.access_token}"
+        " --rebuild-index-strategy automatic:10000:1000000:0.1"
+        " --rebuild-keep-previous-index-dirs most-recent-only"
         " --only-pso-and-pos-permutations"
         " --no-patterns"
         " -t"
+        " --no-resource-usage-log"
+        " --preload-materialized-views view-1 view-2"
         f" > {args.name}.server-log.txt 2>&1"
     )
     assert result == start_command
@@ -61,10 +70,16 @@ def test_construct_command_without_if():
     args.cache_max_num_entries = 1000
     args.timeout = False
     args.persist_updates = False
+    args.rebuild_index_strategy = "manual"
+    args.rebuild_keep_previous_index_dirs = "original-and-most-recent"
     args.access_token = False
     args.only_pso_and_pos_permutations = False
     args.use_patterns = True
     args.use_text_index = "no"
+    args.enable_metrics = False
+    args.resource_usage_log = "yes"
+    args.resource_usage_interval = 2
+    args.preload_materialized_views = None
 
     # Execute the function
     result = qlever.commands.start.construct_command(args)
@@ -81,6 +96,18 @@ def test_construct_command_without_if():
         f" > {args.name}.server-log.txt 2>&1"
     )
     assert result == start_command
+
+
+# Tests that a non-default sampling interval is passed to the binary
+def test_construct_command_non_default_resource_usage_interval():
+    args = MagicMock()
+    args.resource_usage_log = "yes"
+    args.resource_usage_interval = 5
+
+    result = qlever.commands.start.construct_command(args)
+
+    assert " --resource-usage-interval-s 5" in result
+    assert "--no-resource-usage-log" not in result
 
 
 # Tests `wrap_command_in_container`.
@@ -347,10 +374,16 @@ class TestStartCommand(unittest.TestCase):
         args.run_in_foreground = False
         args.timeout = True
         args.persist_updates = False
+        args.rebuild_index_strategy = "manual"
+        args.rebuild_keep_previous_index_dirs = "original-and-most-recent"
         args.access_token = True
         args.only_pso_and_pos_permutations = True
         args.use_patterns = "no"
         args.use_text_index = "yes"
+        args.enable_metrics = False
+        args.resource_usage_log = "yes"
+        args.resource_usage_interval = 2
+        args.preload_materialized_views = None
 
         # Configure Path mock so the log file wait loop is skipped
         self._mock_log_file(mock_path_cls, args.name)

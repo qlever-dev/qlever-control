@@ -26,6 +26,7 @@ class TestIndexCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
+        args.resource_usage_plot_only = False
         args.name = "TestName"
         args.format = "turtle"
         args.cat_input_files = "cat input.nt"
@@ -49,6 +50,8 @@ class TestIndexCommand(unittest.TestCase):
         args.encode_as_id = None
         args.parser_buffer_size = None
         args.materialized_views = None
+        args.resource_usage_log = "yes"
+        args.resource_usage_interval = 1
 
         # Mock input_files_exist, get_total_file_size,
         # get_existing_index_files, run_command and containerize
@@ -110,6 +113,7 @@ class TestIndexCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
+        args.resource_usage_plot_only = False
         args.name = "TestName"
         args.format = "turtle"
         args.cat_input_files = "cat input.nt"
@@ -173,6 +177,7 @@ class TestIndexCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
+        args.resource_usage_plot_only = False
         args.name = "TestName"
         args.format = "turtle"
         args.cat_input_files = "cat input.nt"
@@ -238,6 +243,7 @@ class TestIndexCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
+        args.resource_usage_plot_only = False
         args.name = "TestName"
         args.format = "turtle"
         args.cat_input_files = "cat input.nt"
@@ -261,6 +267,8 @@ class TestIndexCommand(unittest.TestCase):
         args.encode_as_id = None
         args.parser_buffer_size = None
         args.materialized_views = None
+        args.resource_usage_log = "yes"
+        args.resource_usage_interval = 1
 
         # Mock input_files_exist, get_total_file_size,
         # get_existing_index_files, run_command and containerize
@@ -295,6 +303,7 @@ class TestIndexCommand(unittest.TestCase):
     def test_execute_get_input_options_error(self, mock_json, mock_log):
         # Setup args
         args = MagicMock()
+        args.resource_usage_plot_only = False
         args.cat_input_files = False
         args.multi_input_json = '{"cmd": "test_data"}'
 
@@ -323,6 +332,7 @@ class TestIndexCommand(unittest.TestCase):
     def test_execute_cat_files_and_multi_json(self, mock_log):
         # Setup args
         args = MagicMock()
+        args.resource_usage_plot_only = False
         args.cat_input_files = True
         args.multi_input_json = True
 
@@ -353,6 +363,7 @@ class TestIndexCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
+        args.resource_usage_plot_only = False
         args.name = "TestName"
         args.index_binary = "/test/path/index-binary"
         args.multi_input_json = True
@@ -371,6 +382,8 @@ class TestIndexCommand(unittest.TestCase):
         args.encode_as_id = None
         args.parser_buffer_size = None
         args.materialized_views = None
+        args.resource_usage_log = "yes"
+        args.resource_usage_interval = 1
 
         # Mock get_input_options_for_json
         mock_input_json.return_value = "test_input_stream"
