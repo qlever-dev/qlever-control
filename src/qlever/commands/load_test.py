@@ -155,6 +155,13 @@ class LoadTestCommand(QleverCommand):
             help="Total number of queries to send (default: 1000)",
         )
         subparser.add_argument(
+            "--stop-when-all-launched",
+            action="store_true",
+            default=False,
+            help="Stop right after launching the last query, without"
+            " waiting for the launched queries to complete",
+        )
+        subparser.add_argument(
             "--query-timeout",
             type=str,
             default="300s",
@@ -271,6 +278,11 @@ class LoadTestCommand(QleverCommand):
             f" (log every {log_frequency_secs:.0f}s)",
             only_show=args.show,
         )
+        if args.stop_when_all_launched:
+            log.warning(
+                "Stop after launching the last query, without running"
+                " all queries to completion"
+            )
         if args.show:
             return True
 
@@ -434,6 +446,27 @@ class LoadTestCommand(QleverCommand):
                 sleep_time = sleep_until - time.time()
                 if sleep_time > 0:
                     time.sleep(min(sleep_time, 0.1))
+
+            # Drain phase: all queries are launched, wait for the ones still
+            # running to complete, so that the final statistics cover all
+            # launched queries (otherwise they are biased, because exactly
+            # the slowest queries would be missing). The empty line marks
+            # the end of the launch phase in the table. The deadline
+            # matches the per-query timeout, so a hung request cannot
+            # stall the load test forever.
+            if not args.stop_when_all_launched:
+                log.info("")
+                drain_deadline = time.time() + query_timeout_secs + 10
+                while time.time() < drain_deadline:
+                    with lock:
+                        all_done = num_done >= num_launched
+                    if all_done:
+                        break
+                    now = time.time()
+                    if now >= next_log_time:
+                        print_status(now - start_time)
+                        next_log_time += log_frequency_secs
+                    time.sleep(0.1)
 
             interrupted = False
         except KeyboardInterrupt:
