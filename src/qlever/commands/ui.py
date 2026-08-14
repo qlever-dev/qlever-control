@@ -93,10 +93,8 @@ class UiCommand(QleverCommand):
 
     def execute(self, args) -> bool:
         # If QLEVER_OVERRIDE_DISABLE_UI is set, this command is disabled.
-        qlever_is_running_in_container = environ.get(
-            "QLEVER_IS_RUNNING_IN_CONTAINER"
-        )
-        if qlever_is_running_in_container:
+        qlever_override_disable_ui = environ.get("QLEVER_OVERRIDE_DISABLE_UI")
+        if qlever_override_disable_ui:
             log.error(
                 "The environment variable `QLEVER_OVERRIDE_DISABLE_UI` is set, "
                 "therefore `qlever ui` is not available (it should not be called "
@@ -158,7 +156,7 @@ class UiCommand(QleverCommand):
             else:
                 commands_to_show.append(set_config_cmd)
         self.show("\n".join(commands_to_show), only_show=args.show)
-        if qlever_is_running_in_container:
+        if qlever_override_disable_ui:
             return False
         if args.show:
             return True
