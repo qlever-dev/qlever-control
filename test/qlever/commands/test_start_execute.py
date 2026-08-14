@@ -22,6 +22,10 @@ def test_construct_command_with_if():
     args.persist_updates = False
     args.rebuild_index_strategy = "automatic:10000:1000000:0.1"
     args.rebuild_keep_previous_index_dirs = "most-recent-only"
+    args.set_runtime_parameters = [
+        "default-query-timeout=300s",
+        "rebuild-max-concurrent-permutation-pairs=1",
+    ]
     args.access_token = True
     args.only_pso_and_pos_permutations = True
     args.use_patterns = "no"
@@ -46,6 +50,8 @@ def test_construct_command_with_if():
         f" -a {args.access_token}"
         " --rebuild-index-strategy automatic:10000:1000000:0.1"
         " --rebuild-keep-previous-index-dirs most-recent-only"
+        " --set-runtime-parameter default-query-timeout=300s"
+        " --set-runtime-parameter rebuild-max-concurrent-permutation-pairs=1"
         " --only-pso-and-pos-permutations"
         " --no-patterns"
         " -t"
@@ -72,6 +78,7 @@ def test_construct_command_without_if():
     args.persist_updates = False
     args.rebuild_index_strategy = "manual"
     args.rebuild_keep_previous_index_dirs = "original-and-most-recent"
+    args.set_runtime_parameters = None
     args.access_token = False
     args.only_pso_and_pos_permutations = False
     args.use_patterns = True

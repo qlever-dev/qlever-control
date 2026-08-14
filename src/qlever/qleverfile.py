@@ -404,6 +404,17 @@ class Qleverfile:
             "most-recent-only (keep only the most recently created), "
             "original-and-most-recent (keep both)",
         )
+        server_args["set_runtime_parameters"] = arg(
+            "--set-runtime-parameters",
+            nargs="+",
+            default=None,
+            metavar="NAME=VALUE",
+            help="Space-separated list of runtime parameters to set at "
+            "server startup, each in the form `name=value` (for the list of "
+            "runtime parameters and their default values, run "
+            "`qlever-server --set-runtime-parameter help`; they can also be "
+            "changed while the server is running, via `qlever settings`)",
+        )
         server_args["only_pso_and_pos_permutations"] = arg(
             "--only-pso-and-pos-permutations",
             action="store_true",
