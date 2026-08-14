@@ -4,9 +4,11 @@ import json
 import re
 import shlex
 import time
+from pathlib import Path
 
 from qlever.command import QleverCommand
 from qlever.log import log
+from qlever.qleverfile import Qleverfile
 from qlever.util import (
     run_command,
 )
@@ -158,12 +160,35 @@ class MaterializedViewCommand(QleverCommand):
             log.info(f"Materialized view '{view_name}' loaded")
             return True
 
+        # If no query was given, try to take it from MATERIALIZED_VIEWS in
+        # the Qleverfile (same key as used by `qlever index`). Read
+        # directly instead of via `relevant_qleverfile_arguments`, which
+        # would also add an (unwanted) `--materialized-views` option.
+        if args.view_query is None:
+            qleverfile_path = Path(getattr(args, "qleverfile", "Qleverfile"))
+            if qleverfile_path.is_file():
+                try:
+                    qleverfile_config = Qleverfile.read(qleverfile_path)
+                    materialized_views = json.loads(
+                        qleverfile_config.get(
+                            "index", "materialized_views", fallback="{}"
+                        )
+                    )
+                except Exception as e:
+                    log.error(
+                        "Failed to read MATERIALIZED_VIEWS from "
+                        f"`{qleverfile_path}`: {e}"
+                    )
+                    return False
+                args.view_query = materialized_views.get(args.view_name)
+
         # A query is required when creating a materialized view.
         if args.view_query is None:
             log.error(
-                "A query is required when creating a materialized view"
-                " (use --load to load an existing one, or --delete to"
-                " delete one)"
+                f"No query given for materialized view '{args.view_name}', "
+                "and none found for it in MATERIALIZED_VIEWS in the "
+                "Qleverfile (use --load to load an existing one, or "
+                "--delete to delete one)"
             )
             return False
 
