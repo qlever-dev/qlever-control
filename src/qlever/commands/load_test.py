@@ -275,7 +275,9 @@ class LoadTestCommand(QleverCommand):
             f'Send {args.num_queries} queries from "{source_path}"'
             f" ({len(queries)} queries, {args.query_selection} selection)"
             f" to {sparql_endpoint} at {args.request_rate} queries/s"
-            f" (log every {log_frequency_secs:.0f}s)",
+            f" (log every {log_frequency_secs:.0f}s); the statistics in"
+            f" each table line are cumulative, over all queries completed"
+            f" so far",
             only_show=args.show,
         )
         if args.stop_when_all_launched:
