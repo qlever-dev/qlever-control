@@ -145,7 +145,7 @@ class QleverConfig:
         argcomplete_enabled = os.environ.get("QLEVER_ARGCOMPLETE_ENABLED")
         if not argcomplete_enabled and not argcomplete_check_off:
             log.info("")
-            log.warn(
+            log.warning(
                 f"To enable autocompletion, run the following command, "
                 f"and consider adding it to your `.bashrc` or `.zshrc`:"
                 f"\n\n"
@@ -197,7 +197,7 @@ class QleverConfig:
         # we then parse the Qleverfile or not.
         if qleverfile_exists and not autocomplete_mode:
             try:
-                qleverfile_config = Qleverfile.read(qleverfile_path)
+                qleverfile_config = Qleverfile.read(qleverfile_path, "qlever")
             except Exception as e:
                 log.info("")
                 log.error(f"Error parsing Qleverfile `{qleverfile_path}`: {e}")
@@ -217,6 +217,14 @@ class QleverConfig:
                 attrs=["bold"],
             )
         )
+        # `engine` keys machine-facing things like container names,
+        # `command_prefix` is what the user types before a command, and
+        # `engine_display` is the human-readable name.
+        parser.set_defaults(
+            engine="qlever",
+            engine_display="QLever",
+            command_prefix="qlever",
+        )
         if script_name == "qlever":
             parser.add_argument(
                 "--version",
@@ -226,7 +234,7 @@ class QleverConfig:
         add_qleverfile_option(parser)
         subparsers = parser.add_subparsers(dest="command")
         subparsers.required = True
-        all_args = Qleverfile.all_arguments()
+        all_args = Qleverfile.all_arguments("qlever")
         for command_name, command_object in command_objects.items():
             self.add_subparser_for_command(
                 subparsers,

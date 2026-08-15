@@ -50,15 +50,15 @@ class SetupConfigCommand(QleverCommand):
             help="The name of the pre-configured Qleverfile to create",
         )
 
-    def check_qleverfile_exists(self) -> bool:
+    def check_qleverfile_exists(self, command_prefix: str) -> bool:
         """Return True if a Qleverfile already exists (and log an error)."""
         if Path("Qleverfile").exists():
             log.error("`Qleverfile` already exists in current directory")
             log.info("")
             log.info(
                 "If you want to create a new Qleverfile using "
-                "`qlever setup-config`, delete the existing Qleverfile "
-                "first"
+                f"`{command_prefix} setup-config`, delete the existing "
+                "Qleverfile first"
             )
             return True
         return False
@@ -94,7 +94,7 @@ class SetupConfigCommand(QleverCommand):
         if args.show:
             return True
 
-        if self.check_qleverfile_exists():
+        if self.check_qleverfile_exists(args.command_prefix):
             return False
 
         # Copy the Qleverfile to the current directory.

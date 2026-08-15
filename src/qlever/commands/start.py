@@ -154,7 +154,7 @@ class StartCommand(QleverCommand):
     def description(self) -> str:
         return (
             "Start the QLever server (requires that you have built "
-            "an index with `qlever index` before)"
+            "an index with the `index` command before)"
         )
 
     def should_have_qleverfile(self) -> bool:
@@ -276,8 +276,8 @@ class StartCommand(QleverCommand):
             log.error(f"QLever server already running on {args.endpoint_url}")
             log.info("")
             log.info(
-                "To kill the existing server, use `qlever stop` "
-                "or `qlever start` with option "
+                f"To kill the existing server, use `{args.command_prefix} "
+                f"stop` or `{args.command_prefix} start` with option "
                 "--kill-existing-with-same-port`"
             )
 
@@ -398,7 +398,7 @@ class StartCommand(QleverCommand):
             try:
                 process.wait()
             except KeyboardInterrupt:
-                log.warn("\rCtrl-C pressed, stopping the server ...")
+                log.warning("\rCtrl-C pressed, stopping the server ...")
                 log.info("")
                 process.terminate()
                 # Stop the container process manually

@@ -16,12 +16,12 @@ import rdflib
 import yaml
 from termcolor import colored
 
-from qlever import command_objects, engine_name, script_name
+from qlever import command_objects
 from qlever.command import QleverCommand
 from qlever.commands.clear_cache import ClearCacheCommand
-from qlever.commands.ui import dict_to_yaml
 from qlever.log import log, mute_log
 from qlever.util import (
+    dict_to_yaml,
     pretty_printed_query,
     run_command,
     run_curl_command,
@@ -279,7 +279,7 @@ def get_single_int_result(result_file: str) -> int | None:
     return single_int_result
 
 
-def restart_server(start_only: bool = False) -> bool:
+def restart_server(command_prefix: str, start_only: bool = False) -> bool:
     """
     Restart the SPARQL server after the server hangs i.e. doesn't return
     results after timeout + 30s
@@ -288,23 +288,23 @@ def restart_server(start_only: bool = False) -> bool:
     Only useful when Qleverfile in CWD and configured properly i.e. no command
     line args needed to call stop and start commands
     """
-    stop_cmd = f"{script_name} stop"
-    start_cmd = f"{script_name} start"
+    stop_cmd = f"{command_prefix} stop"
+    start_cmd = f"{command_prefix} start"
     if not start_only:
         try:
             run_command(stop_cmd)
             time.sleep(2)
         except Exception as e:
-            log.warning(f"{script_name} process could not be stopped!: {e}")
+            log.warning(f"`{stop_cmd}` failed, server not stopped: {e}")
     try:
         run_command(start_cmd)
         time.sleep(5)
-        log.info(f"Successfully restarted {engine_name} server after hang!")
+        log.info("Successfully restarted the server after hang!")
         return True
     except Exception as e:
         log.warning(
-            f"{script_name} server could not be restarted. This might affect "
-            f"the benchmark process!: {e}"
+            f"`{start_cmd}` failed, server not restarted. This might "
+            f"affect the benchmark process: {e}"
         )
         return False
 
@@ -315,6 +315,7 @@ def resolve_benchmark_metadata(
     yml_name: str | None,
     yml_description: str | None,
     dataset: str | None,
+    command_prefix: str,
 ) -> tuple[str | None, str | None]:
     """
     Resolve benchmark name and description using priority:
@@ -324,7 +325,8 @@ def resolve_benchmark_metadata(
     """
     dataset_name = dataset.capitalize() if dataset else None
     default_description = (
-        f"{dataset_name} benchmark ran using {script_name} benchmark-queries"
+        f"{dataset_name} benchmark ran using "
+        f"{command_prefix} benchmark-queries"
         if dataset_name
         else None
     )
@@ -716,7 +718,7 @@ class BenchmarkQueriesCommand(QleverCommand):
                 "the current engine, and resume execution with the next query. "
                 "NOTE: This only works if all the server parameters for start and "
                 "stop are configured in the Qleverfile and no arguments are needed "
-                f"for the {script_name} start and {script_name} stop commands."
+                "for the start and stop commands."
             ),
         )
 
@@ -879,6 +881,7 @@ class BenchmarkQueriesCommand(QleverCommand):
             yml_name,
             yml_description,
             dataset,
+            args.command_prefix,
         )
 
         # Launch the queries one after the other and for each print: the
@@ -921,7 +924,7 @@ class BenchmarkQueriesCommand(QleverCommand):
                 with mute_log():
                     clear_cache_successful = ClearCacheCommand().execute(args)
                 if not clear_cache_successful:
-                    log.warn("Failed to clear the cache")
+                    log.warning("Failed to clear the cache")
 
             # Remove OFFSET and LIMIT (after the last closing bracket).
             if args.remove_offset_and_limit or args.limit:
@@ -1036,12 +1039,14 @@ class BenchmarkQueriesCommand(QleverCommand):
 
                 # If curl timed out after hitting max_time = 30s
                 if "exit code 28" in str(e) and args.restart_on_hang:
-                    server_restarted = restart_server()
+                    server_restarted = restart_server(args.command_prefix)
                 # If server is not responding and has crashed
                 elif (
                     "exit code 52" in str(e) or "exit code 7" in str(e)
                 ) and args.restart_on_hang:
-                    server_restarted = restart_server(start_only=True)
+                    server_restarted = restart_server(
+                        args.command_prefix, start_only=True
+                    )
 
                 if args.log_level == "DEBUG":
                     traceback.print_exc()

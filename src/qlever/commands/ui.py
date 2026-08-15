@@ -8,34 +8,7 @@ import yaml
 from qlever.command import QleverCommand
 from qlever.containerize import Containerize
 from qlever.log import log
-from qlever.util import is_port_used, run_command
-
-
-# Return a YAML string for the given dictionary. Format values with
-# newlines using the "|" style.
-def dict_to_yaml(dictionary: dict) -> str:
-    """
-    Custom representer for yaml, which uses the "|" style only for
-    multiline strings.
-
-    NOTE: We replace all `\r\n` with `\n` because otherwise the `|` style
-    does not work as expected.
-    """
-
-    class MultiLineDumper(yaml.SafeDumper):
-        def represent_scalar(self, tag, value, style=None):
-            value = value.replace("\r\n", "\n")
-            if isinstance(value, str) and "\n" in value:
-                style = "|"
-            return super().represent_scalar(tag, value, style)
-
-    # Dump as yaml.
-    return yaml.dump(
-        dictionary,
-        sort_keys=False,
-        allow_unicode=True,
-        Dumper=MultiLineDumper,
-    )
+from qlever.util import dict_to_yaml, is_port_used, run_command
 
 
 class UiCommand(QleverCommand):
@@ -98,15 +71,15 @@ class UiCommand(QleverCommand):
         )
         if qlever_is_running_in_container:
             log.error(
-                "The environment variable `QLEVER_OVERRIDE_DISABLE_UI` is set, "
-                "therefore `qlever ui` is not available (it should not be called "
-                "from inside a container)"
+                "The environment variable `QLEVER_OVERRIDE_DISABLE_UI` is "
+                f"set, therefore `{args.command_prefix} ui` is not available "
+                "(it should not be called from inside a container)"
             )
             log.info("")
             if not args.show:
                 log.info(
                     "For your information, showing the commands that are "
-                    "executed when `qlever ui` is available:"
+                    f"executed when `{args.command_prefix} ui` is available:"
                 )
                 log.info("")
 
@@ -265,6 +238,6 @@ class UiCommand(QleverCommand):
         )
         log.info(
             f"You can modify the config file at `{ui_config_file}` "
-            f"and then just run `qlever ui` again"
+            f"and then just run `{args.command_prefix} ui` again"
         )
         return True
