@@ -629,7 +629,6 @@ class Qleverfile:
             log.warning(
                 "Could not get the hostname, using `localhost` as default"
             )
-            pass
 
         # Return the parsed Qleverfile with the added inherited values.
         return config

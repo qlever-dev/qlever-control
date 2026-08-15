@@ -4,7 +4,7 @@ import subprocess
 from os import environ
 from pathlib import Path
 
-import qlever.util as util
+from qlever import util
 from qlever.command import QleverCommand
 from qlever.log import log
 

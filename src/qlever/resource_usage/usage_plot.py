@@ -11,7 +11,7 @@ import numpy as np
 import psutil
 
 matplotlib.use("Agg")
-from matplotlib import pyplot as plt  # noqa: E402
+from matplotlib import pyplot as plt
 
 from qlever.log import log
 from qlever.util import (

@@ -453,9 +453,7 @@ def get_result_yml_query_record(
         headers = []
     if result_size is not None and isinstance(result, str):
         record["result_size"] = result_size
-        result_size = (
-            max_result_size if result_size > max_result_size else result_size
-        )
+        result_size = min(result_size, max_result_size)
         headers, results = get_query_results(
             result, result_size, accept_header
         )

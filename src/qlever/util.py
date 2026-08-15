@@ -14,7 +14,7 @@ import time
 from collections.abc import Iterator
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, NamedTuple, Optional
+from typing import Any, NamedTuple
 
 import psutil
 import yaml
@@ -68,7 +68,7 @@ def run_command(
     show_output: bool = False,
     show_stderr: bool = False,
     use_popen: bool = False,
-) -> Optional[str | subprocess.Popen]:
+) -> str | subprocess.Popen | None:
     """
     Run the given command and throw an exception if the exit code is non-zero.
     If `return_output` is `True`, return what the command wrote to `stdout`.
