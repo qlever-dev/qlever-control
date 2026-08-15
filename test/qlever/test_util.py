@@ -4,9 +4,11 @@ import pytest
 
 from qlever.util import (
     container_memory_to_bytes,
+    edit_option_line,
     get_random_string,
     parse_git_hash,
     positive_int,
+    update_ini_values,
 )
 
 
@@ -87,3 +89,172 @@ def test_parse_git_hash_empty_file(tmp_path):
     path = tmp_path / "empty.txt"
     path.write_text("")
     assert parse_git_hash(path) is None
+
+
+def test_edit_option_line_replaces_value_and_keeps_alignment():
+    line = "PORT               = 7019"
+    assert (
+        edit_option_line(line, "9999", False, "#")
+        == "PORT               = 9999"
+    )
+
+
+def test_edit_option_line_appends_suffix():
+    line = "ACCESS_TOKEN       = ${data:NAME}"
+    assert (
+        edit_option_line(line, "abc", True, "#")
+        == "ACCESS_TOKEN       = ${data:NAME}abc"
+    )
+
+
+def test_edit_option_line_keeps_inline_comment():
+    line = "PORT               = 7019   # the port"
+    assert (
+        edit_option_line(line, "9999", False, "#")
+        == "PORT               = 9999\t# the port"
+    )
+    assert (
+        edit_option_line(line, "0", True, "#")
+        == "PORT               = 70190\t# the port"
+    )
+
+
+def test_edit_option_line_ignores_comment_char_inside_value():
+    # No whitespace before the `#`, so it is part of the value.
+    line = "ENCODE_AS_ID = https://example.org/geom#osmnode_"
+    assert (
+        edit_option_line(line, "X", True, "#")
+        == "ENCODE_AS_ID = https://example.org/geom#osmnode_X"
+    )
+
+
+def test_edit_option_line_without_comment_prefix():
+    # Without a prefix the comment is part of the value, so a suffix
+    # lands after it.
+    line = "PORT = 7019 # the port"
+    assert edit_option_line(line, "0", True, None) == "PORT = 7019 # the port0"
+
+
+def test_update_ini_values_replaces_and_appends():
+    lines = [
+        "[server]",
+        "PORT               = 7019",
+        "ACCESS_TOKEN       = ${data:NAME}",
+    ]
+    updates = {
+        "server": {
+            "PORT": ("9999", False),
+            "ACCESS_TOKEN": ("abc", True),
+        }
+    }
+    assert update_ini_values(lines, updates) == [
+        "[server]",
+        "PORT               = 9999",
+        "ACCESS_TOKEN       = ${data:NAME}abc",
+    ]
+
+
+def test_update_ini_values_passes_comment_prefix_on():
+    lines = ["[server]", "PORT = 7019  # the port"]
+    updates = {"server": {"PORT": ("9999", False)}}
+    assert update_ini_values(lines, updates, inline_comment_prefix="#") == [
+        "[server]",
+        "PORT = 9999\t# the port",
+    ]
+
+
+def test_update_ini_values_adds_option_missing_from_section():
+    lines = ["[server]", "PORT = 7019", "", "[runtime]", "SYSTEM = docker"]
+    updates = {"server": {"TIMEOUT": ("30s", False)}}
+    assert update_ini_values(lines, updates) == [
+        "[server]",
+        "PORT = 7019",
+        "TIMEOUT = 30s",
+        "",
+        "[runtime]",
+        "SYSTEM = docker",
+    ]
+
+
+def test_update_ini_values_adds_option_to_last_section():
+    lines = ["[server]", "PORT = 7019"]
+    updates = {"server": {"TIMEOUT": ("30s", False)}}
+    assert update_ini_values(lines, updates) == [
+        "[server]",
+        "PORT = 7019",
+        "TIMEOUT = 30s",
+    ]
+
+
+def test_update_ini_values_adds_missing_section():
+    lines = ["[server]", "PORT = 7019"]
+    updates = {"runtime": {"SYSTEM": ("native", False)}}
+    assert update_ini_values(lines, updates) == [
+        "[server]",
+        "PORT = 7019",
+        "\n[runtime]",
+        "SYSTEM = native",
+    ]
+
+
+def test_update_ini_values_skips_suffix_in_missing_section():
+    # A suffix entry has no value to append to, so it is not added.
+    lines = ["[server]", "PORT = 7019"]
+    updates = {
+        "runtime": {
+            "SYSTEM": ("native", False),
+            "EXTRA": ("abc", True),
+        }
+    }
+    assert update_ini_values(lines, updates) == [
+        "[server]",
+        "PORT = 7019",
+        "\n[runtime]",
+        "SYSTEM = native",
+    ]
+
+
+def test_update_ini_values_ignores_commented_out_lines():
+    lines = ["[server]", ";PORT = 1111", "PORT = 7019"]
+    updates = {"server": {"PORT": ("9999", False)}}
+    assert update_ini_values(lines, updates) == [
+        "[server]",
+        ";PORT = 1111",
+        "PORT = 9999",
+    ]
+
+
+def test_update_ini_values_ignores_commented_out_section():
+    # `;[server]` is not a section, so `PORT` is not inside one and the
+    # section is added at the end instead.
+    lines = [";[server]", "PORT = 7019"]
+    updates = {"server": {"PORT": ("9999", False)}}
+    assert update_ini_values(lines, updates) == [
+        ";[server]",
+        "PORT = 7019",
+        "\n[server]",
+        "PORT = 9999",
+    ]
+
+
+def test_update_ini_values_leaves_other_sections_alone():
+    lines = ["[server]", "PORT = 7019", "[index]", "PORT = 1234"]
+    updates = {"server": {"PORT": ("9999", False)}}
+    assert update_ini_values(lines, updates) == [
+        "[server]",
+        "PORT = 9999",
+        "[index]",
+        "PORT = 1234",
+    ]
+
+
+def test_update_ini_values_keeps_unrelated_lines():
+    lines = ["# a comment", "", "[server]", "PORT = 7019", "HOST = localhost"]
+    updates = {"server": {"PORT": ("9999", False)}}
+    assert update_ini_values(lines, updates) == [
+        "# a comment",
+        "",
+        "[server]",
+        "PORT = 9999",
+        "HOST = localhost",
+    ]
