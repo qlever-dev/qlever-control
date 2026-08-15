@@ -25,6 +25,7 @@ from qlever.util import (
     pretty_printed_query,
     run_command,
     run_curl_command,
+    timeout_seconds,
 )
 
 
@@ -868,10 +869,7 @@ class BenchmarkQueriesCommand(QleverCommand):
         width_query_name_half = args.width_query_name // 2
         width_query_name = 2 * width_query_name_half + 1
 
-        try:
-            timeout = int(args.timeout[:-1])
-        except ValueError:
-            timeout = None
+        timeout = timeout_seconds(args.timeout)
 
         benchmark_name, benchmark_description = resolve_benchmark_metadata(
             args.benchmark_name,
