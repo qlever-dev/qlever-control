@@ -10,10 +10,6 @@ arriving while the terminal is unfocused is drawn on refocus.
 
 import asyncio
 
-import pytest
-
-pytest.importorskip("textual")
-
 from textual import events
 from textual.app import App
 from textual.binding import Binding
