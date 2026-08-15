@@ -16,9 +16,9 @@ import rdflib
 import yaml
 from termcolor import colored
 
-from qlever import command_objects
 from qlever.command import QleverCommand
 from qlever.commands.clear_cache import ClearCacheCommand
+from qlever.commands.index_stats import IndexStatsCommand
 from qlever.log import log, mute_log
 from qlever.util import (
     dict_to_yaml,
@@ -337,11 +337,13 @@ def resolve_benchmark_metadata(
     return benchmark_name, benchmark_description
 
 
-def compute_index_stats() -> tuple[float | None, float | None]:
+def compute_index_stats(
+    index_stats: IndexStatsCommand,
+) -> tuple[float | None, float | None]:
     """
-    Compute the index size (Bytes) and time (seconds) if available
+    Compute the index size (Bytes) and time (seconds) if available, using
+    `index_stats` to parse the index log.
     """
-    index_stats = command_objects["index-stats"]
     index_time = index_size = None
     index_log_file = next(Path.cwd().glob("*.index-log.txt"), None)
 
@@ -495,6 +497,9 @@ class BenchmarkQueriesCommand(QleverCommand):
     Class for running a given sequence of benchmark or example queries and
     showing their processing times and result sizes.
     """
+
+    # The `index-stats` command used to parse the index log.
+    index_stats_command = IndexStatsCommand
 
     def __init__(self):
         pass
@@ -896,7 +901,9 @@ class BenchmarkQueriesCommand(QleverCommand):
             if timeout:
                 result_yml_query_records["timeout"] = timeout
 
-            index_time, index_size = compute_index_stats()
+            index_time, index_size = compute_index_stats(
+                self.index_stats_command()
+            )
             result_yml_query_records["index_time"] = index_time
             result_yml_query_records["index_size"] = index_size
 
