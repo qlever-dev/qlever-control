@@ -408,6 +408,9 @@ class CheckSyncWithWikidataCommand(QleverCommand):
                 and r["title"] not in entities
             ]
             time.sleep(1)
+        # Mix the recently edited and the uniformly drawn entities, so that
+        # the intermediate results are a mix of both.
+        rng.shuffle(entities)
         return entities
 
     # Comparison.
