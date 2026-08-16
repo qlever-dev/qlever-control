@@ -77,7 +77,8 @@ class CheckSyncWithWikidataCommand(QleverCommand):
     """
 
     def __init__(self):
-        pass
+        # Width for `qid`, set in `execute` once the entities are known.
+        self.qid_width = 0
 
     def description(self) -> str:
         return (
@@ -542,6 +543,25 @@ class CheckSyncWithWikidataCommand(QleverCommand):
             return str(o)
         return None
 
+    def entity_date_modified(self, graph, entity_id):
+        """
+        Return the `schema:dateModified` of the given entity in the given
+        graph.
+        """
+        for o in graph.objects(
+            URIRef(f"{WD}{entity_id}"), URIRef(f"{SCHEMA}dateModified")
+        ):
+            return str(o)
+        return None
+
+    def qid(self, entity_id):
+        """
+        Return `<entity_id>:`, right-padded so that the log lines of the
+        different entities of a run are aligned (the padding width is set
+        in `execute` to the longest sampled entity ID).
+        """
+        return f"{entity_id + ':':<{self.qid_width + 1}}"
+
     def compare_entity(
         self, entity_id, qlever_graph, canonical_document, exclude_counters
     ):
@@ -554,7 +574,7 @@ class CheckSyncWithWikidataCommand(QleverCommand):
                 URIRef(f"{WD}{entity_id}"), URIRef(OWL_SAMEAS)
             ):
                 log.info(
-                    f"{entity_id}: redirect to"
+                    f"{self.qid(entity_id)} redirect to"
                     f" {str(target).rsplit('/', 1)[-1]}, skipped"
                 )
                 return "redirect"
@@ -562,14 +582,17 @@ class CheckSyncWithWikidataCommand(QleverCommand):
         qlever_version = self.entity_version(qlever_graph, entity_id)
         if canonical_version is None or qlever_version is None:
             log.warning(
-                f"{entity_id}: could not determine version"
+                f"{self.qid(entity_id)} could not determine version"
                 f" (canonical: {canonical_version},"
                 f" endpoint: {qlever_version})"
             )
             return "error"
+        last_updated = self.entity_date_modified(
+            canonical_document, entity_id
+        ) or self.entity_date_modified(qlever_graph, entity_id)
         if canonical_version != qlever_version:
             log.info(
-                f"{entity_id}: version mismatch (canonical:"
+                f"{self.qid(entity_id)} version mismatch (canonical:"
                 f" {canonical_version}, endpoint: {qlever_version}),"
                 f" edited since the endpoint's stream position"
             )
@@ -585,18 +608,21 @@ class CheckSyncWithWikidataCommand(QleverCommand):
         if not missing and not extra:
             if not self.geo_values_match(canonical_geo, qlever_geo):
                 log.error(
-                    f"{entity_id}: DIVERGENT at version {qlever_version}"
+                    f"{self.qid(entity_id)} DIVERGENT at version"
+                    f" {qlever_version}, last updated {last_updated}"
                     f" (geographic values differ by more than"
                     f" {GEO_TOLERANCE})"
                 )
                 return "divergent"
             log.info(
-                f"{entity_id}: exact match at version"
-                f" {qlever_version} ({len(qlever):,} triples)"
+                f"{self.qid(entity_id)} exact match at version"
+                f" {qlever_version}, last updated {last_updated}"
+                f" ({len(qlever):,} triples)"
             )
             return "match"
         log.error(
-            f"{entity_id}: DIVERGENT at version {qlever_version}"
+            f"{self.qid(entity_id)} DIVERGENT at version {qlever_version},"
+            f" last updated {last_updated}"
             f" ({len(missing)} triples missing on the endpoint,"
             f" {len(extra)} extra)"
         )
@@ -640,7 +666,8 @@ class CheckSyncWithWikidataCommand(QleverCommand):
                         redirected_to = str(target).rsplit("/", 1)[-1]
                 if redirected_to is not None:
                     log.info(
-                        f"{entity_id}: redirect to {redirected_to}, skipped"
+                        f"{self.qid(entity_id)} redirect to"
+                        f" {redirected_to}, skipped"
                     )
                     outcomes[entity_id] = "redirect"
                 else:
@@ -649,7 +676,7 @@ class CheckSyncWithWikidataCommand(QleverCommand):
                     )
                     snapshots.append((entity_id, ttl_bytes, qlever_graph))
             except Exception as e:
-                log.warning(f"{entity_id}: check failed ({e})")
+                log.warning(f"{self.qid(entity_id)} check failed ({e})")
                 outcomes[entity_id] = "error"
             if pbar is not None:
                 pbar.update(1)
@@ -687,7 +714,7 @@ class CheckSyncWithWikidataCommand(QleverCommand):
                     exclude_counters,
                 )
             except Exception as e:
-                log.warning(f"{entity_id}: check failed ({e})")
+                log.warning(f"{self.qid(entity_id)} check failed ({e})")
                 outcomes[entity_id] = "error"
         return outcomes
 
@@ -737,6 +764,7 @@ class CheckSyncWithWikidataCommand(QleverCommand):
                 args.num_entities, args.recent_fraction, args.seed
             )
         log.info(f"Entities: {', '.join(entities)}")
+        self.qid_width = max(len(e) for e in entities)
 
         if args.batch_size < 1:
             log.error("`--batch-size` must be at least 1")
