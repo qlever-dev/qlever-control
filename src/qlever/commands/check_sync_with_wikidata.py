@@ -695,8 +695,10 @@ class CheckSyncWithWikidataCommand(QleverCommand):
         endpoint = (
             args.sparql_endpoint
             if args.sparql_endpoint
-            else f"http://{args.host_name}:{args.port}"
+            else f"{args.host_name}:{args.port}"
         )
+        if "://" not in endpoint:
+            endpoint = f"http://{endpoint}"
         munge_scripts = sorted(glob.glob("service-*/munge.sh"))
         if args.munge == "yes" and not munge_scripts:
             log.error(
