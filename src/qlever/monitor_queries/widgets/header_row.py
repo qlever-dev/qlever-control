@@ -39,10 +39,10 @@ class ThemeSelect(Select):
         super().__init__(
             options, value=current, allow_blank=False, compact=True
         )
+        self.opened = False
 
     def on_mount(self) -> None:
         """Watch the open/close so a close can announce itself."""
-        self.opened = False
         self.watch(self, "expanded", self.handle_expanded)
 
     def handle_expanded(self, expanded: bool) -> None:

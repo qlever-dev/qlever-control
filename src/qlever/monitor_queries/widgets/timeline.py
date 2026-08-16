@@ -165,14 +165,6 @@ class Timeline(Static):
         super().__init__()
         self.set_reactive(Timeline.bounds, bounds)
 
-    def watch_bounds(self) -> None:
-        """Redraw the bar when the span or window changes."""
-        self.refresh()
-
-    def on_resize(self) -> None:
-        """Repaint so the bar tracks the new width."""
-        self.refresh()
-
     def on_click(self, event: events.Click) -> None:
         """Recenter the window on the clicked bar column.
 
