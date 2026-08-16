@@ -617,7 +617,7 @@ class CheckSyncWithWikidataCommand(QleverCommand):
             log.info(
                 f"{self.qid(entity_id)} exact match at version"
                 f" {qlever_version}, last updated {last_updated}"
-                f" ({len(qlever):,} triples)"
+                f" ({len(qlever):>7,} triples)"
             )
             return "match"
         log.error(
