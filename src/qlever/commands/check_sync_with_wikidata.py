@@ -3,6 +3,7 @@ from __future__ import annotations
 import glob
 import gzip
 import json
+import logging
 import random
 import re
 import shutil
@@ -16,6 +17,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from rdflib import Graph, Literal, URIRef
+from tqdm.contrib.logging import tqdm_logging_redirect
 
 from qlever.command import QleverCommand
 from qlever.log import log
@@ -604,12 +606,14 @@ class CheckSyncWithWikidataCommand(QleverCommand):
             log.error(f"  extra:   {line}")
         return "divergent"
 
-    def check_batch(self, batch, endpoint, munge_script, keep_dir):
+    def check_batch(self, batch, endpoint, munge_script, keep_dir, pbar=None):
         """
         Check a batch of entities: download the canonical data and query the
         endpoint pairwise (so that the version gate has the best chance),
         then munge the whole batch in ONE run of `munge.sh`, and compare
-        entity by entity. Returns a dict from entity ID to outcome.
+        entity by entity. Returns a dict from entity ID to outcome. The
+        progress bar `pbar` is advanced once per downloaded entity (the
+        download loop dominates the running time).
         """
         outcomes = {}
         snapshots = []
@@ -647,6 +651,8 @@ class CheckSyncWithWikidataCommand(QleverCommand):
             except Exception as e:
                 log.warning(f"{entity_id}: check failed ({e})")
                 outcomes[entity_id] = "error"
+            if pbar is not None:
+                pbar.update(1)
             time.sleep(1)
         batch_graph = None
         if munge_script is not None and snapshots:
@@ -739,10 +745,19 @@ class CheckSyncWithWikidataCommand(QleverCommand):
                 yield entity_ids[i : i + args.batch_size]
 
         outcomes = {}
-        for batch in batches(entities):
-            outcomes.update(
-                self.check_batch(batch, endpoint, munge_script, keep_dir)
-            )
+        with tqdm_logging_redirect(
+            loggers=[logging.getLogger("qlever")],
+            desc="Entities",
+            total=len(entities),
+            leave=False,
+            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}{postfix}",
+        ) as pbar:
+            for batch in batches(entities):
+                outcomes.update(
+                    self.check_batch(
+                        batch, endpoint, munge_script, keep_dir, pbar
+                    )
+                )
         retry = [e for e, o in outcomes.items() if o == "undecidable"]
         if retry:
             log.info(
@@ -750,10 +765,19 @@ class CheckSyncWithWikidataCommand(QleverCommand):
                 f" during the check ..."
             )
             time.sleep(5)
-            for batch in batches(retry):
-                outcomes.update(
-                    self.check_batch(batch, endpoint, munge_script, keep_dir)
-                )
+            with tqdm_logging_redirect(
+                loggers=[logging.getLogger("qlever")],
+                desc="Entities",
+                total=len(retry),
+                leave=False,
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}{postfix}",
+            ) as pbar:
+                for batch in batches(retry):
+                    outcomes.update(
+                        self.check_batch(
+                            batch, endpoint, munge_script, keep_dir, pbar
+                        )
+                    )
 
         counts = {
             status: sum(1 for o in outcomes.values() if o == status)
