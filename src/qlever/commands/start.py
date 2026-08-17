@@ -49,6 +49,14 @@ def construct_command(args) -> str:
             f" --rebuild-keep-previous-index-dirs"
             f" {args.rebuild_keep_previous_index_dirs}"
         )
+    # One `--set-runtime-parameter` per assignment (the option is not
+    # multitoken).
+    set_runtime_parameters = vars(args).get("set_runtime_parameters")
+    if set_runtime_parameters:
+        start_cmd += "".join(
+            f" --set-runtime-parameter {shlex.quote(assignment)}"
+            for assignment in set_runtime_parameters
+        )
     if args.only_pso_and_pos_permutations:
         start_cmd += " --only-pso-and-pos-permutations"
     if args.use_patterns == "no":
@@ -177,6 +185,7 @@ class StartCommand(QleverCommand):
                 "persist_updates",
                 "rebuild_index_strategy",
                 "rebuild_keep_previous_index_dirs",
+                "set_runtime_parameters",
                 "only_pso_and_pos_permutations",
                 "use_patterns",
                 "use_text_index",
