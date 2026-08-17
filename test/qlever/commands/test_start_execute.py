@@ -22,6 +22,10 @@ def test_construct_command_with_if():
     args.persist_updates = False
     args.rebuild_index_strategy = "automatic:10000:1000000:0.1"
     args.rebuild_keep_previous_index_dirs = "most-recent-only"
+    args.set_runtime_parameters = [
+        "default-query-timeout=300s",
+        "rebuild-max-concurrent-permutation-pairs=1",
+    ]
     args.access_token = True
     args.only_pso_and_pos_permutations = True
     args.use_patterns = "no"
@@ -46,6 +50,8 @@ def test_construct_command_with_if():
         f" -a {args.access_token}"
         " --rebuild-index-strategy automatic:10000:1000000:0.1"
         " --rebuild-keep-previous-index-dirs most-recent-only"
+        " --set-runtime-parameter default-query-timeout=300s"
+        " --set-runtime-parameter rebuild-max-concurrent-permutation-pairs=1"
         " --only-pso-and-pos-permutations"
         " --no-patterns"
         " -t"
@@ -72,6 +78,7 @@ def test_construct_command_without_if():
     args.persist_updates = False
     args.rebuild_index_strategy = "manual"
     args.rebuild_keep_previous_index_dirs = "original-and-most-recent"
+    args.set_runtime_parameters = None
     args.access_token = False
     args.only_pso_and_pos_permutations = False
     args.use_patterns = True
@@ -745,3 +752,55 @@ class TestStartCommand(unittest.TestCase):
 
         # Execute the function and check if return is False
         self.assertTrue(StartCommand().execute(args))
+
+
+class TestMergeRuntimeParameters(unittest.TestCase):
+    def test_command_line_takes_precedence_per_name(self):
+        from qlever.commands.start import merge_runtime_parameters
+
+        self.assertEqual(
+            merge_runtime_parameters(
+                ["a=1", "b=2"],
+                ["b=3", "c=4"],
+            ),
+            ["a=1", "b=3", "c=4"],
+        )
+
+    def test_empty_lists(self):
+        from qlever.commands.start import merge_runtime_parameters
+
+        self.assertEqual(merge_runtime_parameters([], []), [])
+        self.assertEqual(merge_runtime_parameters(["a=1"], []), ["a=1"])
+        self.assertEqual(merge_runtime_parameters([], ["a=1"]), ["a=1"])
+
+    def test_qleverfile_parameters_are_read_and_merged(self):
+        import tempfile
+        from types import SimpleNamespace
+
+        from qlever.commands.start import (
+            get_runtime_parameters_from_qleverfile,
+        )
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".qleverfile"
+        ) as file:
+            file.write(
+                "[data]\nNAME = test\n\n[server]\n"
+                "SET_RUNTIME_PARAMETERS = a=1 b=2\n"
+            )
+            file.flush()
+            args = SimpleNamespace(qleverfile=file.name)
+            self.assertEqual(
+                get_runtime_parameters_from_qleverfile(args),
+                ["a=1", "b=2"],
+            )
+
+    def test_no_qleverfile_yields_empty_list(self):
+        from types import SimpleNamespace
+
+        from qlever.commands.start import (
+            get_runtime_parameters_from_qleverfile,
+        )
+
+        args = SimpleNamespace(qleverfile="/nonexistent/Qleverfile")
+        self.assertEqual(get_runtime_parameters_from_qleverfile(args), [])
