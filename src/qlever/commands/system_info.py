@@ -70,6 +70,8 @@ class SystemInfoCommand(QleverCommand):
         is_windows = system == "Windows"
         if is_windows:
             log.warning("Only limited information is gathered on Windows.")
+        # `--version` sits on the top-level parser only, so the command to show
+        # it is the first word of the prefix (`qlever`, `qeval`).
         script_name = args.command_prefix.split()[0]
         log.info(f"Version: {version('qlever')} ({script_name} --version)")
         if is_linux:

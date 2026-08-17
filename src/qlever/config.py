@@ -35,7 +35,9 @@ QLEVERFILE_DEFAULT_NAME = "Qleverfile"
 
 def add_qleverfile_option(parser: argparse.ArgumentParser) -> None:
     """
-    Add the `--qleverfile` option to the given parser.
+    Add the `--qleverfile` option to the given parser. Each script adds it
+    twice, once on the throwaway parser that peeks at it and once on the real
+    parser, so both are guaranteed to use the same name and default.
     """
     parser.add_argument(
         "--qleverfile", "-q", type=str, default=QLEVERFILE_DEFAULT_NAME
