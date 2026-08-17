@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import warnings
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
@@ -159,6 +160,48 @@ def compute_phase_boundaries(
     return phases
 
 
+def bands_from_durations(
+    durations: dict[str, float],
+) -> list[tuple[str, float, float]]:
+    """
+    Turn phase durations in seconds into `(label, start_s, end_s)` bands,
+    laying the phases back to back from the build start in the given
+    order. The `TOTAL time` entry is skipped.
+    """
+    bands = []
+    start_s = 0.0
+    for label, duration_s in durations.items():
+        if label == "TOTAL time":
+            continue
+        bands.append((label, start_s, start_s + duration_s))
+        start_s += duration_s
+    return bands
+
+
+# Separator between the fields of a subtitle, and the width at which the
+# title starts to be clipped by a 12in figure's axes.
+SUBTITLE_SEPARATOR = "   |   "
+SUBTITLE_MAX_CHARS = 105
+
+
+def wrap_subtitle(subtitle: str) -> str:
+    """Break a subtitle at its field separators into lines that fit the axes."""
+    lines = []
+    for line in subtitle.split("\n"):
+        fields = line.split(SUBTITLE_SEPARATOR)
+        current = fields[0]
+        for field in fields[1:]:
+            if len(current) + len(SUBTITLE_SEPARATOR) + len(field) > (
+                SUBTITLE_MAX_CHARS
+            ):
+                lines.append(current)
+                current = field
+            else:
+                current += SUBTITLE_SEPARATOR + field
+        lines.append(current)
+    return "\n".join(lines)
+
+
 def build_plot_subtitle(
     log_path: Path, stxxl_memory: str, settings_json: str
 ) -> str | None:
@@ -183,24 +226,39 @@ def build_plot_subtitle(
         parts.append(f"git = {git_hash}")
     if stxxl_memory:
         parts.append(f"STXXL = {stxxl_memory}")
-    return "   |   ".join(parts) if parts else None
+    return SUBTITLE_SEPARATOR.join(parts) if parts else None
+
+
+def qlever_overlay(args, log_path: Path) -> list[tuple[str, float, float]]:
+    """Shade one band per phase of a QLever index build."""
+    phases = compute_phase_boundaries(log_path)
+    return [
+        (name, start_s, end_s) for name, (start_s, end_s) in phases.items()
+    ]
+
+
+def qlever_subtitle(args, log_path: Path) -> str | None:
+    """Subtitle for a QLever index build."""
+    return build_plot_subtitle(
+        log_path, args.stxxl_memory or "", args.settings_json
+    )
 
 
 def write_usage_plot(
     tsv_path: Path,
-    log_path: Path,
-    stxxl_memory: str,
-    settings_json: str,
     out_path: Path,
     title: str,
+    overlay: list[tuple[str, float, float]],
+    subtitle: str | None,
     plot_max_points: int = 500,
+    sample_interval_s: float = 1.0,
 ) -> bool:
     """
-    Read the usage TSV and index log, render a dual-axis plot of
-    memory and CPU over time with phase bands from the index log,
-    and save it to `out_path`. Returns True if a plot was saved,
-    False if the TSV has no usable samples. `plot_max_points` caps
-    the number of points drawn per series.
+    Read the usage TSV, render a dual-axis plot of memory and CPU over
+    time with the `overlay` regions shaded, and save it to `out_path`.
+    Returns True if a plot was saved, False if the TSV has no usable
+    samples. `plot_max_points` caps the number of points drawn per
+    series.
     """
     data = read_usage_tsv(tsv_path)
     if not data or len(data.get("elapsed_s", [])) == 0:
@@ -213,8 +271,6 @@ def write_usage_plot(
         return False
     data = {name: values[valid[0] :] for name, values in data.items()}
     data["elapsed_s"] = data["elapsed_s"] - data["elapsed_s"][0]
-
-    phases = compute_phase_boundaries(log_path)
 
     data = downsample_for_plot(data, plot_max_points)
     elapsed_s = data["elapsed_s"]
@@ -232,10 +288,10 @@ def write_usage_plot(
 
     band_colors = plt.colormaps["Pastel1"].colors
     total_s = float(elapsed_s[-1]) if len(elapsed_s) else 0.0
-    # skip drawing the phase name when the band is too narrow to fit it
+    # skip drawing the region name when the band is too narrow to fit it
     # legibly; arbitrary 2% of total duration.
     min_label_s = total_s * 0.02
-    for band_idx, (name, (start_s, end_s)) in enumerate(phases.items()):
+    for band_idx, (name, start_s, end_s) in enumerate(overlay):
         band_s = end_s - start_s
         if band_s <= 0:
             continue
@@ -248,9 +304,13 @@ def write_usage_plot(
         )
         if band_s < min_label_s:
             continue
-        mid = (start_s + end_s) / 2 / x_factor
+        mid = (start_s + end_s) / 2
+        # Skip the name when the band's middle is past the last sample.
+        # Text that far outside the axes collapses the layout.
+        if mid > total_s:
+            continue
         ax_mem.text(
-            mid,
+            mid / x_factor,
             0.98,
             name,
             transform=ax_mem.get_xaxis_transform(),
@@ -298,28 +358,47 @@ def write_usage_plot(
         bbox_to_anchor=(1.08, 0.5),
     )
 
-    subtitle = build_plot_subtitle(log_path, stxxl_memory, settings_json)
-    ax_mem.set_title(f"{title}\n{subtitle}" if subtitle else title)
+    # The bands describe the index log's timeline, the axis describes the
+    # samples. If the bands reach past the last sample, the two do not
+    # cover the same run and the shading sits on the wrong part of the
+    # curve. Allow for the sampling stopping a little early.
+    tolerance_s = 2 * sample_interval_s + 5
+    bands_end_s = max((end_s for _, _, end_s in overlay), default=0.0)
+    if bands_end_s > total_s + tolerance_s:
+        note = "(!) shading exceeds the sampled range"
+        log.warning(
+            f"The shaded regions cover {bands_end_s:.0f}s but only "
+            f"{total_s:.0f}s were sampled, so they may not line up with "
+            "the curves"
+        )
+        # On its own line: the subtitle is already near the axes width.
+        subtitle = f"{subtitle}\n{note}" if subtitle else note
+
+    ax_mem.set_title(
+        f"{title}\n{wrap_subtitle(subtitle)}" if subtitle else title
+    )
     fig.savefig(out_path, dpi=120)
     plt.close(fig)
     return True
 
 
 def render_usage_plot(
-    dataset: str,
-    engine_display: str,
-    stxxl_memory: str = "",
-    settings_json: str = "{}",
+    args,
+    *,
+    overlay: Callable[..., list[tuple[str, float, float]]],
+    subtitle: Callable[..., str | None],
     output_dir: Path | None = None,
-    plot_max_points: int = 500,
 ) -> Path | None:
     """
-    Render `<dataset>.resource-usage-plot.png` from
-    `<dataset>.index.resource-usage-log.tsv` in `output_dir`, falling
-    back to `<dataset>.resource-usage-log.tsv` as written by older
-    qlever versions. Returns the plot path on success, None if the log
-    is missing or the plot could not be rendered.
+    Render `<name>.resource-usage-plot.png` from
+    `<name>.index.resource-usage-log.tsv` in `output_dir`, falling back
+    to `<name>.resource-usage-log.tsv` as written by older qlever
+    versions. `overlay` and `subtitle` are called with `(args,
+    log_path)` and provide the engine-specific parts of the plot.
+    Returns the plot path on success, None if the log is missing or the
+    plot could not be rendered.
     """
+    dataset = args.name
     output_dir = output_dir or Path.cwd()
     tsv_path = output_dir / f"{dataset}.index.resource-usage-log.tsv"
     # Backwards compatibility with older resource-usage log filename
@@ -333,12 +412,12 @@ def render_usage_plot(
     try:
         rendered = write_usage_plot(
             tsv_path=tsv_path,
-            log_path=log_path,
-            stxxl_memory=stxxl_memory,
-            settings_json=settings_json,
             out_path=plot_path,
-            title=f"{engine_display} index build: {dataset}",
-            plot_max_points=plot_max_points,
+            title=f"{args.engine_display} index build: {dataset}",
+            overlay=overlay(args, log_path),
+            subtitle=subtitle(args, log_path),
+            plot_max_points=args.resource_usage_plot_max_points,
+            sample_interval_s=args.resource_usage_interval,
         )
     except Exception as error:
         log.warning(f"Could not render resource-usage plot: {error}")

@@ -18,15 +18,7 @@ from qlever.util import (
 )
 
 
-def render_usage_plot(
-    dataset: str,
-    stxxl_memory: str,
-    settings_json: str,
-    plot_max_points: int,
-    plot_only: bool,
-    command_prefix: str,
-    engine_display: str,
-) -> Path | None:
+def render_usage_plot(args, plot_only: bool) -> Path | None:
     """Render the resource-usage plot.
 
     When the plotting libraries are missing, this is an error if the
@@ -45,15 +37,13 @@ def render_usage_plot(
             log.info(
                 "To plot the resource-usage log, install matplotlib and "
                 "numpy (`pip install qlever[plot]`), then run "
-                f"`{command_prefix} index --resource-usage-plot-only`."
+                f"`{args.command_prefix} index --resource-usage-plot-only`."
             )
         return None
     return usage_plot.render_usage_plot(
-        dataset,
-        stxxl_memory=stxxl_memory,
-        settings_json=settings_json,
-        plot_max_points=plot_max_points,
-        engine_display=engine_display,
+        args,
+        overlay=usage_plot.qlever_overlay,
+        subtitle=usage_plot.qlever_subtitle,
     )
 
 
@@ -236,15 +226,7 @@ class IndexCommand(QleverCommand):
         # Render the resource-usage plot from the existing log without
         # rebuilding the index.
         if args.resource_usage_plot_only:
-            plot_path = render_usage_plot(
-                args.name,
-                stxxl_memory=args.stxxl_memory or "",
-                settings_json=args.settings_json,
-                plot_max_points=args.resource_usage_plot_max_points,
-                plot_only=True,
-                command_prefix=args.command_prefix,
-                engine_display=args.engine_display,
-            )
+            plot_path = render_usage_plot(args, plot_only=True)
             if plot_path is None:
                 return False
             log.info(f"Resource-usage plot saved to `{plot_path.name}`")
@@ -363,7 +345,7 @@ class IndexCommand(QleverCommand):
         if not binary_exists(args.index_binary, "index-binary", args):
             return False
 
-        # Check if all of the input files exist.
+        # Check if all the input files exist.
         if not input_files_exist(args.input_files, args.command_prefix):
             return False
 
@@ -415,15 +397,7 @@ class IndexCommand(QleverCommand):
             Path(f"{args.name}.index.resource-usage-log.tsv").exists()
             or Path(f"{args.name}.resource-usage-log.tsv").exists()
         ):
-            plot_path = render_usage_plot(
-                args.name,
-                stxxl_memory=args.stxxl_memory or "",
-                settings_json=args.settings_json,
-                plot_max_points=args.resource_usage_plot_max_points,
-                plot_only=False,
-                command_prefix=args.command_prefix,
-                engine_display=args.engine_display,
-            )
+            plot_path = render_usage_plot(args, plot_only=False)
             if plot_path is not None:
                 log.info(f"Resource-usage plot saved to `{plot_path.name}`")
 
