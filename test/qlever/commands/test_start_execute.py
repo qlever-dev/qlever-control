@@ -752,3 +752,55 @@ class TestStartCommand(unittest.TestCase):
 
         # Execute the function and check if return is False
         self.assertTrue(StartCommand().execute(args))
+
+
+class TestMergeRuntimeParameters(unittest.TestCase):
+    def test_command_line_takes_precedence_per_name(self):
+        from qlever.commands.start import merge_runtime_parameters
+
+        self.assertEqual(
+            merge_runtime_parameters(
+                ["a=1", "b=2"],
+                ["b=3", "c=4"],
+            ),
+            ["a=1", "b=3", "c=4"],
+        )
+
+    def test_empty_lists(self):
+        from qlever.commands.start import merge_runtime_parameters
+
+        self.assertEqual(merge_runtime_parameters([], []), [])
+        self.assertEqual(merge_runtime_parameters(["a=1"], []), ["a=1"])
+        self.assertEqual(merge_runtime_parameters([], ["a=1"]), ["a=1"])
+
+    def test_qleverfile_parameters_are_read_and_merged(self):
+        import tempfile
+        from types import SimpleNamespace
+
+        from qlever.commands.start import (
+            get_runtime_parameters_from_qleverfile,
+        )
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".qleverfile"
+        ) as file:
+            file.write(
+                "[data]\nNAME = test\n\n[server]\n"
+                "SET_RUNTIME_PARAMETERS = a=1 b=2\n"
+            )
+            file.flush()
+            args = SimpleNamespace(qleverfile=file.name)
+            self.assertEqual(
+                get_runtime_parameters_from_qleverfile(args),
+                ["a=1", "b=2"],
+            )
+
+    def test_no_qleverfile_yields_empty_list(self):
+        from types import SimpleNamespace
+
+        from qlever.commands.start import (
+            get_runtime_parameters_from_qleverfile,
+        )
+
+        args = SimpleNamespace(qleverfile="/nonexistent/Qleverfile")
+        self.assertEqual(get_runtime_parameters_from_qleverfile(args), [])
