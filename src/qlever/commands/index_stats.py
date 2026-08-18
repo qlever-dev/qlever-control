@@ -78,19 +78,20 @@ def compute_durations(
 
     # Compute durations for each indexing phase. Each entry maps a
     # phase name to (duration_in_time_unit, time_unit).
-    durations = {}
-    durations["Parse input"] = (
-        duration([(overall_begin, merge_begin)]),
-        resolved_time_unit,
-    )
-    durations["Build vocabularies"] = (
-        duration([(merge_begin, convert_begin)]),
-        resolved_time_unit,
-    )
-    durations["Convert to global IDs"] = (
-        duration([(convert_begin, convert_end)]),
-        resolved_time_unit,
-    )
+    durations = {
+        "Parse input": (
+            duration([(overall_begin, merge_begin)]),
+            resolved_time_unit,
+        ),
+        "Build vocabularies": (
+            duration([(merge_begin, convert_begin)]),
+            resolved_time_unit,
+        ),
+        "Convert to global IDs": (
+            duration([(convert_begin, convert_end)]),
+            resolved_time_unit,
+        ),
+    }
     for name, perm_begin, perm_end in iter_permutation_phases(
         permutations, normal_end
     ):
@@ -151,9 +152,10 @@ def compute_sizes(
     unit_factor = get_size_unit_factor(size_unit)
     sizes = {k: v / unit_factor for k, v in raw_sizes.items()}
 
-    sizes_to_show = {}
-    sizes_to_show["Files index.*"] = (sizes["index"], size_unit)
-    sizes_to_show["Files vocabulary.*"] = (sizes["vocabulary"], size_unit)
+    sizes_to_show = {
+        "Files index.*": (sizes["index"], size_unit),
+        "Files vocabulary.*": (sizes["vocabulary"], size_unit),
+    }
     if sizes["text"] > 0:
         sizes_to_show["Files text.*"] = (sizes["text"], size_unit)
     sizes_to_show["TOTAL size"] = (sizes["total"], size_unit)

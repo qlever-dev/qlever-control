@@ -122,9 +122,9 @@ class CacheStatsCommand(QleverCommand):
             max_key_len = max([len(key) for key, _ in key_value_pairs])
             for key, value in key_value_pairs:
                 if isinstance(value, int) or re.match(r"^\d+$", value):
-                    value = "{:,}".format(int(value))
+                    value = f"{int(value):,}"
                 if re.match(r"^\d+\.\d+$", value):
-                    value = "{:.2f}".format(float(value))
+                    value = f"{float(value):.2f}"
                 log.info(f"{key.ljust(max_key_len)} : {value}")
 
         show_dict_as_table(cache_stats_dict.items())

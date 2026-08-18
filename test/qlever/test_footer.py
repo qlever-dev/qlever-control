@@ -10,15 +10,11 @@ arriving while the terminal is unfocused is drawn on refocus.
 
 import asyncio
 
-import pytest
+from textual import events
+from textual.app import App
+from textual.binding import Binding
 
-pytest.importorskip("textual")
-
-from textual import events  # noqa: E402
-from textual.app import App  # noqa: E402
-from textual.binding import Binding  # noqa: E402
-
-from qlever.monitor_queries.widgets.footer import Footer  # noqa: E402
+from qlever.monitor_queries.widgets.footer import Footer
 
 
 class CountingFooter(Footer):

@@ -463,7 +463,7 @@ def test_parse_queries_tsv_command_failure(mock_command):
 )
 def test_resolve_benchmark_metadata(case):
     name, desc = resolve_benchmark_metadata(
-        *case["cli"], *case["yml"], case["dataset"]
+        *case["cli"], *case["yml"], case["dataset"], "qlever"
     )
     exp_name, exp_desc = case["expected"]
     assert name == exp_name

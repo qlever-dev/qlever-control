@@ -14,12 +14,33 @@ import time
 from collections.abc import Iterator
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, NamedTuple, Optional
+from typing import Any, NamedTuple
 
 import psutil
+import yaml
 
-from qlever import script_name
 from qlever.log import log
+
+
+def dict_to_yaml(dictionary: dict) -> str:
+    """
+    Dump a dict to YAML, using the `|` block style for multiline strings.
+    """
+
+    class MultiLineDumper(yaml.SafeDumper):
+        def represent_scalar(self, tag, value, style=None):
+            # The `|` style does not work as expected with `\r\n`.
+            value = value.replace("\r\n", "\n")
+            if isinstance(value, str) and "\n" in value:
+                style = "|"
+            return super().represent_scalar(tag, value, style)
+
+    return yaml.dump(
+        dictionary,
+        sort_keys=False,
+        allow_unicode=True,
+        Dumper=MultiLineDumper,
+    )
 
 
 def get_total_file_size(
@@ -47,7 +68,7 @@ def run_command(
     show_output: bool = False,
     show_stderr: bool = False,
     use_popen: bool = False,
-) -> Optional[str | subprocess.Popen]:
+) -> str | subprocess.Popen | None:
     """
     Run the given command and throw an exception if the exit code is non-zero.
     If `return_output` is `True`, return what the command wrote to `stdout`.
@@ -404,7 +425,7 @@ def binary_exists(binary: str, cmd_arg: str, args) -> bool:
 
     is_containerized = args.system in Containerize.supported_systems()
     cmd = f"{binary} --help"
-    if is_containerized and script_name == "qlever":
+    if is_containerized and args.engine_short_name == "qlever":
         cmd = Containerize().containerize_command(
             cmd,
             args.system,
@@ -452,7 +473,7 @@ def is_server_alive(url: str) -> bool:
         return False
 
 
-def input_files_exist(input_files: str) -> bool:
+def input_files_exist(input_files: str, main_command_name: str) -> bool:
     """
     Check if all of the input files exist in current working directory.
     """
@@ -461,7 +482,7 @@ def input_files_exist(input_files: str) -> bool:
             log.error(f'No file matching "{pattern}" found')
             log.info("")
             log.info(
-                f"Did you call `{script_name} get-data`? If you did, "
+                f"Did you call `{main_command_name} get-data`? If you did, "
                 "check GET_DATA_CMD and INPUT_FILES in the Qleverfile"
             )
             return False
