@@ -46,8 +46,8 @@ def resolve_qleverfile(
     path_name: str, engine_short_name: str, autocomplete_mode: bool
 ) -> tuple[ConfigParser | None, bool]:
     """
-    Read the Qleverfile for the given engine, if there is one. Returns the parsed
-    config (`None` when there is nothing to read) and whether the file
+    Read the Qleverfile for the given engine, if there is one. Returns the
+    parsed config (`None` when there is nothing to read) and whether the file
     exists, which the caller needs for its "no Qleverfile" warning.
 
     In autocompletion mode nothing is parsed, because it is expensive and not
@@ -96,7 +96,7 @@ def add_subparser_for_command(
 
     arg_names = command_object.relevant_qleverfile_arguments()
 
-    # Helper function that shows a detailed error messahe when an argument
+    # Helper function that shows a detailed error message when an argument
     # from `relevant_qleverfile_arguments` is not contained in
     # `all_qleverfile_args`.
     def argument_error(prefix):
@@ -209,13 +209,13 @@ def post_parse_warnings(
         )
 
 
-def warn_if_not_registered_for_argcomplete(script_name: str) -> None:
+def warn_if_not_registered_for_argcomplete(main_command_name: str) -> None:
     """
-    Remind the user to register the given console script for autocompletion.
-    The script name is what `register-python-argcomplete` takes, and it also
-    prefixes the two environment variables checked here.
+    Remind the user to register the main command for autocompletion. The name
+    of the main command is what `register-python-argcomplete` takes, and it
+    also prefixes the two environment variables checked here.
     """
-    prefix = script_name.upper()
+    prefix = main_command_name.upper()
     argcomplete_check_off = os.environ.get(f"{prefix}_ARGCOMPLETE_CHECK_OFF")
     argcomplete_enabled = os.environ.get(f"{prefix}_ARGCOMPLETE_ENABLED")
     if not argcomplete_enabled and not argcomplete_check_off:
@@ -223,7 +223,7 @@ def warn_if_not_registered_for_argcomplete(script_name: str) -> None:
         log.warning(
             "To enable autocompletion, run the following command, "
             "and consider adding it to your `.bashrc` or `.zshrc`:\n\n"
-            f'eval "$(register-python-argcomplete {script_name})" '
+            f'eval "$(register-python-argcomplete {main_command_name})" '
             f"&& export {prefix}_ARGCOMPLETE_ENABLED=1"
         )
         log.info("")
@@ -243,7 +243,7 @@ def parse_command_line() -> argparse.Namespace:
     # Determine whether we are in autocomplete mode or not.
     autocomplete_mode = "COMP_LINE" in os.environ
 
-    warn_if_not_registered_for_argcomplete(script_name="qlever")
+    warn_if_not_registered_for_argcomplete(main_command_name="qlever")
 
     # Create a temporary parser only to parse the `--qleverfile` option, in
     # case it is given, and to determine whether a command was given that

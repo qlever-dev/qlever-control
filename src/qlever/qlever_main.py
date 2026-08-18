@@ -80,10 +80,12 @@ def execute_command(args: argparse.Namespace) -> None:
         )
 
         match_error = re.search(r"object has no attribute '(.+)'", str(e))
-        match_trace = commands_path and re.search(
-            rf"({commands_path}/.+\.py)\", line (\d+)",
-            traceback.format_exc(),
-        )
+        match_trace = None
+        if commands_path:
+            match_trace = re.search(
+                rf"({commands_path}/.+\.py)\", line (\d+)",
+                traceback.format_exc(),
+            )
         if isinstance(e, AttributeError) and match_error and match_trace:
             attribute = match_error.group(1)
             trace_command = match_trace.group(1)

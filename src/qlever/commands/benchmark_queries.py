@@ -498,9 +498,6 @@ class BenchmarkQueriesCommand(QleverCommand):
     showing their processing times and result sizes.
     """
 
-    # The `index-stats` command used to parse the index log.
-    index_stats_command = IndexStatsCommand
-
     def __init__(self):
         pass
 
@@ -901,9 +898,7 @@ class BenchmarkQueriesCommand(QleverCommand):
             if timeout:
                 result_yml_query_records["timeout"] = timeout
 
-            index_time, index_size = compute_index_stats(
-                self.index_stats_command()
-            )
+            index_time, index_size = compute_index_stats(IndexStatsCommand())
             result_yml_query_records["index_time"] = index_time
             result_yml_query_records["index_size"] = index_size
 
