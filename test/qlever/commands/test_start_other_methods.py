@@ -42,6 +42,7 @@ class TestStartCommand(unittest.TestCase):
                     "persist_updates",
                     "rebuild_index_strategy",
                     "rebuild_keep_previous_index_dirs",
+                    "set_runtime_parameters",
                     "only_pso_and_pos_permutations",
                     "use_patterns",
                     "use_text_index",
