@@ -38,7 +38,7 @@ def parse_command_line() -> argparse.Namespace:
     # Determine whether we are in autocomplete mode or not.
     autocomplete_mode = "COMP_LINE" in os.environ
 
-    warn_if_not_registered_for_argcomplete(SCRIPT_NAME)
+    warn_if_not_registered_for_argcomplete(script_name=SCRIPT_NAME)
 
     # Peek at the engine and the `--qleverfile` option with a throwaway
     # parser. In autocomplete mode the words have to come from `COMP_LINE`,
@@ -85,7 +85,7 @@ def parse_command_line() -> argparse.Namespace:
     engine_subparsers = parser.add_subparsers(dest="engine", required=True)
     qleverfile_config, qleverfile_exists = None, False
     for engine, engine_info in ENGINES.items():
-        command_prefix = f"{SCRIPT_NAME} {engine}"
+        main_command_name = f"{SCRIPT_NAME} {engine}"
         engine_parser = engine_subparsers.add_parser(
             engine,
             help=engine_info.display_name,
@@ -95,10 +95,11 @@ def parse_command_line() -> argparse.Namespace:
                 attrs=["bold"],
             ),
         )
-        # `args.engine` is already set by the subparsers action above.
         engine_parser.set_defaults(
-            engine_display=engine_info.display_name,
-            command_prefix=command_prefix,
+            script_name=SCRIPT_NAME,
+            engine_short_name=engine,
+            engine_display_name=engine_info.display_name,
+            main_command_name=main_command_name,
         )
         subparsers = engine_parser.add_subparsers(
             dest="command", required=True
@@ -109,7 +110,7 @@ def parse_command_line() -> argparse.Namespace:
             qleverfile_config, qleverfile_exists = resolve_qleverfile(
                 qleverfile_path_name, parsed_engine, autocomplete_mode
             )
-            all_args = Qleverfile.all_arguments(command_prefix)
+            all_args = Qleverfile.all_arguments(main_command_name)
             add_engine_qleverfile_args(engine, all_args)
             for command_name, command_object in load_commands(
                 engine_info.package
