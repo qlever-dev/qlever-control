@@ -10,9 +10,17 @@ from pathlib import Path
 import argcomplete
 from termcolor import colored
 
-from qlever import command_objects, engine_name, script_name
+from qlever import command_objects
 from qlever.log import log, log_levels
 from qlever.qleverfile import Qleverfile
+
+# The short name of the engine (used for the container names), the name of the
+# engine as shown to the user, and the name of the main command (what the user
+# types before a command). These are provided to all commands via `args`, see
+# `parse_args` below.
+ENGINE_SHORT_NAME = "qlever"
+MAIN_COMMAND_NAME = "qlever"
+ENGINE_DISPLAY_NAME = "QLever"
 
 
 # Simple exception class for configuration errors (the class need not do
@@ -145,11 +153,11 @@ class QleverConfig:
         argcomplete_enabled = os.environ.get("QLEVER_ARGCOMPLETE_ENABLED")
         if not argcomplete_enabled and not argcomplete_check_off:
             log.info("")
-            log.warn(
+            log.warning(
                 f"To enable autocompletion, run the following command, "
                 f"and consider adding it to your `.bashrc` or `.zshrc`:"
                 f"\n\n"
-                f'eval "$(register-python-argcomplete {script_name})"'
+                f'eval "$(register-python-argcomplete {MAIN_COMMAND_NAME})"'
                 f" && export QLEVER_ARGCOMPLETE_ENABLED=1"
             )
             log.info("")
@@ -197,7 +205,9 @@ class QleverConfig:
         # we then parse the Qleverfile or not.
         if qleverfile_exists and not autocomplete_mode:
             try:
-                qleverfile_config = Qleverfile.read(qleverfile_path)
+                qleverfile_config = Qleverfile.read(
+                    qleverfile_path, ENGINE_SHORT_NAME
+                )
             except Exception as e:
                 log.info("")
                 log.error(f"Error parsing Qleverfile `{qleverfile_path}`: {e}")
@@ -212,21 +222,25 @@ class QleverConfig:
         # an object of each class is created and stored in `command_objects`.
         parser = argparse.ArgumentParser(
             description=colored(
-                f"This is the {script_name} command line tool, "
-                f"it's all you need to work with {engine_name}",
+                f"This is the {MAIN_COMMAND_NAME} command line tool, "
+                f"it's all you need to work with {ENGINE_DISPLAY_NAME}",
                 attrs=["bold"],
             )
         )
-        if script_name == "qlever":
-            parser.add_argument(
-                "--version",
-                action="version",
-                version=f"%(prog)s {version('qlever')}",
-            )
+        parser.set_defaults(
+            engine_short_name=ENGINE_SHORT_NAME,
+            engine_display_name=ENGINE_DISPLAY_NAME,
+            main_command_name=MAIN_COMMAND_NAME,
+        )
+        parser.add_argument(
+            "--version",
+            action="version",
+            version=f"%(prog)s {version('qlever')}",
+        )
         add_qleverfile_option(parser)
         subparsers = parser.add_subparsers(dest="command")
         subparsers.required = True
-        all_args = Qleverfile.all_arguments()
+        all_args = Qleverfile.all_arguments(MAIN_COMMAND_NAME)
         for command_name, command_object in command_objects.items():
             self.add_subparser_for_command(
                 subparsers,

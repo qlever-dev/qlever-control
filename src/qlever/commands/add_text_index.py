@@ -17,7 +17,7 @@ class AddTextIndexCommand(QleverCommand):
         pass
 
     def description(self) -> str:
-        return "Add text index to an index built with `qlever index`"
+        return "Add text index to an index built with the `index` command"
 
     def should_have_qleverfile(self) -> bool:
         return True

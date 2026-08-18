@@ -19,7 +19,6 @@ class MaterializedViewCommand(QleverCommand):
 
     def __init__(self):
         self.materialized_view_name_regex = r"^[A-Za-z0-9-]+$"
-        pass
 
     def description(self) -> str:
         return (

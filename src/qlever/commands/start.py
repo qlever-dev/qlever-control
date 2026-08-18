@@ -167,7 +167,11 @@ def get_runtime_parameters_from_qleverfile(args) -> list[str]:
         qleverfile_path = Path(vars(args).get("qleverfile", "Qleverfile"))
         if not qleverfile_path.is_file():
             return []
-        config = Qleverfile.read(qleverfile_path)
+        # The engine short name is only used for the default container names,
+        # which are not read here.
+        config = Qleverfile.read(
+            qleverfile_path, vars(args).get("engine_short_name", "qlever")
+        )
         value = config.get("server", "set_runtime_parameters", fallback=None)
         return shlex.split(value) if value else []
     except Exception:
@@ -203,7 +207,7 @@ class StartCommand(QleverCommand):
     def description(self) -> str:
         return (
             "Start the QLever server (requires that you have built "
-            "an index with `qlever index` before)"
+            "an index with the `index` command before)"
         )
 
     def should_have_qleverfile(self) -> bool:
@@ -326,8 +330,8 @@ class StartCommand(QleverCommand):
             log.error(f"QLever server already running on {args.endpoint_url}")
             log.info("")
             log.info(
-                "To kill the existing server, use `qlever stop` "
-                "or `qlever start` with option "
+                f"To kill the existing server, use `{args.main_command_name} "
+                f"stop` or `{args.main_command_name} start` with option "
                 "--kill-existing-with-same-port`"
             )
 
@@ -448,7 +452,7 @@ class StartCommand(QleverCommand):
             try:
                 process.wait()
             except KeyboardInterrupt:
-                log.warn("\rCtrl-C pressed, stopping the server ...")
+                log.warning("\rCtrl-C pressed, stopping the server ...")
                 log.info("")
                 process.terminate()
                 # Stop the container process manually
