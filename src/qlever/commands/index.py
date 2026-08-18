@@ -46,7 +46,7 @@ def render_usage_plot(
             log.info(
                 "To plot the resource-usage log, install matplotlib and "
                 "numpy (`pip install qlever[plot]`), then run "
-                f"`{args.command_prefix} index --resource-usage-plot-only`."
+                f"`{args.main_command_name} index --resource-usage-plot-only`."
             )
         return None
     return usage_plot.render_usage_plot(
@@ -277,7 +277,7 @@ class IndexCommand(QleverCommand):
             )
             log.info("")
             log.info(
-                f"See `{args.command_prefix} index --help` for more "
+                f"See `{args.main_command_name} index --help` for more "
                 "information"
             )
             return False
@@ -356,8 +356,8 @@ class IndexCommand(QleverCommand):
         if not binary_exists(args.index_binary, "index-binary", args):
             return False
 
-        # Check if all the input files exist.
-        if not input_files_exist(args.input_files, args.command_prefix):
+        # Check if all of the input files exist.
+        if not input_files_exist(args.input_files, args.main_command_name):
             return False
 
         # Check if index files (name.index.*) already exist.

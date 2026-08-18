@@ -165,7 +165,7 @@ class ResourceMonitor:
         """Monitor the index build configured by `args`."""
         return cls(
             dataset=args.name,
-            engine=args.engine,
+            engine=args.engine_short_name,
             binary=args.index_binary,
             container=args.index_container,
             system=args.system,

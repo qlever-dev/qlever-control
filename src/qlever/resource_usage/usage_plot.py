@@ -404,7 +404,7 @@ def render_usage_plot(
     plot could not be rendered.
     """
     dataset = args.name
-    prefix = resource_usage_prefix(args.engine, dataset)
+    prefix = resource_usage_prefix(args.engine_short_name, dataset)
     output_dir = output_dir or Path.cwd()
     tsv_path = output_dir / f"{prefix}.index.resource-usage-log.tsv"
     # Backwards compatibility with older resource-usage log filename
@@ -419,7 +419,7 @@ def render_usage_plot(
         rendered = write_usage_plot(
             tsv_path=tsv_path,
             out_path=plot_path,
-            title=f"{args.engine_display} index build: {dataset}",
+            title=f"{args.engine_display_name} index build: {dataset}",
             bands=engine_overlay(args, log_path),
             subtitle_text=engine_subtitle(args, log_path),
             plot_max_points=args.resource_usage_plot_max_points,

@@ -276,8 +276,8 @@ def plot_args(name):
     """The `args` attributes that `render_usage_plot` reads."""
     return SimpleNamespace(
         name=name,
-        engine="qlever",
-        engine_display="QLever",
+        engine_short_name="qlever",
+        engine_display_name="QLever",
         resource_usage_plot_max_points=500,
         resource_usage_interval=1,
         stxxl_memory="",
