@@ -659,8 +659,8 @@ class Qleverfile:
         Given a filter criteria (key: section_header, value: list[options]),
         return a RawConfigParser object to create a new filtered Qleverfile
         with only the specified sections and options (selects all options if
-        list[options] is empty). Mainly to be used by non-qlever scripts for
-        the setup-config command
+        list[options] is empty). Mainly to be used by `qeval` for the
+        `setup-config` command of non-qlever engines.
         """
         # Read the Qleverfile.
         config = RawConfigParser()

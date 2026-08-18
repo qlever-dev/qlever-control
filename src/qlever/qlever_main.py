@@ -23,7 +23,8 @@ def parse_args(
     command_line_parser: Callable[[], argparse.Namespace],
 ) -> argparse.Namespace:
     """
-    Parse the command line with the given parser and set the log level.
+    Parse the command line with the given parser and set the log level. The
+    parser is the only part that differs between `qlever` and `qeval`.
     """
     # Color the output even when stdout is not a terminal (e.g. when piping
     # through `tee`). Setting `NO_COLOR` still disables all colors, because
@@ -48,7 +49,8 @@ def parse_args(
 
 def execute_command(args: argparse.Namespace) -> None:
     """
-    Run the command selected by `args` and handle its failure modes.
+    Run the command selected by `args` and handle its failure modes. Called by
+    both `qlever` and `qeval`, so that they behave the same way on failure.
     """
     command_object = args.command_object
     try:
