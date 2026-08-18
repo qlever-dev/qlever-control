@@ -275,6 +275,95 @@ class TestCheckSyncWithWikidataCommand(unittest.TestCase):
         )
         self.assertEqual(len(document), 10)
 
+    def test_extract_document_lexeme(self):
+        # The document of a lexeme also includes its forms and senses, with
+        # their own statements (recognized by the same IRI prefix, which
+        # starts with the ID of the lexeme).
+        turtle = f"""
+        @prefix wd: <{WD}> .
+        @prefix wds: <http://www.wikidata.org/entity/statement/> .
+        @prefix p: <http://www.wikidata.org/prop/> .
+        @prefix ontolex: <http://www.w3.org/ns/lemon/ontolex#> .
+        wd:L42 ontolex:lexicalForm wd:L42-F1 ;
+            ontolex:sense wd:L42-S1 ;
+            p:P1 wds:L42-aaa .
+        wd:L42-F1 ontolex:representation "desks"@en ;
+            p:P2 wds:L42-F1-bbb .
+        wd:L42-S1 p:P3 wds:L42-S1-ccc .
+        wds:L42-aaa p:P4 "x" .
+        wds:L42-F1-bbb p:P5 "y" .
+        wds:L42-S1-ccc p:P6 "z" .
+        wd:L43 ontolex:lexicalForm wd:L43-F1 .
+        wd:L43-F1 p:P7 "other" .
+        """
+        graph = Graph()
+        graph.parse(data=turtle, format="turtle")
+        document = self.command.extract_document(graph, "L42")
+        subjects = set(str(s) for s in document.subjects())
+        self.assertEqual(
+            subjects,
+            {
+                f"{WD}L42",
+                f"{WD}L42-F1",
+                f"{WD}L42-S1",
+                "http://www.wikidata.org/entity/statement/L42-aaa",
+                "http://www.wikidata.org/entity/statement/L42-F1-bbb",
+                "http://www.wikidata.org/entity/statement/L42-S1-ccc",
+            },
+        )
+        self.assertEqual(len(document), 9)
+
+    def test_entity_version_document_node_fallback(self):
+        # For a lexeme loaded from the (unmunged) dump, the version sits on
+        # the `Special:EntityData` document node; once the lexeme is updated
+        # via the stream, the entity carries the current version and the
+        # document node the stale one, so the entity is tried first.
+        schema_version = URIRef("http://schema.org/version")
+        document_node = URIRef(
+            "https://www.wikidata.org/wiki/Special:EntityData/L42"
+        )
+        graph = Graph()
+        graph.add((document_node, schema_version, literal("123", "integer")))
+        self.assertEqual(self.command.entity_version(graph, "L42"), "123")
+        graph.add(
+            (URIRef(f"{WD}L42"), schema_version, literal("456", "integer"))
+        )
+        self.assertEqual(self.command.entity_version(graph, "L42"), "456")
+
+    def test_normalize_triples_lexeme_exclusions(self):
+        # The document node and the entity-level version and modification
+        # date of a lexeme are excluded from the comparison (they are
+        # heterogeneous between dump-loaded and stream-updated lexemes);
+        # for an item, the entity-level version is compared.
+        schema_version = URIRef("http://schema.org/version")
+        graph = Graph()
+        graph.add(
+            (
+                URIRef("https://www.wikidata.org/wiki/Special:EntityData/L42"),
+                schema_version,
+                literal("123", "integer"),
+            )
+        )
+        graph.add(
+            (URIRef(f"{WD}L42"), schema_version, literal("456", "integer"))
+        )
+        graph.add(
+            (
+                URIRef(f"{WD}L42"),
+                URIRef(f"{WIKIBASE}lemma"),
+                Literal("desk", lang="en"),
+            )
+        )
+        lines, _ = self.command.normalize_triples(graph, "L42", True)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("lemma", next(iter(lines)))
+        item_graph = Graph()
+        item_graph.add(
+            (URIRef(f"{WD}Q42"), schema_version, literal("456", "integer"))
+        )
+        lines, _ = self.command.normalize_triples(item_graph, "Q42", True)
+        self.assertEqual(len(lines), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

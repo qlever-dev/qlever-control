@@ -31,6 +31,16 @@ WIKIBASE = "http://wikiba.se/ontology#"
 STATEMENT = "http://www.wikidata.org/entity/statement/"
 REFERENCE = "http://www.wikidata.org/reference/"
 VALUE = "http://www.wikidata.org/value/"
+ONTOLEX = "http://www.w3.org/ns/lemon/ontolex#"
+
+# The IRI prefix of the `Special:EntityData` document node. For items, the
+# munging moves its `schema:version` and `schema:dateModified` onto the
+# entity and drops the node. The lexemes dump is ingested UNMUNGED (see the
+# Wikidata Qleverfile), so for lexemes the index contains this node, and it
+# goes stale when the entity is updated via the stream (the updater knows
+# nothing about it). It is therefore excluded from the comparison and used
+# only as a fallback for the version gate.
+DOCUMENT = "https://www.wikidata.org/wiki/Special:EntityData/"
 
 # Entity-level counter triples that are contained in the full dump (and hence
 # in the index), but NOT in the output of `Special:EntityData`. They are
@@ -49,6 +59,23 @@ EXCLUDED_ENTITY_PREDICATES = {
 RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
 EXCLUDED_TYPE_OBJECTS = {f"{WIKIBASE}Reference"}
 EXCLUDED_PREDICATES = {f"{WIKIBASE}quantityNormalized"}
+
+# A lexeme in the index is heterogeneous in a second way: loaded from the
+# UNMUNGED lexemes dump, but updated via the munged flavor of the stream.
+# The munging drops the `rdfs:label` triples of a lexeme document (they
+# duplicate `wikibase:lemma`, `ontolex:representation`, and
+# `skos:definition`) and the `rdf:type` triples below (they duplicate the
+# `ontolex:` types, or carry no information in the case of
+# `wikibase:Statement`). A stream-touched lexeme therefore lacks them for
+# the touched parts and keeps them for the rest, so they are excluded from
+# the comparison of a lexeme on both sides.
+RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label"
+LEXEME_EXCLUDED_TYPE_OBJECTS = {
+    f"{WIKIBASE}Lexeme",
+    f"{WIKIBASE}Form",
+    f"{WIKIBASE}Sense",
+    f"{WIKIBASE}Statement",
+}
 
 # Geographic coordinates are stored by QLever in a fixed-precision encoding
 # and exported in a normalized form; differences up to 1e-5 degrees have
@@ -118,6 +145,16 @@ class CheckSyncWithWikidataCommand(QleverCommand):
             " (default: 0.5)",
         )
         subparser.add_argument(
+            "--lexeme-fraction",
+            type=float,
+            default=0.2,
+            help="Fraction of the sample drawn from lexemes; they are"
+            " deliberately oversampled relative to their share of the"
+            " entities, because they take a separate path into the index"
+            " (unmunged dump) that would otherwise go untested"
+            " (default: 0.2)",
+        )
+        subparser.add_argument(
             "--seed",
             type=int,
             default=42,
@@ -167,26 +204,34 @@ class CheckSyncWithWikidataCommand(QleverCommand):
         Fetch the full document of the given entity from the QLever endpoint:
         the triples with the entity as subject, the statement nodes reachable
         from the entity (plus their references and values), and the sitelink
-        article blocks.
+        article blocks. For a lexeme, the document also includes its forms
+        and senses, with their own statements; they are reached via the
+        zero-or-one property path below, which for an item simply yields the
+        item itself. The `schema:about` query also fetches the
+        `Special:EntityData` document node of a lexeme, which is needed for
+        the version gate (see `entity_version`) but excluded from the
+        comparison (see `normalize_triples`).
         """
         e = f"<{WD}{entity_id}>"
+        root = f"{e} (<{ONTOLEX}lexicalForm>|<{ONTOLEX}sense>)? ?root ."
         # NOTE: Statement IRIs of old statements contain the entity ID in
-        # lowercase.
+        # lowercase. The IRIs of the statements of a form or sense start
+        # with the ID of the lexeme, so the prefix below covers them too.
         st = (
             f'FILTER(STRSTARTS(STR(?st), "{STATEMENT}{entity_id}-")'
             f' || STRSTARTS(STR(?st), "{STATEMENT}{entity_id.lower()}-"))'
         )
         queries = [
-            f"CONSTRUCT {{ {e} ?p ?o }} WHERE {{ {e} ?p ?o }}",
+            f"CONSTRUCT {{ ?root ?p ?o }} WHERE {{ {root} ?root ?p ?o }}",
             f"CONSTRUCT {{ ?st ?p2 ?o2 }} WHERE"
-            f" {{ {e} ?p1 ?st . {st} ?st ?p2 ?o2 }}",
+            f" {{ {root} ?root ?p1 ?st . {st} ?st ?p2 ?o2 }}",
             f"CONSTRUCT {{ ?x ?p3 ?o3 }} WHERE"
-            f" {{ {e} ?p1 ?st . {st} ?st ?p2 ?x ."
+            f" {{ {root} ?root ?p1 ?st . {st} ?st ?p2 ?x ."
             f' FILTER(STRSTARTS(STR(?x), "http://www.wikidata.org/reference/")'
             f' || STRSTARTS(STR(?x), "http://www.wikidata.org/value/"))'
             f" ?x ?p3 ?o3 }}",
             f"CONSTRUCT {{ ?x2 ?p5 ?o5 }} WHERE"
-            f" {{ {e} ?p1 ?st . {st} ?st ?p2 ?x ."
+            f" {{ {root} ?root ?p1 ?st . {st} ?st ?p2 ?x ."
             f' FILTER(STRSTARTS(STR(?x), "http://www.wikidata.org/reference/"))'
             f" ?x ?p3 ?x2 ."
             f' FILTER(STRSTARTS(STR(?x2), "http://www.wikidata.org/value/"))'
@@ -230,7 +275,7 @@ class CheckSyncWithWikidataCommand(QleverCommand):
                     time.sleep(5)
                     continue
                 raise
-        match = re.search(r"EntityData/(Q\d+)", final_url)
+        match = re.search(r"EntityData/([QL]\d+)", final_url)
         redirected_to = None
         if match and match.group(1) != entity_id:
             redirected_to = match.group(1)
@@ -282,10 +327,19 @@ class CheckSyncWithWikidataCommand(QleverCommand):
         )
         document = Graph()
         statements = set()
-        for p, o in graph.predicate_objects(entity):
-            document.add((entity, p, o))
-            if isinstance(o, URIRef) and str(o).startswith(statement_prefixes):
-                statements.add(o)
+        # The document of a lexeme also includes its forms and senses, with
+        # their own statements (their statement IRIs start with the ID of
+        # the lexeme, so the prefixes above cover them).
+        roots = {entity}
+        for link in (f"{ONTOLEX}lexicalForm", f"{ONTOLEX}sense"):
+            roots |= set(graph.objects(entity, URIRef(link)))
+        for root in roots:
+            for p, o in graph.predicate_objects(root):
+                document.add((root, p, o))
+                if isinstance(o, URIRef) and str(o).startswith(
+                    statement_prefixes
+                ):
+                    statements.add(o)
         references_and_values = set()
         for statement in statements:
             for p, o in graph.predicate_objects(statement):
@@ -367,8 +421,14 @@ class CheckSyncWithWikidataCommand(QleverCommand):
         with urllib.request.urlopen(request, timeout=60) as response:
             return json.load(response)
 
-    def sample_entities(self, num_entities, recent_fraction, seed):
-        rng = random.Random(seed)
+    def sample_namespace(
+        self, num_entities, recent_fraction, rng, namespace, title_pattern
+    ):
+        """
+        Sample entity IDs from the given namespace (items live in namespace
+        0 with titles like `Q42`, lexemes in namespace 146 with titles like
+        `Lexeme:L42`); the ID is the first group of `title_pattern`.
+        """
         num_recent = round(num_entities * recent_fraction)
         num_uniform = num_entities - num_recent
         entities = []
@@ -377,16 +437,16 @@ class CheckSyncWithWikidataCommand(QleverCommand):
                 {
                     "action": "query",
                     "list": "recentchanges",
-                    "rcnamespace": "0",
+                    "rcnamespace": namespace,
                     "rctype": "edit",
                     "rclimit": "500",
                 }
             )
             titles = sorted(
                 set(
-                    rc["title"]
+                    match.group(1)
                     for rc in result["query"]["recentchanges"]
-                    if re.fullmatch(r"Q\d+", rc["title"])
+                    if (match := re.fullmatch(title_pattern, rc["title"]))
                 )
             )
             entities += rng.sample(titles, min(num_recent, len(titles)))
@@ -395,21 +455,34 @@ class CheckSyncWithWikidataCommand(QleverCommand):
                 {
                     "action": "query",
                     "list": "random",
-                    "rnnamespace": "0",
+                    "rnnamespace": namespace,
                     "rnlimit": str(
                         min(20, num_recent + num_uniform - len(entities))
                     ),
                 }
             )
             entities += [
-                r["title"]
+                match.group(1)
                 for r in result["query"]["random"]
-                if re.fullmatch(r"Q\d+", r["title"])
-                and r["title"] not in entities
+                if (match := re.fullmatch(title_pattern, r["title"]))
+                and match.group(1) not in entities
             ]
             time.sleep(1)
-        # Mix the recently edited and the uniformly drawn entities, so that
-        # the intermediate results are a mix of both.
+        return entities
+
+    def sample_entities(
+        self, num_entities, recent_fraction, lexeme_fraction, seed
+    ):
+        rng = random.Random(seed)
+        num_lexemes = round(num_entities * lexeme_fraction)
+        entities = self.sample_namespace(
+            num_entities - num_lexemes, recent_fraction, rng, "0", r"(Q\d+)"
+        )
+        entities += self.sample_namespace(
+            num_lexemes, recent_fraction, rng, "146", r"Lexeme:(L\d+)"
+        )
+        # Mix the recently edited and the uniformly drawn entities (and the
+        # items and lexemes), so that the intermediate results are a mix.
         rng.shuffle(entities)
         return entities
 
@@ -474,9 +547,34 @@ class CheckSyncWithWikidataCommand(QleverCommand):
         others.
         """
         entity = f"{WD}{entity_id}"
+        is_lexeme = entity_id.startswith("L")
         lines = set()
         geo_values = {}
         for s, p, o in graph:
+            # The `Special:EntityData` document node of a lexeme is in the
+            # index (unmunged dump), but goes stale on the first update via
+            # the stream, so it takes part only in the version gate.
+            if str(s).startswith(DOCUMENT):
+                continue
+            # A lexeme that was updated via the stream has the version and
+            # modification date grafted onto the entity (munged flavor of
+            # the stream), an untouched one does not; both are in sync, so
+            # this heterogeneity is excluded from the comparison.
+            if (
+                is_lexeme
+                and str(s) == entity
+                and str(p) in (f"{SCHEMA}version", f"{SCHEMA}dateModified")
+            ):
+                continue
+            # See the comment at `LEXEME_EXCLUDED_TYPE_OBJECTS`.
+            if is_lexeme and (
+                str(p) == RDFS_LABEL
+                or (
+                    str(p) == RDF_TYPE
+                    and str(o) in LEXEME_EXCLUDED_TYPE_OBJECTS
+                )
+            ):
+                continue
             if (
                 exclude_counters
                 and str(s) == entity
@@ -539,22 +637,29 @@ class CheckSyncWithWikidataCommand(QleverCommand):
     def entity_version(self, graph, entity_id):
         """
         Return the `schema:version` of the given entity in the given graph.
+        For a lexeme that was loaded from the (unmunged) dump and never
+        updated since, the version sits on the `Special:EntityData` document
+        node instead of the entity; once the entity is updated via the
+        stream, the version on the entity is the current one and the one on
+        the document node is stale, which is why the entity is tried first.
         """
-        for o in graph.objects(
-            URIRef(f"{WD}{entity_id}"), URIRef(f"{SCHEMA}version")
-        ):
-            return str(o)
+        for subject in (f"{WD}{entity_id}", f"{DOCUMENT}{entity_id}"):
+            for o in graph.objects(
+                URIRef(subject), URIRef(f"{SCHEMA}version")
+            ):
+                return str(o)
         return None
 
     def entity_date_modified(self, graph, entity_id):
         """
         Return the `schema:dateModified` of the given entity in the given
-        graph.
+        graph (like `entity_version`, with the document node as fallback).
         """
-        for o in graph.objects(
-            URIRef(f"{WD}{entity_id}"), URIRef(f"{SCHEMA}dateModified")
-        ):
-            return str(o)
+        for subject in (f"{WD}{entity_id}", f"{DOCUMENT}{entity_id}"):
+            for o in graph.objects(
+                URIRef(subject), URIRef(f"{SCHEMA}dateModified")
+            ):
+                return str(o)
         return None
 
     def qid(self, entity_id):
@@ -684,22 +789,34 @@ class CheckSyncWithWikidataCommand(QleverCommand):
             if pbar is not None:
                 pbar.update(1)
             time.sleep(1)
+        # Lexemes are ingested into the index from the UNMUNGED lexemes dump
+        # (see the Wikidata Qleverfile), so their canonical data is compared
+        # without munging, whatever `--munge` says.
         batch_graph = None
-        if munge_script is not None and snapshots:
-            try:
-                batch_graph = self.munge(
-                    b"".join(ttl for _, ttl, _ in snapshots),
-                    munge_script,
-                    keep_dir,
-                )
-            except Exception as e:
-                log.warning(f"Munging the batch failed ({e})")
-                for entity_id, _, _ in snapshots:
-                    outcomes[entity_id] = "error"
-                return outcomes
+        munge_failed = False
+        if munge_script is not None:
+            munge_batch = [
+                (entity_id, ttl)
+                for entity_id, ttl, _ in snapshots
+                if not entity_id.startswith("L")
+            ]
+            if munge_batch:
+                try:
+                    batch_graph = self.munge(
+                        b"".join(ttl for _, ttl in munge_batch),
+                        munge_script,
+                        keep_dir,
+                    )
+                except Exception as e:
+                    log.warning(f"Munging the batch failed ({e})")
+                    munge_failed = True
         for entity_id, ttl_bytes, qlever_graph in snapshots:
+            is_lexeme = entity_id.startswith("L")
+            if munge_failed and not is_lexeme:
+                outcomes[entity_id] = "error"
+                continue
             try:
-                if batch_graph is not None:
+                if batch_graph is not None and not is_lexeme:
                     canonical_document = self.extract_document(
                         batch_graph, entity_id
                     )
@@ -748,12 +865,14 @@ class CheckSyncWithWikidataCommand(QleverCommand):
             return True
 
         keep_dir = Path.cwd() if args.keep_files else None
-        if not 0.0 <= args.recent_fraction <= 1.0:
-            log.error("`--recent-fraction` must be between 0.0 and 1.0")
-            return False
+        for name in ("recent_fraction", "lexeme_fraction"):
+            if not 0.0 <= getattr(args, name) <= 1.0:
+                option = name.replace("_", "-")
+                log.error(f"`--{option}` must be between 0.0 and 1.0")
+                return False
         if args.entities:
             entities = [e.strip() for e in args.entities.split(",")]
-            invalid = [e for e in entities if not re.fullmatch(r"Q\d+", e)]
+            invalid = [e for e in entities if not re.fullmatch(r"[QL]\d+", e)]
             if invalid:
                 log.error(f"Invalid entity IDs: {invalid}")
                 return False
@@ -761,10 +880,14 @@ class CheckSyncWithWikidataCommand(QleverCommand):
             log.info(
                 f"Sampling {args.num_entities} entities"
                 f" ({args.recent_fraction:.0%} recently edited,"
+                f" {args.lexeme_fraction:.0%} lexemes,"
                 f" seed {args.seed}) ..."
             )
             entities = self.sample_entities(
-                args.num_entities, args.recent_fraction, args.seed
+                args.num_entities,
+                args.recent_fraction,
+                args.lexeme_fraction,
+                args.seed,
             )
         log.info(f"Entities: {', '.join(entities)}")
         self.qid_width = max(len(e) for e in entities)
