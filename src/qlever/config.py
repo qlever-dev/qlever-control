@@ -209,13 +209,13 @@ def post_parse_warnings(
         )
 
 
-def warn_if_not_registered_for_argcomplete(main_command_name: str) -> None:
+def warn_if_not_registered_for_argcomplete(script_name: str) -> None:
     """
-    Remind the user to register the main command for autocompletion. The name
-    of the main command is what `register-python-argcomplete` takes, and it
-    also prefixes the two environment variables checked here.
+    Remind the user to register the given console script for autocompletion.
+    The script name is what `register-python-argcomplete` takes, and it also
+    prefixes the two environment variables checked here.
     """
-    prefix = main_command_name.upper()
+    prefix = script_name.upper()
     argcomplete_check_off = os.environ.get(f"{prefix}_ARGCOMPLETE_CHECK_OFF")
     argcomplete_enabled = os.environ.get(f"{prefix}_ARGCOMPLETE_ENABLED")
     if not argcomplete_enabled and not argcomplete_check_off:
@@ -223,7 +223,7 @@ def warn_if_not_registered_for_argcomplete(main_command_name: str) -> None:
         log.warning(
             "To enable autocompletion, run the following command, "
             "and consider adding it to your `.bashrc` or `.zshrc`:\n\n"
-            f'eval "$(register-python-argcomplete {main_command_name})" '
+            f'eval "$(register-python-argcomplete {script_name})" '
             f"&& export {prefix}_ARGCOMPLETE_ENABLED=1"
         )
         log.info("")
@@ -243,7 +243,7 @@ def parse_command_line() -> argparse.Namespace:
     # Determine whether we are in autocomplete mode or not.
     autocomplete_mode = "COMP_LINE" in os.environ
 
-    warn_if_not_registered_for_argcomplete(main_command_name="qlever")
+    warn_if_not_registered_for_argcomplete(script_name="qlever")
 
     # Create a temporary parser only to parse the `--qleverfile` option, in
     # case it is given, and to determine whether a command was given that
@@ -274,11 +274,14 @@ def parse_command_line() -> argparse.Namespace:
         )
     )
 
-    # The short name of the engine (used for the container names), the name
-    # of the engine as shown to the user, and the name of the main command
-    # (what the user types before a command). These are provided to all
+    # The name of the script (the console script from `pyproject.toml`), the
+    # short name of the engine (used for the container names), the name of the
+    # engine as shown to the user, and the name of the main command (what the
+    # user types before a command, which for a script that supports several
+    # engines may consist of more than one word). These are provided to all
     # commands via `args`.
     parser.set_defaults(
+        script_name="qlever",
         engine_short_name="qlever",
         engine_display_name="QLever",
         main_command_name="qlever",
