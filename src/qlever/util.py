@@ -425,7 +425,7 @@ def binary_exists(binary: str, cmd_arg: str, args) -> bool:
 
     is_containerized = args.system in Containerize.supported_systems()
     cmd = f"{binary} --help"
-    if is_containerized and args.engine == "qlever":
+    if is_containerized and args.engine_short_name == "qlever":
         cmd = Containerize().containerize_command(
             cmd,
             args.system,
@@ -473,7 +473,7 @@ def is_server_alive(url: str) -> bool:
         return False
 
 
-def input_files_exist(input_files: str, command_prefix: str) -> bool:
+def input_files_exist(input_files: str, main_command_name: str) -> bool:
     """
     Check if all of the input files exist in current working directory.
     """
@@ -482,7 +482,7 @@ def input_files_exist(input_files: str, command_prefix: str) -> bool:
             log.error(f'No file matching "{pattern}" found')
             log.info("")
             log.info(
-                f"Did you call `{command_prefix} get-data`? If you did, "
+                f"Did you call `{main_command_name} get-data`? If you did, "
                 "check GET_DATA_CMD and INPUT_FILES in the Qleverfile"
             )
             return False

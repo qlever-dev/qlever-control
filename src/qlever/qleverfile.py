@@ -83,7 +83,7 @@ class Qleverfile:
     ]
 
     @staticmethod
-    def all_arguments(command_prefix: str) -> dict:
+    def all_arguments(main_command_name: str) -> dict:
         """
         Define all possible parameters. A value of `None` means that there is
         no default value.
@@ -377,7 +377,7 @@ class Qleverfile:
             default="manual",
             help="When to rebuild the index from the current data (including "
             'updates): "manual" (only when explicitly requested via '
-            f"`{command_prefix} rebuild-index`) or "
+            f"`{main_command_name} rebuild-index`) or "
             '"automatic:min:max:fraction" (additionally '
             "rebuild automatically in the background once the number of delta "
             "triples reaches the given `fraction` of the number of index "
@@ -412,7 +412,8 @@ class Qleverfile:
             "server startup, each in the form `name=value` (for the list of "
             "runtime parameters and their default values, run "
             "`qlever-server --set-runtime-parameter help`; they can also be "
-            "changed while the server is running, via `qlever settings`); "
+            f"changed while the server is running, via `{main_command_name} "
+            "settings`); "
             "parameters given on the command line are merged with those "
             "from the Qleverfile and take precedence for the same name",
         )
@@ -428,7 +429,7 @@ class Qleverfile:
             choices=["yes", "no"],
             default="yes",
             help="Whether to use the patterns precomputed during the index "
-            f"build (see `{command_prefix} index --help` for their utility)",
+            f"build (see `{main_command_name} index --help` for their utility)",
         )
         server_args["metrics_log"] = arg(
             "--metrics-log",
@@ -455,7 +456,7 @@ class Qleverfile:
             choices=["yes", "no"],
             default="no",
             help="Whether to use the text index (requires that one was "
-            f"built, see `{command_prefix} index`)",
+            f"built, see `{main_command_name} index`)",
         )
         server_args["preload_materialized_views"] = arg(
             "-l",
@@ -469,8 +470,8 @@ class Qleverfile:
             "--warmup-cmd",
             type=str,
             help="Command executed after the server has started "
-            f" (executed as part of `{command_prefix} start` unless "
-            f" `--no-warmup` is specified, or with `{command_prefix} warmup`)",
+            f" (executed as part of `{main_command_name} start` unless "
+            f" `--no-warmup` is specified, or with `{main_command_name} warmup`)",
         )
         server_args["enable_metrics"] = arg(
             "--enable-metrics",
@@ -499,12 +500,12 @@ class Qleverfile:
         runtime_args["index_container"] = arg(
             "--index-container",
             type=str,
-            help=f"The name of the container used by `{command_prefix} index`",
+            help=f"The name of the container used by `{main_command_name} index`",
         )
         runtime_args["server_container"] = arg(
             "--server-container",
             type=str,
-            help=f"The name of the container used by `{command_prefix} start`",
+            help=f"The name of the container used by `{main_command_name} start`",
         )
         runtime_args["restart_policy"] = arg(
             "--restart-policy",
@@ -521,7 +522,7 @@ class Qleverfile:
             type=int,
             default=8176,
             help=(
-                f"The port of the Qlever UI when running `{command_prefix} ui`"
+                f"The port of the Qlever UI when running `{main_command_name} ui`"
             ),
         )
         ui_args["ui_config"] = arg(
@@ -537,9 +538,9 @@ class Qleverfile:
             choices=Containerize.supported_systems(),
             default="docker",
             help=(
-                f"Which container system to use for `{command_prefix} ui` "
-                f"(unlike for `{command_prefix} index` and "
-                f'`{command_prefix} start`, "native" is not yet supported '
+                f"Which container system to use for `{main_command_name} ui` "
+                f"(unlike for `{main_command_name} index` and "
+                f'`{main_command_name} start`, "native" is not yet supported '
                 "here)"
             ),
         )
@@ -547,18 +548,18 @@ class Qleverfile:
             "--ui-image",
             type=str,
             default="docker.io/adfreiburg/qlever-ui",
-            help=f"The name of the image used for `{command_prefix} ui`",
+            help=f"The name of the image used for `{main_command_name} ui`",
         )
         ui_args["ui_container"] = arg(
             "--ui-container",
             type=str,
-            help=f"The name of the container used for `{command_prefix} ui`",
+            help=f"The name of the container used for `{main_command_name} ui`",
         )
 
         return all_args
 
     @staticmethod
-    def read(qleverfile_path: Path, engine: str) -> ConfigParser:
+    def read(qleverfile_path: Path, engine_short_name: str) -> ConfigParser:
         """
         Read the given Qleverfile (the function assumes that it exists) and
         return a `ConfigParser` object with all the options and their values.
@@ -617,9 +618,13 @@ class Qleverfile:
             name = config["data"]["name"]
             runtime = config["runtime"]
             if "server_container" not in runtime:
-                runtime["server_container"] = f"{engine}.server.{name}"
+                runtime["server_container"] = (
+                    f"{engine_short_name}.server.{name}"
+                )
             if "index_container" not in runtime:
-                runtime["index_container"] = f"{engine}.index.{name}"
+                runtime["index_container"] = (
+                    f"{engine_short_name}.index.{name}"
+                )
             if "ui_container" not in config["ui"]:
                 config["ui"]["ui_container"] = f"qlever.ui.{name}"
             if "text_words_file" not in index:

@@ -279,7 +279,7 @@ def get_single_int_result(result_file: str) -> int | None:
     return single_int_result
 
 
-def restart_server(command_prefix: str, start_only: bool = False) -> bool:
+def restart_server(main_command_name: str, start_only: bool = False) -> bool:
     """
     Restart the SPARQL server after the server hangs i.e. doesn't return
     results after timeout + 30s
@@ -288,8 +288,8 @@ def restart_server(command_prefix: str, start_only: bool = False) -> bool:
     Only useful when Qleverfile in CWD and configured properly i.e. no command
     line args needed to call stop and start commands
     """
-    stop_cmd = f"{command_prefix} stop"
-    start_cmd = f"{command_prefix} start"
+    stop_cmd = f"{main_command_name} stop"
+    start_cmd = f"{main_command_name} start"
     if not start_only:
         try:
             run_command(stop_cmd)
@@ -315,7 +315,7 @@ def resolve_benchmark_metadata(
     yml_name: str | None,
     yml_description: str | None,
     dataset: str | None,
-    command_prefix: str,
+    main_command_name: str,
 ) -> tuple[str | None, str | None]:
     """
     Resolve benchmark name and description using priority:
@@ -326,7 +326,7 @@ def resolve_benchmark_metadata(
     dataset_name = dataset.capitalize() if dataset else None
     default_description = (
         f"{dataset_name} benchmark ran using "
-        f"{command_prefix} benchmark-queries"
+        f"{main_command_name} benchmark-queries"
         if dataset_name
         else None
     )
@@ -884,7 +884,7 @@ class BenchmarkQueriesCommand(QleverCommand):
             yml_name,
             yml_description,
             dataset,
-            args.command_prefix,
+            args.main_command_name,
         )
 
         # Launch the queries one after the other and for each print: the
@@ -1044,13 +1044,13 @@ class BenchmarkQueriesCommand(QleverCommand):
 
                 # If curl timed out after hitting max_time = 30s
                 if "exit code 28" in str(e) and args.restart_on_hang:
-                    server_restarted = restart_server(args.command_prefix)
+                    server_restarted = restart_server(args.main_command_name)
                 # If server is not responding and has crashed
                 elif (
                     "exit code 52" in str(e) or "exit code 7" in str(e)
                 ) and args.restart_on_hang:
                     server_restarted = restart_server(
-                        args.command_prefix, start_only=True
+                        args.main_command_name, start_only=True
                     )
 
                 if args.log_level == "DEBUG":

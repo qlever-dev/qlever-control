@@ -43,10 +43,10 @@ def add_qleverfile_option(parser: argparse.ArgumentParser) -> None:
 
 
 def resolve_qleverfile(
-    path_name: str, engine: str, autocomplete_mode: bool
+    path_name: str, engine_short_name: str, autocomplete_mode: bool
 ) -> tuple[ConfigParser | None, bool]:
     """
-    Read the Qleverfile for `engine`, if there is one. Returns the parsed
+    Read the Qleverfile for the given engine, if there is one. Returns the parsed
     config (`None` when there is nothing to read) and whether the file
     exists, which the caller needs for its "no Qleverfile" warning.
 
@@ -70,7 +70,9 @@ def resolve_qleverfile(
         return None, qleverfile_exists
 
     try:
-        return Qleverfile.read(qleverfile_path, engine), qleverfile_exists
+        return Qleverfile.read(
+            qleverfile_path, engine_short_name
+        ), qleverfile_exists
     except Exception as e:
         log.info("")
         log.error(f"Error parsing Qleverfile `{qleverfile_path}`: {e}")
@@ -256,7 +258,7 @@ def parse_command_line() -> argparse.Namespace:
 
     qleverfile_config, qleverfile_exists = resolve_qleverfile(
         path_name=qleverfile_path_name,
-        engine="qlever",
+        engine_short_name="qlever",
         autocomplete_mode=autocomplete_mode,
     )
 
@@ -272,13 +274,14 @@ def parse_command_line() -> argparse.Namespace:
         )
     )
 
-    # `engine` keys machine-facing things like container names,
-    # `command_prefix` is what the user types before a command, and
-    # `engine_display` is the human-readable name.
+    # The short name of the engine (used for the container names), the name
+    # of the engine as shown to the user, and the name of the main command
+    # (what the user types before a command). These are provided to all
+    # commands via `args`.
     parser.set_defaults(
-        engine="qlever",
-        engine_display="QLever",
-        command_prefix="qlever",
+        engine_short_name="qlever",
+        engine_display_name="QLever",
+        main_command_name="qlever",
     )
 
     parser.add_argument(
@@ -288,7 +291,7 @@ def parse_command_line() -> argparse.Namespace:
     )
     add_qleverfile_option(parser)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    all_args = Qleverfile.all_arguments(command_prefix="qlever")
+    all_args = Qleverfile.all_arguments(main_command_name="qlever")
     commands = load_commands(package="qlever")
     for command_name, command_object in commands.items():
         add_subparser_for_command(
