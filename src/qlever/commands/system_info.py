@@ -70,7 +70,7 @@ class SystemInfoCommand(QleverCommand):
         is_windows = system == "Windows"
         if is_windows:
             log.warning("Only limited information is gathered on Windows.")
-        script_name = args.command_prefix.split()[0]
+        script_name = args.main_command_name.split()[0]
         log.info(f"Version: {version('qlever')} ({script_name} --version)")
         if is_linux:
             info = platform.freedesktop_os_release()
