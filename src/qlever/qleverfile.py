@@ -5,10 +5,8 @@ import socket
 import subprocess
 from argparse import ArgumentTypeError
 from configparser import ConfigParser, ExtendedInterpolation, RawConfigParser
-from importlib import import_module
 from pathlib import Path
 
-from qlever import script_name
 from qlever.containerize import Containerize
 from qlever.log import log
 from qlever.util import parse_timeout, positive_int
@@ -85,7 +83,7 @@ class Qleverfile:
     ]
 
     @staticmethod
-    def all_arguments():
+    def all_arguments(main_command_name: str) -> dict:
         """
         Define all possible parameters. A value of `None` means that there is
         no default value.
@@ -379,7 +377,8 @@ class Qleverfile:
             default="manual",
             help="When to rebuild the index from the current data (including "
             'updates): "manual" (only when explicitly requested via '
-            '`qlever rebuild-index`) or "automatic:min:max:fraction" (additionally '
+            f"`{main_command_name} rebuild-index`) or "
+            '"automatic:min:max:fraction" (additionally '
             "rebuild automatically in the background once the number of delta "
             "triples reaches the given `fraction` of the number of index "
             "triples, but never below `min` and always at `max`, "
@@ -413,7 +412,8 @@ class Qleverfile:
             "server startup, each in the form `name=value` (for the list of "
             "runtime parameters and their default values, run "
             "`qlever-server --set-runtime-parameter help`; they can also be "
-            "changed while the server is running, via `qlever settings`); "
+            f"changed while the server is running, via `{main_command_name} "
+            "settings`); "
             "parameters given on the command line are merged with those "
             "from the Qleverfile and take precedence for the same name",
         )
@@ -429,7 +429,7 @@ class Qleverfile:
             choices=["yes", "no"],
             default="yes",
             help="Whether to use the patterns precomputed during the index "
-            "build (see `qlever index --help` for their utility)",
+            f"build (see `{main_command_name} index --help` for their utility)",
         )
         server_args["metrics_log"] = arg(
             "--metrics-log",
@@ -456,7 +456,7 @@ class Qleverfile:
             choices=["yes", "no"],
             default="no",
             help="Whether to use the text index (requires that one was "
-            "built, see `qlever index`)",
+            f"built, see `{main_command_name} index`)",
         )
         server_args["preload_materialized_views"] = arg(
             "-l",
@@ -470,8 +470,8 @@ class Qleverfile:
             "--warmup-cmd",
             type=str,
             help="Command executed after the server has started "
-            " (executed as part of `qlever start` unless "
-            " `--no-warmup` is specified, or with `qlever warmup`)",
+            f" (executed as part of `{main_command_name} start` unless "
+            f" `--no-warmup` is specified, or with `{main_command_name} warmup`)",
         )
         server_args["enable_metrics"] = arg(
             "--enable-metrics",
@@ -500,12 +500,12 @@ class Qleverfile:
         runtime_args["index_container"] = arg(
             "--index-container",
             type=str,
-            help=f"The name of the container used by `{script_name} index`",
+            help=f"The name of the container used by `{main_command_name} index`",
         )
         runtime_args["server_container"] = arg(
             "--server-container",
             type=str,
-            help=f"The name of the container used by `{script_name} start`",
+            help=f"The name of the container used by `{main_command_name} start`",
         )
         runtime_args["restart_policy"] = arg(
             "--restart-policy",
@@ -521,7 +521,9 @@ class Qleverfile:
             "--ui-port",
             type=int,
             default=8176,
-            help="The port of the Qlever UI when running `qlever ui`",
+            help=(
+                f"The port of the Qlever UI when running `{main_command_name} ui`"
+            ),
         )
         ui_args["ui_config"] = arg(
             "--ui-config",
@@ -535,36 +537,29 @@ class Qleverfile:
             type=str,
             choices=Containerize.supported_systems(),
             default="docker",
-            help="Which container system to use for `qlever ui`"
-            " (unlike for `qlever index` and `qlever start`, "
-            ' "native" is not yet supported here)',
+            help=(
+                f"Which container system to use for `{main_command_name} ui` "
+                f"(unlike for `{main_command_name} index` and "
+                f'`{main_command_name} start`, "native" is not yet supported '
+                "here)"
+            ),
         )
         ui_args["ui_image"] = arg(
             "--ui-image",
             type=str,
             default="docker.io/adfreiburg/qlever-ui",
-            help="The name of the image used for `qlever ui`",
+            help=f"The name of the image used for `{main_command_name} ui`",
         )
         ui_args["ui_container"] = arg(
             "--ui-container",
             type=str,
-            help="The name of the container used for `qlever ui`",
+            help=f"The name of the container used for `{main_command_name} ui`",
         )
-
-        engine_args_module_path = f"{script_name}.qleverfile"
-        try:
-            if script_name != "qlever":
-                module = import_module(engine_args_module_path)
-                module.qleverfile_args(all_args)
-        except (ImportError, AttributeError) as e:
-            log.debug(
-                f"Could not import module {engine_args_module_path}: {e}"
-            )
 
         return all_args
 
     @staticmethod
-    def read(qleverfile_path):
+    def read(qleverfile_path: Path, engine_short_name: str) -> ConfigParser:
         """
         Read the given Qleverfile (the function assumes that it exists) and
         return a `ConfigParser` object with all the options and their values.
@@ -617,21 +612,26 @@ class Qleverfile:
                 config[section] = {}
 
         # Add default values that are based on other values.
+        index = config["index"]
+        server = config["server"]
         if "name" in config["data"]:
             name = config["data"]["name"]
             runtime = config["runtime"]
             if "server_container" not in runtime:
-                runtime["server_container"] = f"{script_name}.server.{name}"
+                runtime["server_container"] = (
+                    f"{engine_short_name}.server.{name}"
+                )
             if "index_container" not in runtime:
-                runtime["index_container"] = f"{script_name}.index.{name}"
+                runtime["index_container"] = (
+                    f"{engine_short_name}.index.{name}"
+                )
             if "ui_container" not in config["ui"]:
                 config["ui"]["ui_container"] = f"qlever.ui.{name}"
-            index = config["index"]
             if "text_words_file" not in index:
                 index["text_words_file"] = f"{name}.wordsfile.tsv"
             if "text_docs_file" not in index:
                 index["text_docs_file"] = f"{name}.docsfile.tsv"
-            server = config["server"]
+
         if index.get("text_index", "none") != "none":
             server["use_text_index"] = "yes"
         if index.get("only_pso_and_pos_permutations", "false") == "true":
@@ -647,7 +647,6 @@ class Qleverfile:
             log.warning(
                 "Could not get the hostname, using `localhost` as default"
             )
-            pass
 
         # Return the parsed Qleverfile with the added inherited values.
         return config
@@ -660,8 +659,8 @@ class Qleverfile:
         Given a filter criteria (key: section_header, value: list[options]),
         return a RawConfigParser object to create a new filtered Qleverfile
         with only the specified sections and options (selects all options if
-        list[options] is empty). Mainly to be used by non-qlever scripts for
-        the setup-config command
+        list[options] is empty). Mainly to be used by `qeval` for the
+        `setup-config` command of non-qlever engines.
         """
         # Read the Qleverfile.
         config = RawConfigParser()

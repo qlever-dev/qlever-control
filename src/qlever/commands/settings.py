@@ -19,7 +19,7 @@ class SettingsCommand(QleverCommand):
         pass
 
     def description(self) -> str:
-        return "Show or set server settings (after `qlever start`)"
+        return "Show or set server settings (after the server has started)"
 
     def should_have_qleverfile(self) -> bool:
         return True

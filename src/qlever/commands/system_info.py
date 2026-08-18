@@ -69,8 +69,10 @@ class SystemInfoCommand(QleverCommand):
         is_mac = system == "Darwin"
         is_windows = system == "Windows"
         if is_windows:
-            log.warn("Only limited information is gathered on Windows.")
-        log.info(f"Version: {version('qlever')} (qlever --version)")
+            log.warning("Only limited information is gathered on Windows.")
+        log.info(
+            f"Version: {version('qlever')} ({args.script_name} --version)"
+        )
         if is_linux:
             info = platform.freedesktop_os_release()
             log.info(f"OS: {platform.system()} ({info['PRETTY_NAME']})")
