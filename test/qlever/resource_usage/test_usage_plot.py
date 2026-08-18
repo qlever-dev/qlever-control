@@ -14,11 +14,11 @@ from qlever.resource_usage.usage_plot import (  # noqa: E402
     build_plot_subtitle,
     compute_phase_boundaries,
     downsample_for_plot,
+    overlay,
     pick_time_unit,
-    qlever_overlay,
-    qlever_subtitle,
     read_usage_tsv,
     render_usage_plot,
+    subtitle,
     wrap_subtitle,
     write_usage_plot,
 )
@@ -249,26 +249,26 @@ def write_samples(tmp_path, last_elapsed_s):
     return tsv_path
 
 
-def write_plot_with_overlay(tmp_path, last_elapsed_s, overlay):
-    """Render a plot from `overlay` over samples ending at `last_elapsed_s`."""
+def write_plot_with_bands(tmp_path, last_elapsed_s, bands):
+    """Render a plot from `bands` over samples ending at `last_elapsed_s`."""
     return write_usage_plot(
         tsv_path=write_samples(tmp_path, last_elapsed_s),
         out_path=tmp_path / "plot.png",
         title="Test",
-        overlay=overlay,
-        subtitle=None,
+        bands=bands,
+        subtitle_text=None,
     )
 
 
 def test_write_usage_plot_warns_when_shading_exceeds_samples(tmp_path, caplog):
     with caplog.at_level(logging.WARNING, logger="qlever"):
-        assert write_plot_with_overlay(tmp_path, 10, [("Phase", 0.0, 300.0)])
+        assert write_plot_with_bands(tmp_path, 10, [("Phase", 0.0, 300.0)])
     assert "300s" in caplog.text and "10s were sampled" in caplog.text
 
 
 def test_write_usage_plot_quiet_when_shading_fits_samples(tmp_path, caplog):
     with caplog.at_level(logging.WARNING, logger="qlever"):
-        assert write_plot_with_overlay(tmp_path, 10, [("Phase", 0.0, 10.0)])
+        assert write_plot_with_bands(tmp_path, 10, [("Phase", 0.0, 10.0)])
     assert caplog.text == ""
 
 
@@ -276,6 +276,7 @@ def plot_args(name):
     """The `args` attributes that `render_usage_plot` reads."""
     return SimpleNamespace(
         name=name,
+        engine="qlever",
         engine_display="QLever",
         resource_usage_plot_max_points=500,
         resource_usage_interval=1,
@@ -288,8 +289,8 @@ def render(name, tmp_path):
     """Render a QLever usage plot for `name` in `tmp_path`."""
     return render_usage_plot(
         plot_args(name),
-        overlay=qlever_overlay,
-        subtitle=qlever_subtitle,
+        engine_overlay=overlay,
+        engine_subtitle=subtitle,
         output_dir=tmp_path,
     )
 

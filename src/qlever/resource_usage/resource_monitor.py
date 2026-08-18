@@ -12,6 +12,7 @@ from qlever.log import log
 from qlever.util import (
     container_memory_to_bytes,
     find_process_by_binary,
+    resource_usage_prefix,
     run_command,
 )
 
@@ -94,13 +95,15 @@ class ResourceMonitor:
 
     Usage as a context manager:
 
-        with ResourceMonitor(dataset="wikidata", binary="qlever-index"):
+        with ResourceMonitor(dataset="wikidata", engine="oxigraph",
+                            binary="oxigraph"):
             run_command(cmd, show_output=True)
 
         # For container mode:
         with ResourceMonitor(dataset="wikidata",
-                             binary="qlever-index",
-                             container="qlever.index.wikidata",
+                             engine="oxigraph",
+                             binary="oxigraph",
+                             container="oxigraph.index.wikidata",
                              system="docker"):
             run_command(cmd, show_output=True)
     """
@@ -108,6 +111,7 @@ class ResourceMonitor:
     def __init__(
         self,
         dataset: str,
+        engine: str,
         binary: str,
         container: str | None = None,
         system: str | None = None,
@@ -119,6 +123,7 @@ class ResourceMonitor:
         """
         Args:
             dataset:    Name of the dataset being indexed.
+            engine:     Engine key, which the log and plot names start with.
             binary:     Name of the index executable, matched against the
                         descendant processes (native mode only).
             container:  Container name to sample; when set with `system`,
@@ -136,6 +141,7 @@ class ResourceMonitor:
                         in several runs. A run that raises is rolled back.
         """
         self.dataset = dataset
+        self.engine = engine
         self.binary = binary
         self.container = container
         self.system = system
@@ -159,6 +165,7 @@ class ResourceMonitor:
         """Monitor the index build configured by `args`."""
         return cls(
             dataset=args.name,
+            engine=args.engine,
             binary=args.index_binary,
             container=args.index_container,
             system=args.system,
@@ -208,8 +215,9 @@ class ResourceMonitor:
         Open the TSV log and start the sampling thread. Writes a header to
         a fresh log; continues an existing one when `append` was set.
         """
+        prefix = resource_usage_prefix(self.engine, self.dataset)
         self.log_path = (
-            self.output_dir / f"{self.dataset}.index.resource-usage-log.tsv"
+            self.output_dir / f"{prefix}.index.resource-usage-log.tsv"
         )
         previous_elapsed_s = (
             read_last_elapsed_s(self.log_path)

@@ -19,9 +19,13 @@ from qlever.util import (
     iter_permutation_phases,
     parse_git_hash,
     parse_phase_markers,
+    resource_usage_prefix,
 )
 
 GB = 1024**3
+
+# One shaded region of the plot: name, start and end in seconds.
+BandType = tuple[str, float, float]
 
 
 def read_usage_tsv(path: Path) -> dict[str, np.ndarray]:
@@ -162,7 +166,7 @@ def compute_phase_boundaries(
 
 def bands_from_durations(
     durations: dict[str, float],
-) -> list[tuple[str, float, float]]:
+) -> list[BandType]:
     """
     Turn phase durations in seconds into `(label, start_s, end_s)` bands,
     laying the phases back to back from the build start in the given
@@ -184,10 +188,10 @@ SUBTITLE_SEPARATOR = "   |   "
 SUBTITLE_MAX_CHARS = 105
 
 
-def wrap_subtitle(subtitle: str) -> str:
+def wrap_subtitle(text: str) -> str:
     """Break a subtitle at its field separators into lines that fit the axes."""
     lines = []
-    for line in subtitle.split("\n"):
+    for line in text.split("\n"):
         fields = line.split(SUBTITLE_SEPARATOR)
         current = fields[0]
         for field in fields[1:]:
@@ -229,7 +233,7 @@ def build_plot_subtitle(
     return SUBTITLE_SEPARATOR.join(parts) if parts else None
 
 
-def qlever_overlay(args, log_path: Path) -> list[tuple[str, float, float]]:
+def overlay(args, log_path: Path) -> list[BandType]:
     """Shade one band per phase of a QLever index build."""
     phases = compute_phase_boundaries(log_path)
     return [
@@ -237,7 +241,7 @@ def qlever_overlay(args, log_path: Path) -> list[tuple[str, float, float]]:
     ]
 
 
-def qlever_subtitle(args, log_path: Path) -> str | None:
+def subtitle(args, log_path: Path) -> str | None:
     """Subtitle for a QLever index build."""
     return build_plot_subtitle(
         log_path, args.stxxl_memory or "", args.settings_json
@@ -248,14 +252,14 @@ def write_usage_plot(
     tsv_path: Path,
     out_path: Path,
     title: str,
-    overlay: list[tuple[str, float, float]],
-    subtitle: str | None,
+    bands: list[BandType],
+    subtitle_text: str | None,
     plot_max_points: int = 500,
     sample_interval_s: float = 1.0,
 ) -> bool:
     """
     Read the usage TSV, render a dual-axis plot of memory and CPU over
-    time with the `overlay` regions shaded, and save it to `out_path`.
+    time with the `bands` regions shaded, and save it to `out_path`.
     Returns True if a plot was saved, False if the TSV has no usable
     samples. `plot_max_points` caps the number of points drawn per
     series.
@@ -291,7 +295,7 @@ def write_usage_plot(
     # skip drawing the region name when the band is too narrow to fit it
     # legibly; arbitrary 2% of total duration.
     min_label_s = total_s * 0.02
-    for band_idx, (name, start_s, end_s) in enumerate(overlay):
+    for band_idx, (name, start_s, end_s) in enumerate(bands):
         band_s = end_s - start_s
         if band_s <= 0:
             continue
@@ -363,7 +367,7 @@ def write_usage_plot(
     # cover the same run and the shading sits on the wrong part of the
     # curve. Allow for the sampling stopping a little early.
     tolerance_s = 2 * sample_interval_s + 5
-    bands_end_s = max((end_s for _, _, end_s in overlay), default=0.0)
+    bands_end_s = max((end_s for _, _, end_s in bands), default=0.0)
     if bands_end_s > total_s + tolerance_s:
         note = "(!) shading exceeds the sampled range"
         log.warning(
@@ -372,10 +376,10 @@ def write_usage_plot(
             "the curves"
         )
         # On its own line: the subtitle is already near the axes width.
-        subtitle = f"{subtitle}\n{note}" if subtitle else note
+        subtitle_text = f"{subtitle_text}\n{note}" if subtitle_text else note
 
     ax_mem.set_title(
-        f"{title}\n{wrap_subtitle(subtitle)}" if subtitle else title
+        f"{title}\n{wrap_subtitle(subtitle_text)}" if subtitle_text else title
     )
     fig.savefig(out_path, dpi=120)
     plt.close(fig)
@@ -385,27 +389,29 @@ def write_usage_plot(
 def render_usage_plot(
     args,
     *,
-    overlay: Callable[..., list[tuple[str, float, float]]],
-    subtitle: Callable[..., str | None],
+    engine_overlay: Callable[..., list[BandType]],
+    engine_subtitle: Callable[..., str | None],
     output_dir: Path | None = None,
 ) -> Path | None:
     """
-    Render `<name>.resource-usage-plot.png` from
-    `<name>.index.resource-usage-log.tsv` in `output_dir`, falling back
-    to `<name>.resource-usage-log.tsv` as written by older qlever
-    versions. `overlay` and `subtitle` are called with `(args,
-    log_path)` and provide the engine-specific parts of the plot.
+    Render `<prefix>.resource-usage-plot.png` from
+    `<prefix>.index.resource-usage-log.tsv` in `output_dir`, where
+    `prefix` comes from `resource_usage_prefix`, falling back to
+    `<prefix>.resource-usage-log.tsv` as written by older qlever
+    versions. `engine_overlay` and `engine_subtitle` are called with
+    `(args, log_path)` and provide the engine-specific parts of the plot.
     Returns the plot path on success, None if the log is missing or the
     plot could not be rendered.
     """
     dataset = args.name
+    prefix = resource_usage_prefix(args.engine, dataset)
     output_dir = output_dir or Path.cwd()
-    tsv_path = output_dir / f"{dataset}.index.resource-usage-log.tsv"
+    tsv_path = output_dir / f"{prefix}.index.resource-usage-log.tsv"
     # Backwards compatibility with older resource-usage log filename
     if not tsv_path.exists():
-        tsv_path = output_dir / f"{dataset}.resource-usage-log.tsv"
+        tsv_path = output_dir / f"{prefix}.resource-usage-log.tsv"
     log_path = output_dir / f"{dataset}.index-log.txt"
-    plot_path = output_dir / f"{dataset}.resource-usage-plot.png"
+    plot_path = output_dir / f"{prefix}.resource-usage-plot.png"
     if not tsv_path.exists():
         log.warning(f"Resource-usage log not found: `{tsv_path.name}`")
         return None
@@ -414,8 +420,8 @@ def render_usage_plot(
             tsv_path=tsv_path,
             out_path=plot_path,
             title=f"{args.engine_display} index build: {dataset}",
-            overlay=overlay(args, log_path),
-            subtitle=subtitle(args, log_path),
+            bands=engine_overlay(args, log_path),
+            subtitle_text=engine_subtitle(args, log_path),
             plot_max_points=args.resource_usage_plot_max_points,
             sample_interval_s=args.resource_usage_interval,
         )

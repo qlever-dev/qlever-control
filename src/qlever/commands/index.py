@@ -4,6 +4,7 @@ import glob
 import json
 import re
 import shlex
+from importlib import import_module
 from pathlib import Path
 
 from qlever.command import QleverCommand
@@ -17,15 +18,23 @@ from qlever.util import (
     run_command,
 )
 
+USAGE_PLOT_MODULE = "qlever.resource_usage.usage_plot"
 
-def render_usage_plot(args, plot_only: bool) -> Path | None:
-    """Render the resource-usage plot.
 
-    When the plotting libraries are missing, this is an error if the
-    user asked for the plot directly via `plot_only`, otherwise it notes
-    how to get the plot at info level since the index build succeeded.
+def render_usage_plot(
+    args, plot_only: bool, engine_module: str
+) -> Path | None:
+    """
+    Render the resource-usage plot, taking the engine-specific parts from
+    the `overlay` and `subtitle` of `engine_module`.
+
+    The plotting libraries are an optional dependency, so the import has
+    to happen here and not at module level. Missing them is an error when
+    the user asked for the plot directly via `plot_only`, and only a hint
+    otherwise, because then the index build itself succeeded.
     """
     try:
+        engine_plot = import_module(engine_module)
         from qlever.resource_usage import usage_plot
     except ImportError:
         if plot_only:
@@ -42,8 +51,8 @@ def render_usage_plot(args, plot_only: bool) -> Path | None:
         return None
     return usage_plot.render_usage_plot(
         args,
-        overlay=usage_plot.qlever_overlay,
-        subtitle=usage_plot.qlever_subtitle,
+        engine_overlay=engine_plot.overlay,
+        engine_subtitle=engine_plot.subtitle,
     )
 
 
@@ -226,7 +235,9 @@ class IndexCommand(QleverCommand):
         # Render the resource-usage plot from the existing log without
         # rebuilding the index.
         if args.resource_usage_plot_only:
-            plot_path = render_usage_plot(args, plot_only=True)
+            plot_path = render_usage_plot(
+                args, plot_only=True, engine_module=USAGE_PLOT_MODULE
+            )
             if plot_path is None:
                 return False
             log.info(f"Resource-usage plot saved to `{plot_path.name}`")
@@ -397,7 +408,9 @@ class IndexCommand(QleverCommand):
             Path(f"{args.name}.index.resource-usage-log.tsv").exists()
             or Path(f"{args.name}.resource-usage-log.tsv").exists()
         ):
-            plot_path = render_usage_plot(args, plot_only=False)
+            plot_path = render_usage_plot(
+                args, plot_only=False, engine_module=USAGE_PLOT_MODULE
+            )
             if plot_path is not None:
                 log.info(f"Resource-usage plot saved to `{plot_path.name}`")
 
