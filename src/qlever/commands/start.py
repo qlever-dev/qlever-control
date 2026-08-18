@@ -51,6 +51,20 @@ def construct_command(args) -> str:
             f" --rebuild-keep-previous-index-dirs"
             f" {args.rebuild_keep_previous_index_dirs}"
         )
+    # Merge the runtime parameters from the Qleverfile with those from the
+    # command line. The command line takes precedence per parameter name, so
+    # specifying one parameter on the command line does not silently drop
+    # the other parameters from the Qleverfile. One `--set-runtime-parameter`
+    # per assignment (the option is not multitoken).
+    set_runtime_parameters = merge_runtime_parameters(
+        get_runtime_parameters_from_qleverfile(args),
+        vars(args).get("set_runtime_parameters") or [],
+    )
+    if set_runtime_parameters:
+        start_cmd += "".join(
+            f" --set-runtime-parameter {shlex.quote(assignment)}"
+            for assignment in set_runtime_parameters
+        )
     if args.only_pso_and_pos_permutations:
         start_cmd += " --only-pso-and-pos-permutations"
     if args.use_patterns == "no":
@@ -143,6 +157,41 @@ def set_text_description(access_arg, port, text_desc) -> bool:
         log.error(f"Setting the text description failed ({e})")
         return False
     return True
+
+
+def get_runtime_parameters_from_qleverfile(args) -> list[str]:
+    """
+    Return the value of `SET_RUNTIME_PARAMETERS` from the Qleverfile as a
+    list of `name=value` assignments, or an empty list if there is no
+    Qleverfile or no such option.
+    """
+    try:
+        qleverfile_path = Path(vars(args).get("qleverfile", "Qleverfile"))
+        if not qleverfile_path.is_file():
+            return []
+        config = Qleverfile.read(qleverfile_path)
+        value = config.get("server", "set_runtime_parameters", fallback=None)
+        return shlex.split(value) if value else []
+    except Exception:
+        return []
+
+
+def merge_runtime_parameters(
+    from_qleverfile: list[str], from_command_line: list[str]
+) -> list[str]:
+    """
+    Merge two lists of `name=value` assignments. Assignments from the
+    command line take precedence over assignments for the same name from
+    the Qleverfile. The order is that of the Qleverfile, with additional
+    names from the command line appended.
+    """
+    merged = {
+        assignment.split("=", 1)[0]: assignment
+        for assignment in from_qleverfile
+    }
+    for assignment in from_command_line:
+        merged[assignment.split("=", 1)[0]] = assignment
+    return list(merged.values())
 
 
 def show_log_follow_info(log_name: str, run_in_foreground: bool) -> None:
@@ -252,6 +301,7 @@ class StartCommand(QleverCommand):
                 "persist_updates",
                 "rebuild_index_strategy",
                 "rebuild_keep_previous_index_dirs",
+                "set_runtime_parameters",
                 "only_pso_and_pos_permutations",
                 "use_patterns",
                 "use_text_index",

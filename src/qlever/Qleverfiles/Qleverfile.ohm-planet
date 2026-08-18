@@ -19,7 +19,7 @@ DESCRIPTION    = OHM from ${GET_DATA_URL} (with GeoSPARQL predicates ogc:sfConta
 [index]
 INPUT_FILES        = ${data:NAME}.ttl.gz
 MULTI_INPUT_JSON   = { "cmd": "gunzip -c ${INPUT_FILES}", "parallel": "true" }
-STXXL_MEMORY       = 5G
+STXXL_MEMORY       = 10G
 PARSER_BUFFER_SIZE = 50M
 SETTINGS_JSON      = { "num-triples-per-batch": 5000000 }
 ENCODE_AS_ID       = https://www.openhistoricalmap.org/node/ http://www.openhistoricalmap.org/node/ https://www.openhistoricalmap.org/way/ https://www.openhistoricalmap.org/relation/ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#ohmnode_tagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#ohmnode_untagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#ohmway_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#ohmrel_ https://www.openstreetmap.org/changeset/
