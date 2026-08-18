@@ -50,7 +50,7 @@ def parse_command_line() -> argparse.Namespace:
     if autocomplete_mode:
         comp_line = os.environ["COMP_LINE"]
         comp_point = int(os.environ.get("COMP_POINT", len(comp_line)))
-        # drop the "qeval" prog token
+        # Drop the first word (the name of the script).
         comp_words = comp_line[:comp_point].split()[1:]
         parsed_args, _ = temp_parser.parse_known_args(comp_words)
     else:

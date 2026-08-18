@@ -5,7 +5,10 @@ from typing import NamedTuple
 
 
 class Engine(NamedTuple):
-    """How to find an engine: importable package string and its display name"""
+    """
+    The package with the commands of an engine, and the name of the engine as
+    shown to the user.
+    """
 
     package: str
     display_name: str
