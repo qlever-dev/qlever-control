@@ -412,7 +412,8 @@ class Qleverfile:
             "server startup, each in the form `name=value` (for the list of "
             "runtime parameters and their default values, run "
             "`qlever-server --set-runtime-parameter help`; they can also be "
-            "changed while the server is running, via `qlever settings`); "
+            f"changed while the server is running, via `{command_prefix} "
+            "settings`); "
             "parameters given on the command line are merged with those "
             "from the Qleverfile and take precedence for the same name",
         )

@@ -13,7 +13,7 @@ import traceback
 
 from termcolor import colored
 
-from qlever import command_objects, script_name
+from qlever import command_objects
 from qlever.config import ConfigException, QleverConfig
 from qlever.log import log, log_levels
 
@@ -60,7 +60,7 @@ def main():
         )
         match_error = re.search(r"object has no attribute '(.+)'", str(e))
         match_trace = re.search(
-            rf"({script_name}/commands/.+\.py)\", line (\d+)",
+            r"(qlever/commands/.+\.py)\", line (\d+)",
             traceback.format_exc(),
         )
         if isinstance(e, AttributeError) and match_error and match_trace:

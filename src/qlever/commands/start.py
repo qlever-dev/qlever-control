@@ -167,8 +167,11 @@ def get_runtime_parameters_from_qleverfile(args) -> list[str]:
         qleverfile_path = Path(vars(args).get("qleverfile", "Qleverfile"))
         if not qleverfile_path.is_file():
             return []
-        # The engine only names default containers, which we don't read here.
-        config = Qleverfile.read(qleverfile_path, vars(args).get("engine", ""))
+        # The engine is only used for the default container names, which are
+        # not read here.
+        config = Qleverfile.read(
+            qleverfile_path, vars(args).get("engine", "qlever")
+        )
         value = config.get("server", "set_runtime_parameters", fallback=None)
         return shlex.split(value) if value else []
     except Exception:

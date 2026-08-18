@@ -10,9 +10,16 @@ from pathlib import Path
 import argcomplete
 from termcolor import colored
 
-from qlever import command_objects, engine_name, script_name
+from qlever import command_objects
 from qlever.log import log, log_levels
 from qlever.qleverfile import Qleverfile
+
+# The engine name (used for the container names), what the user types before a
+# command, and the human-readable name of the engine. These are provided to all
+# commands via `args`, see `parse_args` below.
+ENGINE = "qlever"
+COMMAND_PREFIX = "qlever"
+ENGINE_DISPLAY = "QLever"
 
 
 # Simple exception class for configuration errors (the class need not do
@@ -149,7 +156,7 @@ class QleverConfig:
                 f"To enable autocompletion, run the following command, "
                 f"and consider adding it to your `.bashrc` or `.zshrc`:"
                 f"\n\n"
-                f'eval "$(register-python-argcomplete {script_name})"'
+                f'eval "$(register-python-argcomplete {COMMAND_PREFIX})"'
                 f" && export QLEVER_ARGCOMPLETE_ENABLED=1"
             )
             log.info("")
@@ -197,7 +204,7 @@ class QleverConfig:
         # we then parse the Qleverfile or not.
         if qleverfile_exists and not autocomplete_mode:
             try:
-                qleverfile_config = Qleverfile.read(qleverfile_path, "qlever")
+                qleverfile_config = Qleverfile.read(qleverfile_path, ENGINE)
             except Exception as e:
                 log.info("")
                 log.error(f"Error parsing Qleverfile `{qleverfile_path}`: {e}")
@@ -212,29 +219,25 @@ class QleverConfig:
         # an object of each class is created and stored in `command_objects`.
         parser = argparse.ArgumentParser(
             description=colored(
-                f"This is the {script_name} command line tool, "
-                f"it's all you need to work with {engine_name}",
+                f"This is the {COMMAND_PREFIX} command line tool, "
+                f"it's all you need to work with {ENGINE_DISPLAY}",
                 attrs=["bold"],
             )
         )
-        # `engine` keys machine-facing things like container names,
-        # `command_prefix` is what the user types before a command, and
-        # `engine_display` is the human-readable name.
         parser.set_defaults(
-            engine="qlever",
-            engine_display="QLever",
-            command_prefix="qlever",
+            engine=ENGINE,
+            engine_display=ENGINE_DISPLAY,
+            command_prefix=COMMAND_PREFIX,
         )
-        if script_name == "qlever":
-            parser.add_argument(
-                "--version",
-                action="version",
-                version=f"%(prog)s {version('qlever')}",
-            )
+        parser.add_argument(
+            "--version",
+            action="version",
+            version=f"%(prog)s {version('qlever')}",
+        )
         add_qleverfile_option(parser)
         subparsers = parser.add_subparsers(dest="command")
         subparsers.required = True
-        all_args = Qleverfile.all_arguments("qlever")
+        all_args = Qleverfile.all_arguments(COMMAND_PREFIX)
         for command_name, command_object in command_objects.items():
             self.add_subparser_for_command(
                 subparsers,
