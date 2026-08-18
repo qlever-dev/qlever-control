@@ -88,6 +88,8 @@ jobs:
           qlever-server --help | head -3; echo "..."
           qlever-index --help | head -3; echo "..."
           qlever --help
+          qeval --help
+          qeval qlever --help
 
       - name: Test qlever script for olympics dataset, without Docker
         timeout-minutes: 3
@@ -102,4 +104,32 @@ jobs:
           qlever start --system native
           qlever status
           qlever stop
+          ls -lh
+
+      - name: Test that qlever and qeval qlever are interchangeable
+        timeout-minutes: 3
+        run: |
+          export PATH="$PATH:$(pwd)/qlever-code/build"
+          source qlever-code/build/conanrun.sh
+          export QEVAL_ARGCOMPLETE_ENABLED=1
+          mkdir -p qlever-indices/olympics.qeval && cd $_
+          qeval qlever setup-config olympics --system native
+          qeval qlever get-data
+          qeval qlever index
+
+          # A server started via `qeval` must be visible to `qlever` ...
+          qeval qlever start
+          qlever status
+          qlever stop
+
+          # ... and the other way round, which is the direction that matters
+          # for anyone with servers already started by `qlever`.
+          qlever start
+          qeval qlever status
+          qeval qlever stop
+
+          # Container names are keyed on the engine, not on the script name,
+          # so both must build the same command. `--show` only prints it.
+          diff <(qlever start --show --system docker) \
+               <(qeval qlever start --show --system docker)
           ls -lh

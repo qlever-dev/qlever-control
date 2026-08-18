@@ -9,7 +9,7 @@ from qlever.log import log
 
 class QleverCommand(ABC):
     """
-    Abstract base class for all the commands in `<engine>/commands`.
+    Abstract base class for all the commands in `qlever/commands`.
     """
 
     @abstractmethod
@@ -25,8 +25,8 @@ class QleverCommand(ABC):
     @abstractmethod
     def description(self) -> str:
         """
-        A concise description of the command, which will be shown when the user
-        asks for the help of the engine or of the command itself.
+        A concise description of the command, which will be shown in the
+        top-level help and in the help of the command itself.
         """
 
     @abstractmethod
@@ -41,7 +41,7 @@ class QleverCommand(ABC):
     @abstractmethod
     def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         """
-        Retun the arguments relevant for this command. This must be a subset of
+        Return the arguments relevant for this command. This must be a subset of
         the names of `all_arguments` defined in `Qleverfile`. Only these
         arguments can then be used in the `execute` method.
         """

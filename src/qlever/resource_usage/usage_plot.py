@@ -307,7 +307,7 @@ def write_usage_plot(
 
 def render_usage_plot(
     dataset: str,
-    engine_display: str,
+    engine_display_name: str,
     stxxl_memory: str = "",
     settings_json: str = "{}",
     output_dir: Path | None = None,
@@ -337,7 +337,7 @@ def render_usage_plot(
             stxxl_memory=stxxl_memory,
             settings_json=settings_json,
             out_path=plot_path,
-            title=f"{engine_display} index build: {dataset}",
+            title=f"{engine_display_name} index build: {dataset}",
             plot_max_points=plot_max_points,
         )
     except Exception as error:
