@@ -82,7 +82,7 @@ def parse_command_line() -> argparse.Namespace:
     # One subparser per engine, so that engine names complete and a wrong one
     # is reported properly. Only the selected engine gets commands, so that a
     # single invocation never imports another engine's code.
-    engine_subparsers = parser.add_subparsers(dest="engine", required=True)
+    engine_subparsers = parser.add_subparsers(required=True)
     qleverfile_config, qleverfile_exists = None, False
     for engine, engine_info in ENGINES.items():
         main_command_name = f"{SCRIPT_NAME} {engine}"

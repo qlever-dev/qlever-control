@@ -9,7 +9,7 @@ from pathlib import Path
 
 from qlever.containerize import Containerize
 from qlever.log import log
-from qlever.util import positive_int
+from qlever.util import parse_timeout, positive_int
 
 
 def bool_type(val: str) -> bool:
@@ -352,11 +352,11 @@ class Qleverfile:
         )
         server_args["timeout"] = arg(
             "--timeout",
-            type=str,
+            type=parse_timeout,
             default="30s",
-            help="The maximal time in seconds a query is allowed to run"
-            " (can be increased per query with the URL parameters "
-            "`timeout` and `access_token`)",
+            help="The maximal time a query is allowed to run, for example "
+            "`30s` or `5min` (can be increased per query with the URL "
+            "parameters `timeout` and `access_token`)",
         )
         server_args["num_threads"] = arg(
             "--num-threads",

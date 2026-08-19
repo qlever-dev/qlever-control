@@ -259,6 +259,17 @@ def get_existing_index_files(
     return [path.name for path in existing_index_files]
 
 
+def resource_usage_prefix(engine: str, dataset: str) -> str:
+    """
+    Name that the resource-usage log and plot start with, that is
+    `<dataset>.<engine>`. The engine goes after the dataset, so that it
+    is clear which engine a log or plot belongs to. QLever's own binaries
+    write the log and do not know the engine name, so QLever gets plain
+    `<dataset>`.
+    """
+    return dataset if engine == "qlever" else f"{dataset}.{engine}"
+
+
 def show_process_info(psutil_process, cmdline_regex, show_heading=True):
     """
     Helper function that shows information about a process if information
@@ -529,18 +540,127 @@ def get_container_image_id(system: str, image: str) -> str:
     return image_id
 
 
-def get_ini_sed_cmd(
-    section: str, option: str, new_value: str, is_suffix: bool = False
+def edit_option_line(
+    line: str,
+    new_value: str,
+    is_suffix: bool,
+    inline_comment_prefix: str | None,
 ) -> str:
     """
-    Generates a cross-platform sed command to update the value of a
-    key = value pair or append to one (by using is_suffix = True) in an INI file.
+    Return `line` with its value replaced by `new_value`, or with
+    `new_value` appended to it if `is_suffix` is true. An inline comment
+    after the value is kept.
     """
+    # Split off an inline comment (whitespace followed by the comment
+    # prefix) so that only the value part is edited.
+    value_part = line
+    comment_part = ""
+    if inline_comment_prefix is not None:
+        comment_match = re.search(
+            rf"\s{re.escape(inline_comment_prefix)}", line
+        )
+        if comment_match:
+            value_part = line[: comment_match.start()]
+            comment_part = "\t" + line[comment_match.start() :].strip()
+
     if is_suffix:
-        pattern = f"s/(^{option}.*)/\\1{new_value}/"
+        new_line = value_part.rstrip() + new_value
     else:
-        pattern = f"s/(^{option}[[:space:]]*=[[:space:]]*).*/\\1{new_value}/"
-    return f"sed -E '/^\\[{section}\\]/,/^\\[/ {pattern}'"
+        # Keep everything up to and including the `=` and the spacing
+        # after it, replace the old value.
+        prefix_end = re.match(r"^\s*\S+\s*=\s*", value_part).end()
+        new_line = value_part[:prefix_end] + new_value
+    return new_line + comment_part
+
+
+def update_ini_values(
+    lines: list[str],
+    updates: dict[str, dict[str, tuple[str, bool]]],
+    inline_comment_prefix: str | None = None,
+) -> list[str]:
+    """
+    Update values in INI-style file content given as `lines` and return
+    the modified lines, preserving comments and unrelated lines.
+
+    `updates` maps `{section: {option: (new_value, is_suffix)}}`. An
+    existing option gets its value replaced, or `new_value` appended to
+    it if `is_suffix` is true. A missing option is added at the end of
+    its section, a missing section at the end of the file (suffix
+    entries are skipped there, they have no value to append to).
+
+    `inline_comment_prefix` is what starts a comment after a value on
+    the same line. If None, the whole line is treated as the value.
+    """
+    options_applied = {section: set() for section in updates}
+    sections_seen = set()
+    result_lines = []
+    current_section = None
+
+    def missing_option_lines(section: str) -> list[str]:
+        """
+        Lines for options of `section` that were not found in the file.
+        """
+        return [
+            f"{option} = {value}"
+            for option, (value, is_suffix) in updates[section].items()
+            if option not in options_applied[section] and not is_suffix
+        ]
+
+    def flush_missing_options(section: str):
+        """
+        Insert options of `section` that were not found in the file,
+        before any blank lines that separate it from the next section.
+        """
+        insert_at = len(result_lines)
+        while insert_at > 0 and result_lines[insert_at - 1].strip() == "":
+            insert_at -= 1
+        result_lines[insert_at:insert_at] = missing_option_lines(section)
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Section headers like `[server]`. Commented-out headers like
+        # `;[server]` do not match because of the `^` anchor.
+        header_match = re.match(r"^\[([^\]]+)\]", stripped)
+        if header_match:
+            # Add options that were missing from the section we leave.
+            if current_section in updates:
+                flush_missing_options(current_section)
+            current_section = header_match.group(1)
+            sections_seen.add(current_section)
+            result_lines.append(line)
+            continue
+
+        if current_section not in updates:
+            result_lines.append(line)
+            continue
+
+        option_match = re.match(r"^(\S+)\s*=\s*", stripped)
+        if (
+            option_match is None
+            or option_match.group(1) not in updates[current_section]
+        ):
+            result_lines.append(line)
+            continue
+
+        option_name = option_match.group(1)
+        new_value, is_suffix = updates[current_section][option_name]
+        result_lines.append(
+            edit_option_line(line, new_value, is_suffix, inline_comment_prefix)
+        )
+        options_applied[current_section].add(option_name)
+
+    # Add options missing from the last section in the file.
+    if current_section in updates:
+        flush_missing_options(current_section)
+
+    # Add sections that were not in the file at all.
+    for section in updates:
+        if section not in sections_seen:
+            result_lines.append(f"\n[{section}]")
+            result_lines.extend(missing_option_lines(section))
+
+    return result_lines
 
 
 def parse_memory(value: str) -> str:
@@ -553,6 +673,39 @@ def parse_memory(value: str) -> str:
             f"Invalid memory size '{value}'. Use format like 4G, 32G."
         )
     return value.upper()
+
+
+# The timeout units the server accepts, in seconds. Case sensitive.
+TIMEOUT_UNIT_SECONDS = {
+    "ns": 1e-9,
+    "us": 1e-6,
+    "ms": 1e-3,
+    "s": 1,
+    "min": 60,
+    "h": 3600,
+}
+
+
+def parse_timeout(value: str) -> str:
+    """
+    Validate a timeout string like `180s` or `5min`.
+    """
+    if not re.fullmatch(r"\d+(ns|us|ms|s|min|h)", value):
+        raise argparse.ArgumentTypeError(
+            f"Invalid timeout `{value}`. Use a number followed by one of "
+            f"{', '.join(TIMEOUT_UNIT_SECONDS)}, for example `30s` or `5min`."
+        )
+    return value
+
+
+def timeout_seconds(value: str) -> int:
+    """
+    A timeout like `5min` as whole seconds, for engines that take a bare
+    number. Never 0, so a sub-second timeout stays a timeout. Expects a
+    value that `parse_timeout` has accepted.
+    """
+    number, unit = re.fullmatch(r"(\d+)(\D+)", value).groups()
+    return max(1, round(int(number) * TIMEOUT_UNIT_SECONDS[unit]))
 
 
 def container_memory_to_bytes(memory_string: str) -> int:
