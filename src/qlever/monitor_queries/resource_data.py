@@ -252,6 +252,41 @@ class RestartTracker:
         self.last_ts_ms = ts_ms
 
 
+class RebuildIndexTracker:
+    """Finds index rebuilds from changes in the log's rebuild_id column.
+
+    Fed samples in timestamp order. The server writes the id of the
+    running rebuild and leaves the cell empty when none is running, so
+    the id changing between two samples marks a boundary. Each marker
+    is kept only if it falls in the window, so a rebuild straddling a
+    window edge still records the half that shows.
+    """
+
+    def __init__(self, start_ms: int, end_ms: int) -> None:
+        self.start_ms = start_ms
+        self.end_ms = end_ms
+        self.start_times_s = []
+        self.end_times_s = []
+        self.last_rebuild_id = None
+        self.last_ts_ms = None
+
+    def track(self, rebuild_id: int | None, ts_ms: int) -> None:
+        """Note one sample; record a rebuild that began or ended."""
+        if self.last_ts_ms is not None and rebuild_id != self.last_rebuild_id:
+            if (
+                self.last_rebuild_id is not None
+                and self.start_ms <= self.last_ts_ms <= self.end_ms
+            ):
+                self.end_times_s.append(self.last_ts_ms / 1000)
+            if (
+                rebuild_id is not None
+                and self.start_ms <= ts_ms <= self.end_ms
+            ):
+                self.start_times_s.append(ts_ms / 1000)
+        self.last_rebuild_id = rebuild_id
+        self.last_ts_ms = ts_ms
+
+
 def build_plot(
     times_s: list[float],
     rss_gb: list[float],
@@ -260,8 +295,11 @@ def build_plot(
     start_ms: int,
     end_ms: int,
     restarts: RestartTracker,
+    rebuilds: RebuildIndexTracker,
 ) -> ResourcePlot:
-    """Assemble a ResourcePlot from gathered series, window, and restarts."""
+    """
+    Assemble a ResourcePlot from gathered series, window, restarts and rebuilds.
+    """
     return ResourcePlot(
         times_s=tuple(times_s),
         rss_gb=tuple(rss_gb),
@@ -272,6 +310,8 @@ def build_plot(
         end_s=end_ms / 1000,
         stop_times_s=tuple(restarts.stop_times_s),
         start_times_s=tuple(restarts.start_times_s),
+        rebuild_start_times_s=tuple(rebuilds.start_times_s),
+        rebuild_end_times_s=tuple(rebuilds.end_times_s),
     )
 
 
@@ -286,20 +326,30 @@ def get_resource_plot(
     Keeps only samples inside [start_ms, end_ms] and converts each to
     display units: rss bytes to GB, cpu percent to cores. The window
     edges frame the plot's x-axis and may be wider than the samples that
-    fall inside them. Restarts are detected by RestartTracker.
+    fall inside them. Restarts are detected by RestartTracker, and rebuilds
+    are detected by RebuildIndexTracker.
     """
     times_s = []
     rss_gb = []
     cpu_cores_series = []
     restarts = RestartTracker(start_ms, end_ms)
+    rebuilds = RebuildIndexTracker(start_ms, end_ms)
     for sample in samples:
         restarts.track(sample.elapsed_s, sample.ts_ms)
+        rebuilds.track(sample.rebuild_id, sample.ts_ms)
         if start_ms <= sample.ts_ms <= end_ms:
             times_s.append(sample.ts_ms / 1000)
             rss_gb.append(sample.rss / 1e9)
             cpu_cores_series.append(sample.cpu_percent / 100)
     return build_plot(
-        times_s, rss_gb, cpu_cores_series, totals, start_ms, end_ms, restarts
+        times_s,
+        rss_gb,
+        cpu_cores_series,
+        totals,
+        start_ms,
+        end_ms,
+        restarts,
+        rebuilds,
     )
 
 
@@ -364,7 +414,7 @@ def read_resource_window(
     Seeks near the window start, then streams forward, folding each row
     into one of max_points equal time buckets and keeping the bucket's
     peak rss and cpu so spikes survive. Restarts are detected by
-    RestartTracker.
+    RestartTracker, and rebuilds are detected by RebuildIndexTracker.
     should_cancel is polled while scanning so a long read can abort.
     Memory stays at O(max_points) however large the log is.
     """
@@ -380,6 +430,7 @@ def read_resource_window(
     bucket_rss = [0] * max_points
     bucket_cpu = [0.0] * max_points
     restarts = RestartTracker(start_ms, end_ms)
+    rebuilds = RebuildIndexTracker(start_ms, end_ms)
     rows_since_check = 0
 
     with open(path, "rb") as stream:
@@ -403,6 +454,7 @@ def read_resource_window(
             if sample is None:
                 continue
             restarts.track(sample.elapsed_s, sample.ts_ms)
+            rebuilds.track(sample.rebuild_id, sample.ts_ms)
             # Break only after tracking, so the first row past the window
             # still pairs with an in-window stop.
             if sample.ts_ms > end_ms:
@@ -426,5 +478,12 @@ def read_resource_window(
             rss_gb.append(bucket_rss[index] / 1e9)
             cpu_cores_series.append(bucket_cpu[index] / 100)
     return build_plot(
-        times_s, rss_gb, cpu_cores_series, totals, start_ms, end_ms, restarts
+        times_s,
+        rss_gb,
+        cpu_cores_series,
+        totals,
+        start_ms,
+        end_ms,
+        restarts,
+        rebuilds,
     )

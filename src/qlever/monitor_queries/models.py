@@ -194,16 +194,15 @@ class ResourceUsage:
 class ResourcePlot:
     """Points and frame for the dual-axis resource plot modal.
 
-    times_s is the shared x-axis in epoch seconds; rss_gb and cpu_cores
-    are the two y-series in display units. rss_total and cpu_total are
-    the capacities the left and right axes scale against; cpu_total is
-    None when the core count could not be read. start_s and
-    end_s are the requested window edges the plot frames its x-axis to,
-    which may be wider than the samples that fall inside it.
-    A restart shows as elapsed time dropping between two adjacent
-    samples. stop_times_s marks the earlier sample (server going down)
-    and start_times_s the later one (server coming back), both in epoch
-    seconds, so the downtime shows as the gap between the two.
+    times_s: shared x-axis, in epoch seconds
+    rss_gb, cpu_cores: the two y-series, in display units
+    rss_total, cpu_total: axis capacities, cpu_total None if unknown
+    start_s, end_s: window edges the x-axis frames, often wider than
+      the samples that fall inside them
+    start_times_s: first sample after it came back up
+    stop_times_s: last sample before the server went down
+    rebuild_start_times_s: first sample of an index rebuild
+    rebuild_end_times_s: last sample of index rebuild, finished or failed
     """
 
     times_s: tuple[float, ...]
@@ -213,5 +212,7 @@ class ResourcePlot:
     cpu_total: float | None
     start_s: float
     end_s: float
-    stop_times_s: tuple[float, ...]
     start_times_s: tuple[float, ...]
+    stop_times_s: tuple[float, ...]
+    rebuild_start_times_s: tuple[float, ...]
+    rebuild_end_times_s: tuple[float, ...]
