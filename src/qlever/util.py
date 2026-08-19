@@ -259,6 +259,17 @@ def get_existing_index_files(
     return [path.name for path in existing_index_files]
 
 
+def resource_usage_prefix(engine: str, dataset: str) -> str:
+    """
+    Name that the resource-usage log and plot start with, that is
+    `<dataset>.<engine>`. The engine goes after the dataset, so that it
+    is clear which engine a log or plot belongs to. QLever's own binaries
+    write the log and do not know the engine name, so QLever gets plain
+    `<dataset>`.
+    """
+    return dataset if engine == "qlever" else f"{dataset}.{engine}"
+
+
 def show_process_info(psutil_process, cmdline_regex, show_heading=True):
     """
     Helper function that shows information about a process if information
