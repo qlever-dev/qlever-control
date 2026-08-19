@@ -6,22 +6,48 @@ import pytest
 
 from qlever.monitor_queries.models import ResourceSample, ResourceTotals
 from qlever.monitor_queries.resource_data import (
+    LOG_COLUMNS,
+    OPTIONAL_COLUMNS,
+    REQUIRED_COLUMNS,
     SEEK_BACKUP_BYTES,
     get_resource_plot,
     line_ts_ms,
+    log_has_new_columns,
+    parse_tsv_row,
     read_resource_window,
     seek_to_window_start,
 )
 
-HEADER = "elapsed_s\ttimestamp_ms\trss\tcpu_percent\n"
+HEADER = "\t".join(LOG_COLUMNS) + "\n"
+OLD_HEADER = "\t".join(REQUIRED_COLUMNS) + "\n"
 TOTALS = ResourceTotals(ram_gb=134.0, cores=64.0)
+
+# A full new-format row, every cell present. The parse tests vary it one
+# cell at a time through row_line.
+FULL_ROW = {
+    "elapsed_s": "2.0",
+    "timestamp_ms": "1700000000000",
+    "rss": "5000000",
+    "cpu_percent": "50.0",
+    "read_bytes_per_s": "1048576",
+    "write_bytes_per_s": "524288",
+    "io_stall_percent": "12.5",
+    "rebuild_id": "3",
+}
+
+
+def row_line(**overrides):
+    """Render FULL_ROW as a TSV line, with the named cells replaced."""
+    cells = FULL_ROW | overrides
+    return "\t".join(cells[name] for name in LOG_COLUMNS) + "\n"
 
 
 def format_rows(rows):
-    """Render (elapsed, ts, rss, cpu) tuples as TSV lines with a header."""
+    """Render column tuples as TSV lines with a header, padding short rows."""
     lines = [HEADER]
-    for elapsed, ts, rss, cpu in rows:
-        lines.append(f"{elapsed}\t{ts}\t{rss}\t{cpu}\n")
+    for row in rows:
+        cells = list(row) + [""] * (len(LOG_COLUMNS) - len(row))
+        lines.append("\t".join(str(cell) for cell in cells) + "\n")
     return "".join(lines)
 
 
@@ -54,6 +80,105 @@ def sample(elapsed, ts, rss, cpu):
     return ResourceSample(
         elapsed_s=elapsed, ts_ms=ts, rss=rss, cpu_percent=cpu
     )
+
+
+def test_parse_row_with_every_column():
+    assert parse_tsv_row(row_line()) == ResourceSample(
+        elapsed_s=2.0,
+        ts_ms=1700000000000,
+        rss=5000000,
+        cpu_percent=50.0,
+        read_bytes_per_s=1048576.0,
+        write_bytes_per_s=524288.0,
+        io_stall_percent=12.5,
+        rebuild_id=3,
+    )
+
+
+def test_parse_old_format_row_leaves_new_columns_none():
+    # The new four default to None, so equality proves all four are unset.
+    assert parse_tsv_row("2.0\t1700000000000\t5000000\t50.0\n") == (
+        ResourceSample(
+            elapsed_s=2.0, ts_ms=1700000000000, rss=5000000, cpu_percent=50.0
+        )
+    )
+
+
+@pytest.mark.parametrize("column", OPTIONAL_COLUMNS)
+def test_parse_empty_optional_cell_is_none(column):
+    parsed = parse_tsv_row(row_line(**{column: ""}))
+    assert getattr(parsed, column) is None
+    # The other three still parsed, so one hole does not spread.
+    new_values = (
+        parsed.read_bytes_per_s,
+        parsed.write_bytes_per_s,
+        parsed.io_stall_percent,
+        parsed.rebuild_id,
+    )
+    assert new_values.count(None) == 1
+
+
+@pytest.mark.parametrize("column", REQUIRED_COLUMNS)
+def test_parse_empty_required_cell_rejects_row(column):
+    assert parse_tsv_row(row_line(**{column: ""})) is None
+
+
+@pytest.mark.parametrize("column", OPTIONAL_COLUMNS)
+def test_parse_non_numeric_optional_cell_rejects_row(column):
+    # Empty means the OS had nothing to report; garbage means a broken
+    # line, and those are still dropped.
+    assert parse_tsv_row(row_line(**{column: "nonsense"})) is None
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        # Neither the old nor the new column count.
+        "2.0\t1000\t5\t1.0\t9\n",
+        "2.0\t1000\n",
+        # Both headers are rejected by the numeric parse, not by width.
+        HEADER,
+        OLD_HEADER,
+    ],
+)
+def test_parse_row_rejects_other_shapes(line):
+    assert parse_tsv_row(line) is None
+
+
+def test_log_has_new_columns_new_header(tmp_path):
+    path = tmp_path / "res.tsv"
+    path.write_text(HEADER)
+    assert log_has_new_columns(path) is True
+
+
+def test_log_has_new_columns_old_header(tmp_path):
+    path = tmp_path / "res.tsv"
+    path.write_text(OLD_HEADER)
+    assert log_has_new_columns(path) is False
+
+
+def test_log_has_new_columns_mixed_file_reads_as_old(tmp_path):
+    # The server rotates on a format change, but if that rename failed it
+    # appends a second header instead. Line 1 decides, so this reads old.
+    path = tmp_path / "res.tsv"
+    path.write_text(OLD_HEADER + HEADER + row_line())
+    assert log_has_new_columns(path) is False
+
+
+def test_log_has_new_columns_first_line_is_not_a_header(tmp_path):
+    path = tmp_path / "res.tsv"
+    path.write_text("garbage\n" + HEADER)
+    assert log_has_new_columns(path) is False
+
+
+def test_log_has_new_columns_empty_file(tmp_path):
+    path = tmp_path / "res.tsv"
+    path.write_text("")
+    assert log_has_new_columns(path) is False
+
+
+def test_log_has_new_columns_missing_file(tmp_path):
+    assert log_has_new_columns(tmp_path / "does-not-exist.tsv") is False
 
 
 def test_line_ts_ms_reads_the_timestamp_column():

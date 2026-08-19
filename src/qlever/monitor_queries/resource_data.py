@@ -30,6 +30,27 @@ FRESH_INTERVALS = 3
 # 64 so the whole window always fits however large the log grew.
 SEED_BYTES_PER_ROW = 64
 
+# The resource-usage log's columns in order. The optional columns can be empty
+# and are only present in the new log format.
+REQUIRED_COLUMNS = ("elapsed_s", "timestamp_ms", "rss", "cpu_percent")
+OPTIONAL_COLUMNS = (
+    "read_bytes_per_s",
+    "write_bytes_per_s",
+    "io_stall_percent",
+    "rebuild_id",
+)
+LOG_COLUMNS = REQUIRED_COLUMNS + OPTIONAL_COLUMNS
+
+
+def log_has_new_columns(log_path: Path) -> bool:
+    """Determine if the resource log file has the new optional columns."""
+    try:
+        with log_path.open() as log_file:
+            header = log_file.readline()
+    except OSError:
+        return False
+    return len(header.split("\t")) == len(LOG_COLUMNS)
+
 
 def buffer_size(sample_interval_s: int) -> int:
     """Samples the live window holds at this logging interval."""
@@ -61,6 +82,14 @@ class ResourceHistory:
         self.samples.append(sample)
 
 
+def optional_cell(
+    text: str, convert: Callable[[str], float | int]
+) -> float | int | None:
+    """Convert one optional column cell, or None if empty"""
+    text = text.strip()
+    return convert(text) if text else None
+
+
 def parse_tsv_row(line: str) -> ResourceSample | None:
     """Turn one TSV log row into a sample, or None if it isn't one.
 
@@ -68,15 +97,23 @@ def parse_tsv_row(line: str) -> ResourceSample | None:
     return None, so the caller never special-cases them.
     """
     fields = line.split("\t")
-    if len(fields) != 4:
+    if len(fields) == len(REQUIRED_COLUMNS):
+        fields += [""] * len(OPTIONAL_COLUMNS)
+    if len(fields) != len(LOG_COLUMNS):
         return None
-    elapsed, ts, rss, cpu = fields
+    elapsed, ts, rss, cpu, read_bytes, write_bytes, io_stall, rebuild_id = (
+        fields
+    )
     try:
         return ResourceSample(
             elapsed_s=float(elapsed),
             ts_ms=int(ts),
             rss=int(rss),
             cpu_percent=float(cpu),
+            read_bytes_per_s=optional_cell(read_bytes, float),
+            write_bytes_per_s=optional_cell(write_bytes, float),
+            io_stall_percent=optional_cell(io_stall, float),
+            rebuild_id=optional_cell(rebuild_id, int),
         )
     except ValueError:
         return None

@@ -131,17 +131,27 @@ class FilterState:
 
 @dataclass(frozen=True)
 class ResourceSample:
-    """One reading of server resource usage, in raw source units.
+    """One reading of server resource usage, as the log wrote it
 
-    Kept literal (rss bytes, cpu_percent across cores) so conversion
-    lives at the read seam. elapsed_s is the server's run time; it
-    resets on restart, so a drop between samples marks a new process.
+    elapsed_s: seconds the server has been running, resets on restart
+    ts_ms: wall-clock time of the sample
+    rss: memory in bytes
+    cpu_percent: CPU use, above 100 when several cores are busy
+    read_bytes_per_s, write_bytes_per_s: this server's disk I/O
+    io_stall_percent: share of time anything on the machine waited on disk,
+      so machine-wide and not just this server
+    rebuild_id: which index rebuild was running, counted from 1. None when
+      no rebuild in progress.
     """
 
     elapsed_s: float
     ts_ms: int
     rss: int
     cpu_percent: float
+    read_bytes_per_s: float | None = None
+    write_bytes_per_s: float | None = None
+    io_stall_percent: float | None = None
+    rebuild_id: int | None = None
 
 
 @dataclass(frozen=True)
