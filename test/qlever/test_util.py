@@ -9,8 +9,8 @@ from qlever.util import (
     parse_git_hash,
     parse_timeout,
     positive_int,
-    update_ini_values,
     timeout_seconds,
+    update_ini_values,
 )
 
 
@@ -260,6 +260,8 @@ def test_update_ini_values_keeps_unrelated_lines():
         "PORT = 9999",
         "HOST = localhost",
     ]
+
+
 @pytest.mark.parametrize("value", ["5ns", "5us", "500ms", "30s", "5min", "2h"])
 def test_parse_timeout_accepts_every_unit(value):
     assert parse_timeout(value) == value

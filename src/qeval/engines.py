@@ -16,6 +16,7 @@ class Engine(NamedTuple):
 
 ENGINES = {
     "qlever": Engine(package="qlever", display_name="QLever"),
+    "oxigraph": Engine(package="qeval.oxigraph", display_name="Oxigraph"),
 }
 
 
