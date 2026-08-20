@@ -16,7 +16,9 @@ from textual.widgets import Static
 from qlever.monitor_queries.models import ResourcePlot
 from qlever.monitor_queries.widgets.resource_plot_pane import (
     ResourcePlotPane,
+    RgbColor,
     point_budget,
+    rebuild_colors,
     restart_colors,
 )
 
@@ -24,7 +26,7 @@ HEADING_ID = "plot-heading"
 PLOT_NAME = "Memory and CPU"
 
 
-def color_markup(color: tuple[int, int, int]) -> str:
+def color_markup(color: RgbColor) -> str:
     """A Rich color tag for an RGB triplet."""
     return "rgb({}, {}, {})".format(*color)
 
@@ -32,11 +34,14 @@ def color_markup(color: tuple[int, int, int]) -> str:
 def heading_text(data: ResourcePlot, dark: bool) -> str:
     """The plot name, then a legend entry per marker kind in the window"""
     stop_color, start_color = restart_colors(dark)
+    rebuild_start_color, rebuild_end_color = rebuild_colors(dark)
     markers = (
         (data.stop_times_s, "server down", stop_color),
         (data.start_times_s, "server up", start_color),
+        (data.rebuild_start_times_s, "rebuild start", rebuild_start_color),
+        (data.rebuild_end_times_s, "rebuild end", rebuild_end_color),
     )
-    parts = [PLOT_NAME, "  "]
+    parts = [f"[bold]{PLOT_NAME}[/]", "  "]
     for times, label, color in markers:
         if times:
             parts.append(f"[{color_markup(color)}]│ {label}[/]")

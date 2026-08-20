@@ -8,6 +8,8 @@ from textual_plotext import PlotextPlot
 
 from qlever.monitor_queries.models import ResourcePlot
 
+RgbColor = tuple[int, int, int]
+
 # Saturated line colors, one pair per theme background: deeper on a
 # light background, brighter on a dark one, so both stay legible.
 CPU_COLOR_LIGHT = (0, 150, 130)
@@ -16,30 +18,38 @@ CPU_COLOR_DARK = (34, 211, 200)
 RSS_COLOR_DARK = (255, 105, 190)
 
 # Restart markers, one pair per theme like the series colors: orange
-# marks the server going down, green it coming back. Kept clear of the
-# RSS and CPU line colors and legible on either background.
+# marks the server going down, green it coming back.
 STOP_COLOR_LIGHT = (200, 110, 20)
 START_COLOR_LIGHT = (30, 140, 70)
 STOP_COLOR_DARK = (240, 160, 60)
 START_COLOR_DARK = (90, 210, 130)
 
+# Rebuild markers, blue for a rebuild starting and violet for it ending.
+REBUILD_START_COLOR_LIGHT = (30, 90, 200)
+REBUILD_END_COLOR_LIGHT = (130, 60, 180)
+REBUILD_START_COLOR_DARK = (110, 160, 255)
+REBUILD_END_COLOR_DARK = (190, 130, 240)
 
-def series_colors(
-    dark: bool,
-) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+
+def series_colors(dark: bool) -> tuple[RgbColor, RgbColor]:
     """Pick the (RSS, CPU) line colors for the active theme background."""
     if dark:
         return RSS_COLOR_DARK, CPU_COLOR_DARK
     return RSS_COLOR_LIGHT, CPU_COLOR_LIGHT
 
 
-def restart_colors(
-    dark: bool,
-) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+def restart_colors(dark: bool) -> tuple[RgbColor, RgbColor]:
     """Pick the (stop, start) restart marker colors for the active theme."""
     if dark:
         return STOP_COLOR_DARK, START_COLOR_DARK
     return STOP_COLOR_LIGHT, START_COLOR_LIGHT
+
+
+def rebuild_colors(dark: bool) -> tuple[RgbColor, RgbColor]:
+    """Pick the (start, end) rebuild marker colors for the active theme."""
+    if dark:
+        return REBUILD_START_COLOR_DARK, REBUILD_END_COLOR_DARK
+    return REBUILD_START_COLOR_LIGHT, REBUILD_END_COLOR_LIGHT
 
 
 # A plot column holds 2 braille dots across, so 2 points per usable
@@ -170,7 +180,7 @@ class ResourcePlotPane(PlotextPlot):
         self.replot()
 
     def replot(self) -> None:
-        """Draw the current window: SS on the left axis, CPU on the right.
+        """Draw the current window: RSS on the left axis, CPU on the right.
 
         Frames the window and axes, then plots the two series or, when the
         window holds no samples, a centered note. Restarts show as an
@@ -261,12 +271,14 @@ class ResourcePlotPane(PlotextPlot):
     def draw_series(self, data: ResourcePlot, rss_max: float) -> None:
         """Plot the RSS and CPU lines, or a note when the window is empty.
 
-        The lines are broken across each restart's downtime. An orange
-        vline marks each stop and a green one each start.
+        The lines are broken across each restart's downtime. Vlines mark
+        the server going down and coming back, and an index rebuild
+        starting and ending.
         """
         dark = self.app.current_theme.dark
         rss_color, cpu_color = series_colors(dark)
         stop_color, start_color = restart_colors(dark)
+        rebuild_start_color, rebuild_end_color = rebuild_colors(dark)
         plt = self.plt
         if data.times_s:
             rss_times, rss_values = break_at_starts(
@@ -303,7 +315,11 @@ class ResourcePlotPane(PlotextPlot):
                 background="default",
                 alignment="center",
             )
-        for stop_s in data.stop_times_s:
-            plt.vline(stop_s, color=stop_color)
-        for start_s in data.start_times_s:
-            plt.vline(start_s, color=start_color)
+        for times, color in (
+            (data.stop_times_s, stop_color),
+            (data.start_times_s, start_color),
+            (data.rebuild_start_times_s, rebuild_start_color),
+            (data.rebuild_end_times_s, rebuild_end_color),
+        ):
+            for marker_s in times:
+                plt.vline(marker_s, color=color)
