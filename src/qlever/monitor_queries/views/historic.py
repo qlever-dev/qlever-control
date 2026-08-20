@@ -56,10 +56,10 @@ from qlever.monitor_queries.widgets.header_row import HeaderRow
 from qlever.monitor_queries.widgets.metrics_row import MetricsRow
 from qlever.monitor_queries.widgets.mode_picker import MODES, ModePicker
 from qlever.monitor_queries.widgets.nav_pill import NavPill
+from qlever.monitor_queries.widgets.plot_with_heading import PlotWithHeading
 from qlever.monitor_queries.widgets.query_table import HistoricQueryTable
 from qlever.monitor_queries.widgets.resource_plot_pane import (
     MIN_PLOT_POINTS,
-    ResourcePlotPane,
     point_budget,
 )
 from qlever.monitor_queries.widgets.selected_window import SelectedWindow
@@ -321,7 +321,7 @@ class HistoricScreen(Screen, inherit_bindings=False):
         """Collapse a fast window scrub into one scan of where the user lands."""
         if self.rescan_timer is not None:
             self.rescan_timer.stop()
-        max_points = point_budget(self.query_one(ResourcePlotPane).size.width)
+        max_points = point_budget(self.query_one(PlotWithHeading).size.width)
         self.rescan_timer = self.set_timer(
             RESCAN_DEBOUNCE_S,
             lambda: self.refresh_data(rescan=True, max_points=max_points),

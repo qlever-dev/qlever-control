@@ -18,16 +18,16 @@ from textual.worker import get_current_worker
 
 from qlever.monitor_queries.models import ResourcePlot
 from qlever.monitor_queries.widgets.footer import Footer
-from qlever.monitor_queries.widgets.resource_plot_pane import ResourcePlotPane
+from qlever.monitor_queries.widgets.plot_with_heading import PlotWithHeading
 
 
 class ResourcePlotModal(ModalScreen):
-    """Full-screen shell around a ResourcePlotPane.
+    """Full-screen shell around a PlotWithHeading.
 
-    The pane owns the drawing and the roll timer; this modal only frames
-    it and handles closing. With a reader it also re-reads the window at
-    its own wider width once open, so a maximized historic plot shows
-    more detail than the inline pane.
+    The plot owns the drawing and its container the roll timer; this
+    modal only frames it and handles closing. With a reader it also
+    re-reads the window at its own wider width once open, so a maximized
+    historic plot shows more detail than the inline pane.
     """
 
     BINDINGS = [Binding("escape", "close", "Close")]
@@ -48,7 +48,7 @@ class ResourcePlotModal(ModalScreen):
     def compose(self) -> ComposeResult:
         reload = self.load_plot if self.reader is not None else None
         with Vertical(id="resource-plot-modal"):
-            yield ResourcePlotPane(
+            yield PlotWithHeading(
                 self.pane_source, self.refresh_interval, reload
             )
         yield Footer(show_command_palette=False)
@@ -76,7 +76,7 @@ class ResourcePlotModal(ModalScreen):
     def apply_plot(self, plot: ResourcePlot) -> None:
         """Store the re-read plot and redraw the pane."""
         self.plot = plot
-        self.query_one(ResourcePlotPane).replot()
+        self.query_one(PlotWithHeading).replot()
 
     def action_close(self) -> None:
         """Close the modal, unless a prior event already closed it."""

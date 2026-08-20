@@ -1,13 +1,7 @@
-"""Dual-axis RSS and CPU plot, shared by the inline pane and the modal.
-
-Draws from a source callable rather than owning data, so the same widget
-serves Live's rolling window and Historic's fixed span. Ticks are picked
-by hand because plotext's defaults crowd a short terminal pane.
-"""
+"""Dual-axis RSS and CPU plot, shared by the inline pane and the modal."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import datetime
 
 from textual_plotext import PlotextPlot
@@ -162,65 +156,30 @@ def break_at_starts(
 
 
 class ResourcePlotPane(PlotextPlot):
-    """Dual-axis RSS and CPU plot over a time window.
-
-    Takes a source that returns the points to draw and an optional
-    refresh interval. With an interval the plot replots on a timer and
-    rolls forward, for the Live window; without one it draws once and
-    stays fixed, for a historic span.
-    """
+    """Dual-axis RSS and CPU plot over a time window."""
 
     can_focus = False
 
-    def __init__(
-        self,
-        source: Callable[[], ResourcePlot],
-        refresh_interval: float | None = None,
-        reload: Callable[[int], None] | None = None,
-        **kwargs,
-    ) -> None:
+    def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.source = source
-        self.refresh_interval = refresh_interval
-        self.reload = reload
-        self.last_budget = None
+        self.data = None
 
-    def on_mount(self) -> None:
-        """Draw once; with an interval, also replot on a timer to roll."""
+    def draw(self, data: ResourcePlot) -> None:
+        """Draw new data, and keep it for redraws at a new size."""
+        self.data = data
         self.replot()
-        if self.refresh_interval is not None:
-            self.set_interval(self.refresh_interval, self.replot)
-        self.app.theme_changed_signal.subscribe(
-            self, lambda theme: self.replot()
-        )
-
-    def on_resize(self) -> None:
-        """Redraw at the new size, and re-read if the pane got wider.
-
-        A visible pane whose point budget changed asks the owner to
-        re-read, so a wider pane shows more detail. A hidden pane has
-        width 0 and is skipped.
-        """
-        self.replot()
-        if self.reload is not None and self.size.width > 0:
-            budget = point_budget(self.size.width)
-            if budget != self.last_budget:
-                self.last_budget = budget
-                self.reload(budget)
 
     def replot(self) -> None:
-        """Draw the current window: RSS on the left axis, CPU on the right.
+        """Draw the current window: SS on the left axis, CPU on the right.
 
         Frames the window and axes, then plots the two series or, when the
         window holds no samples, a centered note. Restarts show as an
         orange stop line and a green start line, with the series broken
         across the downtime between them.
-
-        Skipped while hidden; being shown fires a resize that redraws.
         """
-        if not self.display:
+        if self.data is None:
             return
-        data = self.source()
+        data = self.data
         self.plt.clear_figure()
         self.plt.xlim(data.start_s, data.end_s)
         rss_max, cpu_max = self.draw_axes(data)
@@ -270,7 +229,7 @@ class ResourcePlotPane(PlotextPlot):
     def draw_labels(
         self, data: ResourcePlot, rss_max: float, cpu_max: float | None
     ) -> None:
-        """Name each series in its axis corner, and legend any restarts.
+        """Name each series in its axis corner.
 
         The series names sit in the top corners, colored to match their
         lines, so the reader maps line to axis without a stacked legend.
@@ -278,7 +237,6 @@ class ResourcePlotPane(PlotextPlot):
         """
         dark = self.app.current_theme.dark
         rss_color, cpu_color = series_colors(dark)
-        stop_color, start_color = restart_colors(dark)
         plt = self.plt
         plt.text(
             "RSS (GB)",
@@ -298,29 +256,6 @@ class ResourcePlotPane(PlotextPlot):
                 color=cpu_color,
                 background="default",
                 alignment="right",
-            )
-        # Legend for the restart markers, each drawn in its own color with
-        # the vertical-bar glyph so it reads as "this line".
-        if data.stop_times_s or data.start_times_s:
-            mid = (data.start_s + data.end_s) / 2
-            offset = (data.end_s - data.start_s) * 0.12
-            plt.text(
-                "│ Server stopped",
-                mid - offset,
-                rss_max,
-                yside="left",
-                color=stop_color,
-                background="default",
-                alignment="center",
-            )
-            plt.text(
-                "│ Server started",
-                mid + offset,
-                rss_max,
-                yside="left",
-                color=start_color,
-                background="default",
-                alignment="center",
             )
 
     def draw_series(self, data: ResourcePlot, rss_max: float) -> None:
