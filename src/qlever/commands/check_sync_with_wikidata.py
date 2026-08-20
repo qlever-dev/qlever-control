@@ -92,6 +92,15 @@ GEO_COMPONENT_PREDICATES = {
 WKT_DATATYPE = "http://www.opengis.net/ont/geosparql#wktLiteral"
 GEO_TOLERANCE = 2e-5
 
+# Defining-formula literals (P2534 and friends) are MathML RENDERED by
+# MediaWiki's Math extension, and extension updates change the rendered
+# markup retroactively without an entity edit (observed 2026-08-20 on
+# Q96843171: "mathjax_ignore" appeared in the class list of live
+# EntityData, while the dump-era index has the old rendering). The class
+# list of such literals is therefore normalized before the comparison.
+MATHML_DATATYPE = "http://www.w3.org/1998/Math/MathML"
+MATHML_CLASS_RE = re.compile(r'class="mwe-math-element[^"]*"')
+
 # The redirect marker written by a Wikidata merge. An entity can become a
 # redirect DURING the check (observed live); it is then reported as a
 # redirect, like the redirects that are already detected at download time.
@@ -512,6 +521,16 @@ class CheckSyncWithWikidataCommand(QleverCommand):
             == "http://www.w3.org/2001/XMLSchema#dateTime"
         ):
             return f'"{str(term).rstrip("Z")}"^^DATE'
+        # See the comment at `MATHML_DATATYPE`.
+        if (
+            isinstance(term, Literal)
+            and term.datatype is not None
+            and str(term.datatype) == MATHML_DATATYPE
+        ):
+            normalized = MATHML_CLASS_RE.sub(
+                'class="mwe-math-element"', str(term)
+            )
+            return f"{json.dumps(normalized)}^^MATHML"
         numeric_datatypes = {
             "http://www.w3.org/2001/XMLSchema#decimal",
             "http://www.w3.org/2001/XMLSchema#integer",
