@@ -172,7 +172,8 @@ class MaterializedViewCommand(QleverCommand):
                     materialized_views = json.loads(
                         qleverfile_config.get(
                             "index", "materialized_views", fallback="{}"
-                        )
+                        ).strip()
+                        or "{}"
                     )
                 except Exception as e:
                     log.error(
