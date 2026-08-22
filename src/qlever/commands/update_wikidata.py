@@ -324,7 +324,7 @@ class UpdateWikidataCommand(QleverCommand):
                         delay_str = f"{retry_delay // 60}min"
                     else:
                         delay_str = f"{retry_delay}s"
-                    log.warn(
+                    log.warning(
                         f"{operation_name} failed (attempt {attempt + 1}/{max_retries}): {e}. "
                         f"Retrying in {delay_str} ..."
                     )
@@ -353,19 +353,21 @@ class UpdateWikidataCommand(QleverCommand):
         try:
             yield from source
         except Exception as e:
-            log.warn(f"SSE stream connection lost ({e}), will reconnect ...")
+            log.warning(
+                f"SSE stream connection lost ({e}), will reconnect ..."
+            )
 
     def determine_batch_size_for_cached_update(
         self, offset: int, batch_size: int
     ) -> int | None:
         options = list(Path.cwd().glob(f"update.{offset}.*.sparql"))
         if len(options) == 0:
-            log.warn(
+            log.warning(
                 "Found no cached SPARQL update. Continuing with update stream."
             )
             return None
         elif len(options) > 1:
-            log.warn(
+            log.warning(
                 f"Found {len(options)} candidates for cached SPARQL update. Using {options[0].name}."
             )
         return int(
@@ -539,7 +541,7 @@ class UpdateWikidataCommand(QleverCommand):
 
         # Special handling of Ctrl+C, see `handle_ctrl_c` above.
         signal.signal(signal.SIGINT, self.handle_ctrl_c)
-        log.warn("Press Ctrl+C to finish and exit gracefully")
+        log.warning("Press Ctrl+C to finish and exit gracefully")
         log.info("")
 
         # If no `--offset` is provided, try to get the offset from
@@ -584,7 +586,7 @@ class UpdateWikidataCommand(QleverCommand):
                     )
                 args.offset = offset
             except KeyboardInterrupt:
-                log.warn(
+                log.warning(
                     "\rCtrl+C pressed while determine current state, exiting"
                 )
                 return True
@@ -648,7 +650,7 @@ class UpdateWikidataCommand(QleverCommand):
                 wait_before_next_batch = False
                 self.ctrl_c_pressed.wait(args.wait_between_batches)
             if self.ctrl_c_pressed.is_set():
-                log.warn(
+                log.warning(
                     "\rCtrl+C pressed while waiting in between batches, "
                     "exiting"
                 )
@@ -686,7 +688,7 @@ class UpdateWikidataCommand(QleverCommand):
                     args.num_retries,
                 )
             except KeyboardInterrupt:
-                log.warn(
+                log.warning(
                     "\rCtrl+C pressed while while connecting to stream, "
                     "exiting"
                 )
@@ -732,7 +734,7 @@ class UpdateWikidataCommand(QleverCommand):
                         args.num_retries,
                     )
                 except KeyboardInterrupt:
-                    log.warn(
+                    log.warning(
                         "\rCtrl+C pressed while while verifying state, exiting"
                     )
                     break
@@ -907,7 +909,7 @@ class UpdateWikidataCommand(QleverCommand):
                                 and entity_id in delete_entity_ids
                             ):
                                 if args.verbose == "yes":
-                                    log.warn(
+                                    log.warning(
                                         f"Encountered operation that adds data for "
                                         f"an entity ID ({entity_id}) that was deleted "
                                         f"earlier in this batch; finishing batch and "
@@ -936,7 +938,7 @@ class UpdateWikidataCommand(QleverCommand):
                                 and current_batch_size > 0
                             ):
                                 if args.verbose == "yes":
-                                    log.warn(
+                                    log.warning(
                                         f"Encountered message with date {date}, which is within "
                                         f"{args.lag_seconds} "
                                         f"second{'s' if args.lag_seconds > 1 else ''} "
@@ -955,7 +957,7 @@ class UpdateWikidataCommand(QleverCommand):
                                 and date >= args.until
                                 and current_batch_size > 0
                             ):
-                                log.warn(
+                                log.warning(
                                     f"Reached --until date {args.until} "
                                     f"(message date: {date}), that's it folks"
                                 )
@@ -1169,7 +1171,7 @@ class UpdateWikidataCommand(QleverCommand):
                         # end of the inner event loop so that always at least one
                         # message is processed).
                         if self.ctrl_c_pressed.is_set():
-                            log.warn(
+                            log.warning(
                                 "\rCtrl+C pressed while processing a batch, "
                                 "finishing it and exiting"
                             )
@@ -1311,12 +1313,12 @@ class UpdateWikidataCommand(QleverCommand):
                 result = run_command(curl_cmd, return_output=True)
             except Exception:
                 if self.ctrl_c_pressed.is_set():
-                    log.warn(
+                    log.warning(
                         "\r  \nCtrl+C pressed while executing update, exiting"
                     )
                     return True
                 else:
-                    log.warn(
+                    log.warning(
                         "\r  \nUpdate request failed; will reconnect and retry"
                     )
                     event_id_for_next_batch = [
@@ -1526,7 +1528,7 @@ class UpdateWikidataCommand(QleverCommand):
                         )
 
                 except Exception as e:
-                    log.warn(
+                    log.warning(
                         f"Error extracting statistics: {e}, "
                         f"curl command was: {curl_cmd}"
                     )
