@@ -64,11 +64,15 @@ class SetupConfigCommand(QleverCommand):
         )
         # Override defaults to None so that arguments explicitly passed
         # by the user can be told apart from plain defaults.
+        #
+        # NOTE: This relies on `additional_arguments` being called after
+        # the Qleverfile arguments were added, because in `argparse` the
+        # default set last wins.
         for section, arg_name in self.override_args:
             subparser.set_defaults(**{arg_name: None})
 
     def execute(self, args) -> bool:
-        # Show a warning if `QLEVER_OVERRIDE_SYSTEM_NATIVE` is set.
+        # Show a warning if `QLEVER_IS_RUNNING_IN_CONTAINER` is set.
         qlever_is_running_in_container = environ.get(
             "QLEVER_IS_RUNNING_IN_CONTAINER"
         )
@@ -126,9 +130,10 @@ class SetupConfigCommand(QleverCommand):
         # applied.
         try:
             lines = qleverfile_path.read_text().splitlines()
-            result = util.update_ini_values(
-                lines, updates, inline_comment_prefix="#"
-            )
+            # No `inline_comment_prefix`, because `Qleverfile.read`
+            # parses without inline comments (a `#` after a value is
+            # part of the value).
+            result = util.update_ini_values(lines, updates)
             Path("Qleverfile").write_text("\n".join(result) + "\n")
         except Exception as e:
             log.error(

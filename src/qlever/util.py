@@ -557,7 +557,9 @@ def edit_option_line(
     else:
         # Keep everything up to and including the `=` and the spacing
         # after it, replace the old value.
-        prefix_end = re.match(r"^\s*\S+\s*=\s*", value_part).end()
+        # The non-greedy `\S+?` splits at the first `=`, like
+        # `ConfigParser` does.
+        prefix_end = re.match(r"^\s*\S+?\s*=\s*", value_part).end()
         new_line = value_part[:prefix_end] + new_value
     return new_line + comment_part
 
@@ -574,8 +576,9 @@ def update_ini_values(
     `updates` maps `{section: {option: (new_value, is_suffix)}}`. An
     existing option gets its value replaced, or `new_value` appended to
     it if `is_suffix` is true. A missing option is added at the end of
-    its section, a missing section at the end of the file (suffix
-    entries are skipped there, they have no value to append to).
+    its section, aligned with the section's existing options, a missing
+    section at the end of the file (suffix entries are skipped there,
+    they have no value to append to).
 
     `inline_comment_prefix` is what starts a comment after a value on
     the same line. If None, the whole line is treated as the value.
@@ -584,13 +587,23 @@ def update_ini_values(
     sections_seen = set()
     result_lines = []
     current_section = None
+    # Per section, the column of the `=` of the last option line seen,
+    # so that added options can be aligned with the existing ones.
+    equals_columns = {}
 
     def missing_option_lines(section: str) -> list[str]:
         """
         Lines for options of `section` that were not found in the file.
         """
+        column = equals_columns.get(section)
+
+        def option_line(option: str, value: str) -> str:
+            if column is not None and len(option) < column:
+                return f"{option.ljust(column)}= {value}"
+            return f"{option} = {value}"
+
         return [
-            f"{option} = {value}"
+            option_line(option, value)
             for option, (value, is_suffix) in updates[section].items()
             if option not in options_applied[section] and not is_suffix
         ]
@@ -624,7 +637,13 @@ def update_ini_values(
             result_lines.append(line)
             continue
 
-        option_match = re.match(r"^(\S+)\s*=\s*", stripped)
+        # The non-greedy `\S+?` splits at the first `=`, like
+        # `ConfigParser` does.
+        option_match = re.match(r"^(\S+?)\s*=\s*", stripped)
+        if option_match:
+            equals_columns[current_section] = (
+                re.match(r"^\s*\S+?\s*=", line).end() - 1
+            )
         if (
             option_match is None
             or option_match.group(1) not in updates[current_section]
@@ -643,10 +662,12 @@ def update_ini_values(
     if current_section in updates:
         flush_missing_options(current_section)
 
-    # Add sections that were not in the file at all.
+    # Add sections that were not in the file at all, each preceded by a
+    # blank line.
     for section in updates:
         if section not in sections_seen:
-            result_lines.append(f"\n[{section}]")
+            result_lines.append("")
+            result_lines.append(f"[{section}]")
             result_lines.extend(missing_option_lines(section))
 
     return result_lines

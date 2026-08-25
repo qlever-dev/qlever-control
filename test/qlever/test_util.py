@@ -192,8 +192,19 @@ def test_update_ini_values_adds_missing_section():
     assert update_ini_values(lines, updates) == [
         "[server]",
         "PORT = 7019",
-        "\n[runtime]",
+        "",
+        "[runtime]",
         "SYSTEM = native",
+    ]
+
+
+def test_update_ini_values_aligns_added_option_with_section():
+    lines = ["[server]", "PORT               = 7019"]
+    updates = {"server": {"TIMEOUT": ("30s", False)}}
+    assert update_ini_values(lines, updates) == [
+        "[server]",
+        "PORT               = 7019",
+        "TIMEOUT            = 30s",
     ]
 
 
@@ -209,7 +220,8 @@ def test_update_ini_values_skips_suffix_in_missing_section():
     assert update_ini_values(lines, updates) == [
         "[server]",
         "PORT = 7019",
-        "\n[runtime]",
+        "",
+        "[runtime]",
         "SYSTEM = native",
     ]
 
@@ -232,7 +244,8 @@ def test_update_ini_values_ignores_commented_out_section():
     assert update_ini_values(lines, updates) == [
         ";[server]",
         "PORT = 7019",
-        "\n[server]",
+        "",
+        "[server]",
         "PORT = 9999",
     ]
 
