@@ -4,6 +4,7 @@ import json
 import random
 import re
 import shlex
+import socket
 import statistics
 import subprocess
 import tempfile
@@ -75,7 +76,8 @@ def read_queries_yml(path: str) -> list[str]:
 
 def read_queries_jsonl(path: str) -> list[str]:
     """Read queries from a JSONL file (one JSON object per line with a
-    'sparql' field)."""
+    'sparql' field, or a 'query' field as fallback, as in QLever's
+    metrics log)."""
     queries = []
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
@@ -84,7 +86,7 @@ def read_queries_jsonl(path: str) -> list[str]:
                 continue
             try:
                 data = json.loads(line)
-                query = data.get("sparql")
+                query = data.get("sparql") or data.get("query")
                 if query:
                     queries.append(query.strip())
             except (json.JSONDecodeError, AttributeError):
@@ -297,6 +299,18 @@ class LoadTestCommand(QleverCommand):
             f" (https://github.com/qlever-dev/qlever-control)"
         )
 
+        # Send our own IP in the `X-Real-IP` header. QLever takes the client
+        # IP for its metrics log solely from that header (normally set by the
+        # reverse proxy), so direct requests would otherwise show up without
+        # an IP.
+        try:
+            client_ip = socket.gethostbyname(socket.gethostname())
+        except OSError:
+            client_ip = None
+        x_real_ip_header = (
+            f' -H "X-Real-IP: {client_ip}"' if client_ip else ""
+        )
+
         # Shared state for the worker threads.
         lock = threading.Lock()
         num_launched = 0
@@ -319,6 +333,7 @@ class LoadTestCommand(QleverCommand):
                     curl_cmd = (
                         f"curl -s {sparql_endpoint}"
                         f" -A {shlex.quote(user_agent)}"
+                        f"{x_real_ip_header}"
                         f' -H "Accept: application/qlever-results+json"'
                         f" --data-urlencode query={shlex.quote(query)}"
                         f" --max-time {query_timeout_secs:g}"
