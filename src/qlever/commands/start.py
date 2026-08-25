@@ -202,7 +202,8 @@ def show_log_follow_info(log_name: str, run_in_foreground: bool) -> None:
     """
     Tell the user which log is being followed, until when, and what
     Ctrl-C does. The two cases differ in whether Ctrl-C stops the
-    server, so engines should not word this themselves.
+    server, so the wording is centralized here instead of being
+    repeated at each call site.
     """
     if run_in_foreground:
         log.info(
@@ -217,7 +218,7 @@ def show_log_follow_info(log_name: str, run_in_foreground: bool) -> None:
     log.info("")
 
 
-def server_liveness_check(
+def make_server_liveness_check(
     args, process: subprocess.Popen | None
 ) -> Callable[[], bool]:
     """
@@ -371,9 +372,7 @@ class StartCommand(QleverCommand):
 
         # Kill existing server on the same port if so desired.
         if args.kill_existing_with_same_port:
-            if args.kill_existing_with_same_port and not kill_existing_server(
-                args
-            ):
+            if not kill_existing_server(args):
                 return False
 
         # Construct the command line based on the config file.
@@ -459,7 +458,7 @@ class StartCommand(QleverCommand):
             return False
         if not wait_until_server_ready(
             lambda: is_qlever_server_alive(args.endpoint_url),
-            server_liveness_check(args, process),
+            make_server_liveness_check(args, process),
         ):
             tail_proc.terminate()
             return False
