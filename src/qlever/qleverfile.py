@@ -229,6 +229,13 @@ class Qleverfile:
             "by a sequence of digits, do not require a vocabulary entry but "
             "are directly encoded in the ID (default: none)",
         )
+        index_args["encode_as_id_wide"] = arg(
+            "--encode-as-id-wide",
+            type=str,
+            help="Like --encode-as-id, but for IRIs with up to 17 digits "
+            "(at most 4 prefixes; the encoded IDs are ordered numerically, "
+            "not lexicographically; default: none)",
+        )
         index_args["only_pso_and_pos_permutations"] = arg(
             "--only-pso-and-pos-permutations",
             action="store_true",

@@ -34,6 +34,7 @@ class TestIndexCommand(unittest.TestCase):
                     "input_files",
                     "cat_input_files",
                     "encode_as_id",
+                    "encode_as_id_wide",
                     "multi_input_json",
                     "parallel_parsing",
                     "settings_json",

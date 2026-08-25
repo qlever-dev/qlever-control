@@ -48,6 +48,7 @@ class TestIndexCommand(unittest.TestCase):
         args.multi_input_json = False
         args.ulimit = None
         args.encode_as_id = None
+        args.encode_as_id_wide = None
         args.parser_buffer_size = None
         args.materialized_views = None
         args.resource_usage_log = "yes"
@@ -265,6 +266,7 @@ class TestIndexCommand(unittest.TestCase):
         args.multi_input_json = False
         args.ulimit = None
         args.encode_as_id = None
+        args.encode_as_id_wide = None
         args.parser_buffer_size = None
         args.materialized_views = None
         args.resource_usage_log = "yes"
@@ -381,6 +383,7 @@ class TestIndexCommand(unittest.TestCase):
         args.show = True
         args.ulimit = None
         args.encode_as_id = None
+        args.encode_as_id_wide = None
         args.parser_buffer_size = None
         args.materialized_views = None
         args.resource_usage_log = "yes"
