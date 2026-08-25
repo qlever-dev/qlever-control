@@ -7,18 +7,25 @@
 
 from __future__ import annotations
 
+import argparse
 import os
 import re
 import traceback
+from collections.abc import Callable
 
 from termcolor import colored
 
-from qlever import command_objects, script_name
-from qlever.config import ConfigException, QleverConfig
+from qlever.config import ConfigException, parse_command_line
 from qlever.log import log, log_levels
 
 
-def main():
+def parse_args(
+    command_line_parser: Callable[[], argparse.Namespace],
+) -> argparse.Namespace:
+    """
+    Parse the command line with the given parser and set the log level. The
+    parser is the only part that differs between `qlever` and `qeval`.
+    """
     # Color the output even when stdout is not a terminal (e.g. when piping
     # through `tee`). Setting `NO_COLOR` still disables all colors, because
     # `termcolor` gives it precedence over `FORCE_COLOR`. Note that
@@ -28,8 +35,7 @@ def main():
 
     # Parse the command line arguments and read the Qleverfile.
     try:
-        qlever_config = QleverConfig()
-        args = qlever_config.parse_args()
+        args = command_line_parser()
     except ConfigException as e:
         log.error(e)
         log.info("")
@@ -37,8 +43,16 @@ def main():
         exit(1)
 
     # Execute the command.
-    command_object = command_objects[args.command]
     log.setLevel(log_levels[args.log_level])
+    return args
+
+
+def execute_command(args: argparse.Namespace) -> None:
+    """
+    Run the command selected by `args` and handle its failure modes. Called by
+    both `qlever` and `qeval`, so that they behave the same way on failure.
+    """
+    command_object = args.command_object
     try:
         log.info("")
         log.info(colored(f"Command: {args.command}", attrs=["bold"]))
@@ -48,7 +62,7 @@ def main():
         if not command_successful:
             exit(1)
     except KeyboardInterrupt:
-        log.warn("\rCtrl-C pressed, exiting ...")
+        log.warning("\rCtrl-C pressed, exiting ...")
         log.info("")
         exit(1)
     except Exception as e:
@@ -58,11 +72,22 @@ def main():
             "Command failed with exception, full traceback: "
             f"{traceback.format_exc()}"
         )
-        match_error = re.search(r"object has no attribute '(.+)'", str(e))
-        match_trace = re.search(
-            rf"({script_name}/commands/.+\.py)\", line (\d+)",
-            traceback.format_exc(),
+        # Path of this engine's command modules, so that the hint below only
+        # fires for tracebacks coming from them. A command class defined
+        # outside a `commands` package gets no hint.
+        module = type(command_object).__module__
+        package, separator, _ = module.rpartition(".commands.")
+        commands_path = (
+            package.replace(".", "/") + "/commands" if separator else None
         )
+
+        match_error = re.search(r"object has no attribute '(.+)'", str(e))
+        match_trace = None
+        if commands_path:
+            match_trace = re.search(
+                rf"({commands_path}/.+\.py)\", line (\d+)",
+                traceback.format_exc(),
+            )
         if isinstance(e, AttributeError) and match_error and match_trace:
             attribute = match_error.group(1)
             trace_command = match_trace.group(1)
@@ -85,3 +110,7 @@ def main():
             log.info("")
             log.info(traceback.format_exc())
         exit(1)
+
+
+def main() -> None:
+    execute_command(parse_args(parse_command_line))

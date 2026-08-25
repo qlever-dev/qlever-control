@@ -335,6 +335,7 @@ class TestIndexCommand(unittest.TestCase):
         args.resource_usage_plot_only = False
         args.cat_input_files = True
         args.multi_input_json = True
+        args.main_command_name = "qlever"
 
         # Instantiate IndexCommand and execute the function
         result = IndexCommand().execute(args)

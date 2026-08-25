@@ -164,7 +164,7 @@ class CustomHTTPRequestHandler(SimpleHTTPRequestHandler):
             except Exception as e:
                 self.send_response(500)
                 self.end_headers()
-                self.wfile.write(f"Error loading YAMLs: {e}".encode("utf-8"))
+                self.wfile.write(f"Error loading YAMLs: {e}".encode())
         else:
             super().do_GET()
 
