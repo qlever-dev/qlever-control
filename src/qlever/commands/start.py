@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import shlex
+import subprocess
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from qlever.command import QleverCommand
@@ -40,14 +42,48 @@ def construct_command(args) -> str:
         start_cmd += f" -a {args.access_token}"
     if args.persist_updates:
         start_cmd += " --persist-updates"
+    # Only pass the flags for non-default values, so that older server
+    # binaries without these options keep working.
+    if args.rebuild_index_strategy != "manual":
+        start_cmd += f" --rebuild-index-strategy {args.rebuild_index_strategy}"
+    if args.rebuild_keep_previous_index_dirs != "original-and-most-recent":
+        start_cmd += (
+            f" --rebuild-keep-previous-index-dirs"
+            f" {args.rebuild_keep_previous_index_dirs}"
+        )
+    # Merge the runtime parameters from the Qleverfile with those from the
+    # command line. The command line takes precedence per parameter name, so
+    # specifying one parameter on the command line does not silently drop
+    # the other parameters from the Qleverfile. One `--set-runtime-parameter`
+    # per assignment (the option is not multitoken).
+    set_runtime_parameters = merge_runtime_parameters(
+        get_runtime_parameters_from_qleverfile(args),
+        vars(args).get("set_runtime_parameters") or [],
+    )
+    if set_runtime_parameters:
+        start_cmd += "".join(
+            f" --set-runtime-parameter {shlex.quote(assignment)}"
+            for assignment in set_runtime_parameters
+        )
     if args.only_pso_and_pos_permutations:
         start_cmd += " --only-pso-and-pos-permutations"
     if args.use_patterns == "no":
         start_cmd += " --no-patterns"
     if args.use_text_index == "yes":
         start_cmd += " -t"
+    if args.enable_metrics:
+        start_cmd += " --enable-metrics"
     if args.metrics_log == "no":
         start_cmd += " --no-metrics-log"
+    # The server samples its own RSS and CPU usage by default. Only
+    # pass the flags for non-default settings, so that older binaries
+    # without these options keep working.
+    if args.resource_usage_log == "no":
+        start_cmd += " --no-resource-usage-log"
+    elif args.resource_usage_interval != 2:
+        start_cmd += (
+            f" --resource-usage-interval-s {args.resource_usage_interval}"
+        )
     preload_materialized_views = vars(args).get("preload_materialized_views")
     if preload_materialized_views:
         start_cmd += " --preload-materialized-views"
@@ -123,6 +159,119 @@ def set_text_description(access_arg, port, text_desc) -> bool:
     return True
 
 
+def get_runtime_parameters_from_qleverfile(args) -> list[str]:
+    """
+    Return the value of `SET_RUNTIME_PARAMETERS` from the Qleverfile as a
+    list of `name=value` assignments, or an empty list if there is no
+    Qleverfile or no such option.
+    """
+    try:
+        qleverfile_path = Path(vars(args).get("qleverfile", "Qleverfile"))
+        if not qleverfile_path.is_file():
+            return []
+        # The engine short name is only used for the default container names,
+        # which are not read here.
+        config = Qleverfile.read(
+            qleverfile_path, vars(args).get("engine_short_name", "qlever")
+        )
+        value = config.get("server", "set_runtime_parameters", fallback=None)
+        return shlex.split(value) if value else []
+    except Exception:
+        return []
+
+
+def merge_runtime_parameters(
+    from_qleverfile: list[str], from_command_line: list[str]
+) -> list[str]:
+    """
+    Merge two lists of `name=value` assignments. Assignments from the
+    command line take precedence over assignments for the same name from
+    the Qleverfile. The order is that of the Qleverfile, with additional
+    names from the command line appended.
+    """
+    merged = {
+        assignment.split("=", 1)[0]: assignment
+        for assignment in from_qleverfile
+    }
+    for assignment in from_command_line:
+        merged[assignment.split("=", 1)[0]] = assignment
+    return list(merged.values())
+
+
+def show_log_follow_info(log_name: str, run_in_foreground: bool) -> None:
+    """
+    Tell the user which log is being followed, until when, and what
+    Ctrl-C does. The two cases differ in whether Ctrl-C stops the
+    server, so the wording is centralized here instead of being
+    repeated at each call site.
+    """
+    if run_in_foreground:
+        log.info(
+            f"Follow {log_name} as long as the server is running "
+            "(Ctrl-C stops the server)"
+        )
+    else:
+        log.info(
+            f"Follow {log_name} until the server is ready "
+            "(Ctrl-C stops following the log, but NOT the server)"
+        )
+    log.info("")
+
+
+def make_server_liveness_check(
+    args, process: subprocess.Popen | None
+) -> Callable[[], bool]:
+    """
+    Build a check that tells whether the server started by `process` is
+    still running. With `nohup`, we have no handle on the server
+    process, so the check always says yes.
+    """
+    if args.system in Containerize.supported_systems():
+        return lambda: Containerize.is_running(
+            args.system, args.server_container
+        )
+    if args.run_in_foreground:
+        return lambda: process.poll() is None
+    return lambda: True
+
+
+def wait_until_server_ready(
+    is_alive: Callable[[], bool],
+    is_still_running: Callable[[], bool],
+    poll_interval_s: float = 1.0,
+) -> bool:
+    """
+    Poll until the server answers. Returns False if the server process
+    exited before it became ready (e.g. because of a corrupt index).
+    """
+    while not is_alive():
+        if not is_still_running():
+            log.error("Server process exited before becoming ready")
+            return False
+        time.sleep(poll_interval_s)
+    return True
+
+
+def wait_for_foreground_server(
+    process: subprocess.Popen,
+    log_proc: subprocess.Popen,
+    on_interrupt: Callable[[], None],
+) -> None:
+    """
+    Wait until the server started in the foreground is stopped. On
+    Ctrl-C, terminate it and call `on_interrupt` for engine-specific
+    cleanup (such as removing the server container).
+    """
+    try:
+        process.wait()
+    except KeyboardInterrupt:
+        log.warning("\rCtrl-C pressed, stopping the server ...")
+        log.info("")
+        process.terminate()
+        on_interrupt()
+    log_proc.terminate()
+
+
 class StartCommand(QleverCommand):
     """
     Class for executing the `start` command.
@@ -134,7 +283,7 @@ class StartCommand(QleverCommand):
     def description(self) -> str:
         return (
             "Start the QLever server (requires that you have built "
-            "an index with `qlever index` before)"
+            "an index with the `index` command before)"
         )
 
     def should_have_qleverfile(self) -> bool:
@@ -155,12 +304,18 @@ class StartCommand(QleverCommand):
                 "num_threads",
                 "timeout",
                 "persist_updates",
+                "rebuild_index_strategy",
+                "rebuild_keep_previous_index_dirs",
+                "set_runtime_parameters",
                 "only_pso_and_pos_permutations",
                 "use_patterns",
                 "use_text_index",
                 "metrics_log",
+                "resource_usage_log",
+                "resource_usage_interval",
                 "preload_materialized_views",
                 "warmup_cmd",
+                "enable_metrics",
             ],
             "runtime": [
                 "system",
@@ -217,9 +372,7 @@ class StartCommand(QleverCommand):
 
         # Kill existing server on the same port if so desired.
         if args.kill_existing_with_same_port:
-            if args.kill_existing_with_same_port and not kill_existing_server(
-                args
-            ):
+            if not kill_existing_server(args):
                 return False
 
         # Construct the command line based on the config file.
@@ -251,8 +404,8 @@ class StartCommand(QleverCommand):
             log.error(f"QLever server already running on {args.endpoint_url}")
             log.info("")
             log.info(
-                "To kill the existing server, use `qlever stop` "
-                "or `qlever start` with option "
+                f"To kill the existing server, use `{args.main_command_name} "
+                f"stop` or `{args.main_command_name} start` with option "
                 "--kill-existing-with-same-port`"
             )
 
@@ -299,36 +452,16 @@ class StartCommand(QleverCommand):
         # Tail the server log until the server is ready (note that the `exec`
         # is important to make sure that the tail process is killed and not
         # just the bash process).
-        if args.run_in_foreground:
-            log.info(
-                f"Follow {args.name}.server-log.txt as long as the server is"
-                f" running (Ctrl-C stops the server)"
-            )
-        else:
-            log.info(
-                f"Follow {args.name}.server-log.txt until the server is ready"
-                f" (Ctrl-C stops following the log, but NOT the server)"
-            )
-        log.info("")
+        show_log_follow_info(str(log_file), args.run_in_foreground)
         tail_proc = tail_log_file(log_file)
         if tail_proc is None:
             return False
-        while not is_qlever_server_alive(args.endpoint_url):
-            # Check if the server process/container is still running.
-            # If it exited (e.g. due to a corrupt index), stop waiting.
-            if args.system in Containerize.supported_systems():
-                still_running = Containerize.is_running(
-                    args.system, args.server_container
-                )
-            elif args.run_in_foreground:
-                still_running = process.poll() is None
-            else:
-                still_running = True  # nohup: can't easily check
-            if not still_running:
-                log.error("Server process exited before becoming ready")
-                tail_proc.terminate()
-                return False
-            time.sleep(1)
+        if not wait_until_server_ready(
+            lambda: is_qlever_server_alive(args.endpoint_url),
+            make_server_liveness_check(args, process),
+        ):
+            tail_proc.terminate()
+            return False
 
         # Set the description for the index and text.
         access_arg = f'--data-urlencode "access-token={args.access_token}"'
@@ -370,17 +503,13 @@ class StartCommand(QleverCommand):
 
         # With `--run-in-foreground`, wait until the server is stopped.
         if args.run_in_foreground:
-            try:
-                process.wait()
-            except KeyboardInterrupt:
-                log.warn("\rCtrl-C pressed, stopping the server ...")
-                log.info("")
-                process.terminate()
-                # Stop the container process manually
+
+            def stop_container() -> None:
                 if args.system in Containerize.supported_systems():
                     args.cmdline_regex = "qlever-server.* -i [^ ]*%%NAME%%"
                     args.no_containers = False
                     StopCommand().execute(args)
-            tail_proc.terminate()
+
+            wait_for_foreground_server(process, tail_proc, stop_container)
 
         return True

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "qlever"
 description = "Command-line tool for using the QLever graph database"
-version = "0.5.50"
+version = "0.6.0"
 authors = [
     { name = "Hannah Bast", email = "bast@cs.uni-freiburg.de" }
 ]
@@ -21,11 +21,11 @@ classifiers = [
  "Topic :: Database :: Front-Ends"
 ]
 
-dependencies = [ "psutil", "termcolor", "argcomplete", "pyyaml", "rdflib", "requests-sse", "tqdm>=4.60.0", "textual>=8.0", "rich" ]
+dependencies = [ "psutil", "termcolor", "argcomplete", "pyyaml", "rdflib", "requests-sse", "tqdm>=4.60.0", "textual>=8.0,<9", "textual-plotext", "rich" ]
 
 [project.optional-dependencies]
 plot = [ "matplotlib", "numpy" ]
-dev = [ "ruff", "pre-commit" ]
+dev = [ "ruff", "pre-commit", "pytest" ]
 
 [project.urls]
 homepage = "https://github.com/ad-freiburg/qlever"
@@ -35,6 +35,7 @@ bugtracker = "https://github.com/ad-freiburg/qlever/issues"
 
 [project.scripts]
 "qlever" = "qlever.qlever_main:main"
+"qeval" = "qeval.qeval_main:main"
 
 [tool.setuptools]
 package-data = { "qlever" = ["Qleverfiles/*", "evaluation/www/*", "monitor_queries/*.tcss"] }

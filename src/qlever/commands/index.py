@@ -9,7 +9,6 @@ from pathlib import Path
 from qlever.command import QleverCommand
 from qlever.containerize import Containerize
 from qlever.log import log
-from qlever.resource_usage.resource_monitor import ResourceMonitor
 from qlever.util import (
     binary_exists,
     get_existing_index_files,
@@ -25,6 +24,8 @@ def render_usage_plot(
     settings_json: str,
     plot_max_points: int,
     plot_only: bool,
+    main_command_name: str,
+    engine_display_name: str,
 ) -> Path | None:
     """Render the resource-usage plot.
 
@@ -44,7 +45,7 @@ def render_usage_plot(
             log.info(
                 "To plot the resource-usage log, install matplotlib and "
                 "numpy (`pip install qlever[plot]`), then run "
-                "`qlever index --resource-usage-plot-only`."
+                f"`{main_command_name} index --resource-usage-plot-only`."
             )
         return None
     return usage_plot.render_usage_plot(
@@ -52,6 +53,7 @@ def render_usage_plot(
         stxxl_memory=stxxl_memory,
         settings_json=settings_json,
         plot_max_points=plot_max_points,
+        engine_display_name=engine_display_name,
     )
 
 
@@ -90,6 +92,7 @@ class IndexCommand(QleverCommand):
                 "text_index",
                 "stxxl_memory",
                 "parser_buffer_size",
+                "resource_usage_log",
                 "resource_usage_interval",
                 "resource_usage_plot_max_points",
             ],
@@ -108,7 +111,7 @@ class IndexCommand(QleverCommand):
             action="store_true",
             default=False,
             help="Only render the resource-usage plot from the existing "
-            "`<name>.resource-usage-log.tsv`; do not build the index. Use "
+            "`<name>.index.resource-usage-log.tsv`; do not build the index. Use "
             "after installing the plotting libraries, or to re-render with "
             "a different `--resource-usage-plot-max-points`",
         )
@@ -240,6 +243,8 @@ class IndexCommand(QleverCommand):
                 settings_json=args.settings_json,
                 plot_max_points=args.resource_usage_plot_max_points,
                 plot_only=True,
+                main_command_name=args.main_command_name,
+                engine_display_name=args.engine_display_name,
             )
             if plot_path is None:
                 return False
@@ -279,7 +284,10 @@ class IndexCommand(QleverCommand):
                 "multiple input streams)"
             )
             log.info("")
-            log.info("See `qlever index --help` for more information")
+            log.info(
+                f"See `{args.main_command_name} index --help` for more "
+                "information"
+            )
             return False
 
         # Add remaining options.
@@ -312,6 +320,15 @@ class IndexCommand(QleverCommand):
         if args.materialized_views:
             index_cmd += (
                 f" --materialized-views {shlex.quote(args.materialized_views)}"
+            )
+        # The binary samples its own RSS and CPU usage by default. Only
+        # pass the flags for non-default settings, so that older binaries
+        # without these options keep working.
+        if args.resource_usage_log == "no":
+            index_cmd += " --no-resource-usage-log"
+        elif args.resource_usage_interval != 1:
+            index_cmd += (
+                f" --resource-usage-interval-s {args.resource_usage_interval}"
             )
         index_cmd += f" 2>&1 | tee {args.name}.index-log.txt"
 
@@ -350,7 +367,7 @@ class IndexCommand(QleverCommand):
             return False
 
         # Check if all of the input files exist.
-        if not input_files_exist(args.input_files):
+        if not input_files_exist(args.input_files, args.main_command_name):
             return False
 
         # Check if index files (name.index.*) already exist.
@@ -389,26 +406,26 @@ class IndexCommand(QleverCommand):
 
         # Run the index command.
         try:
-            with ResourceMonitor(
-                dataset=args.name,
-                binary=args.index_binary,
-                container=args.index_container,
-                system=args.system,
-                interval=args.resource_usage_interval,
-            ) as monitor:
-                run_command(index_cmd, show_output=True)
-                log.info("")
+            run_command(index_cmd, show_output=True)
+            log.info("")
         except Exception as e:
             log.error(f"Building the index failed: {e}")
             return False
 
-        if monitor.peak_rss > 0:
+        # The index binary writes the resource-usage log itself; older
+        # binaries without that feature write none, then skip the plot.
+        if (
+            Path(f"{args.name}.index.resource-usage-log.tsv").exists()
+            or Path(f"{args.name}.resource-usage-log.tsv").exists()
+        ):
             plot_path = render_usage_plot(
                 args.name,
                 stxxl_memory=args.stxxl_memory or "",
                 settings_json=args.settings_json,
                 plot_max_points=args.resource_usage_plot_max_points,
                 plot_only=False,
+                main_command_name=args.main_command_name,
+                engine_display_name=args.engine_display_name,
             )
             if plot_path is not None:
                 log.info(f"Resource-usage plot saved to `{plot_path.name}`")

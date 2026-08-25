@@ -127,3 +127,81 @@ class FilterState:
         return (
             self.client_ip_substr is not None or self.sparql_substr is not None
         )
+
+
+@dataclass(frozen=True)
+class ResourceSample:
+    """One reading of server resource usage, in raw source units.
+
+    Kept literal (rss bytes, cpu_percent across cores) so conversion
+    lives at the read seam. elapsed_s is the server's run time; it
+    resets on restart, so a drop between samples marks a new process.
+    """
+
+    elapsed_s: float
+    ts_ms: int
+    rss: int
+    cpu_percent: float
+
+
+@dataclass(frozen=True)
+class ResourceTotals:
+    """Host capacities the gauges and plot axes scale against.
+
+    Read once at startup and fixed for the machine's lifetime. cores is
+    None when the count could not be read.
+    """
+
+    ram_gb: float
+    cores: float | None
+
+
+@dataclass(frozen=True)
+class ResourceSeries:
+    """One sparkline's data, already in display units.
+
+    values is the recent series the sparkline draws, total the capacity
+    it scales against, both in unit. total is None when the capacity is
+    unknown (e.g. the core count could not be read). The widget renders
+    this as-is and does no math of its own.
+    """
+
+    label: str
+    values: tuple[float, ...]
+    total: float | None
+    unit: str
+
+
+@dataclass(frozen=True)
+class ResourceUsage:
+    """The two resource sparklines shown in the Live header, as one unit."""
+
+    rss: ResourceSeries
+    cpu: ResourceSeries
+
+
+@dataclass(frozen=True)
+class ResourcePlot:
+    """Points and frame for the dual-axis resource plot modal.
+
+    times_s is the shared x-axis in epoch seconds; rss_gb and cpu_cores
+    are the two y-series in display units. rss_total and cpu_total are
+    the capacities the left and right axes scale against; cpu_total is
+    None when the core count could not be read. start_s and
+    end_s are the requested window edges the plot frames its x-axis to,
+    which may be wider than the samples that fall inside it.
+    A restart shows as elapsed time dropping between two adjacent
+    samples. stop_times_s marks the earlier sample (server going down)
+    and start_times_s the later one (server coming back), both in epoch
+    seconds, so the downtime shows as the gap between the two.
+    """
+
+    times_s: tuple[float, ...]
+    rss_gb: tuple[float, ...]
+    cpu_cores: tuple[float, ...]
+    rss_total: float
+    cpu_total: float | None
+    start_s: float
+    end_s: float
+    stop_times_s: tuple[float, ...]
+    start_times_s: tuple[float, ...]
