@@ -236,6 +236,14 @@ class Qleverfile:
             "(at most 4 prefixes; the encoded IDs are ordered numerically, "
             "not lexicographically; default: none)",
         )
+        index_args["parse_parallelism"] = arg(
+            "--parse-parallelism",
+            type=int,
+            help="The number of threads used for parsing the input and for "
+            "converting the parsed triples to IDs (the first pass of the "
+            "index build); increase on machines with many cores "
+            "(default: 8 parser threads and 10 converter threads)",
+        )
         index_args["only_pso_and_pos_permutations"] = arg(
             "--only-pso-and-pos-permutations",
             action="store_true",
