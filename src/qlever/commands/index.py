@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import glob
+import os
 import json
 import re
 import shlex
@@ -191,7 +192,14 @@ class IndexCommand(QleverCommand):
                 input_cmds = [input_spec["cmd"]]
             else:
                 try:
-                    files = sorted(glob.glob(input_spec["for-each"]))
+                    # Sort the files by size, largest first: with parallel
+                    # parsing, the largest inputs then start first, which
+                    # minimizes the straggler tail at the end of the parsing
+                    # phase (the order is semantically irrelevant otherwise).
+                    files = sorted(
+                        glob.glob(input_spec["for-each"]),
+                        key=lambda f: (-os.path.getsize(f), f),
+                    )
                 except Exception as e:
                     raise self.InvalidInputJson(
                         f"Element {i} in `MULTI_INPUT_JSON` contains an "
