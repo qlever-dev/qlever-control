@@ -78,6 +78,7 @@ class IndexCommand(QleverCommand):
                 "input_files",
                 "cat_input_files",
                 "geo_cell_grid_level",
+                "geo_cell_grid_scheme",
                 "encode_as_id",
                 "multi_input_json",
                 "parallel_parsing",
@@ -293,6 +294,8 @@ class IndexCommand(QleverCommand):
         # Add remaining options.
         if args.geo_cell_grid_level:
             index_cmd += f" --geo-cell-grid-level {args.geo_cell_grid_level}"
+        if args.geo_cell_grid_scheme:
+            index_cmd += f" --geo-cell-grid-scheme {args.geo_cell_grid_scheme}"
         if args.encode_as_id:
             index_cmd += f" --encode-as-id {args.encode_as_id}"
         if args.only_pso_and_pos_permutations:
