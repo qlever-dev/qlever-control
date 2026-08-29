@@ -22,7 +22,7 @@ ACCESS_TOKEN       = ${data:NAME}
 MEMORY_FOR_QUERIES = 5G
 
 [runtime]
-SYSTEM = docker
+SYSTEM = singularity
 IMAGE  = docker.io/adfreiburg/qlever:latest
 
 [ui]
