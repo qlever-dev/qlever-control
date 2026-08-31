@@ -1,7 +1,13 @@
-"""Dual-axis RSS and CPU plot, shared by the inline pane and the modal."""
+"""Dual-axis RSS and CPU plot, shared by the inline pane and the modal.
+
+Draws from a source callable rather than owning data, so the same widget
+serves Live's rolling window and Historic's fixed span. Ticks are picked
+by hand because plotext's defaults crowd a short terminal pane.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 
 from textual_plotext import PlotextPlot
@@ -165,31 +171,93 @@ def break_at_starts(
     return out_times, out_values
 
 
+def color_markup(color: RgbColor) -> str:
+    """A Rich color tag for an RGB triplet."""
+    return "rgb({}, {}, {})".format(*color)
+
+
+def marker_legend(data: ResourcePlot, dark: bool) -> str:
+    """One line per marker kind in the window, colored to match its bars."""
+    stop_color, start_color = restart_colors(dark)
+    rebuild_start_color, rebuild_end_color = rebuild_colors(dark)
+    markers = (
+        (data.stop_times_s, "server down", stop_color),
+        (data.start_times_s, "server up", start_color),
+        (data.rebuild_start_times_s, "rebuild start", rebuild_start_color),
+        (data.rebuild_end_times_s, "rebuild end", rebuild_end_color),
+    )
+    return "\n".join(
+        f"[{color_markup(color)}]│ {label}[/]"
+        for times, label, color in markers
+        if times
+    )
+
+
+# The plot name and the two series names share the plot's top row, so
+# the name is drawn only when all three fit with a gap between them.
+PLOT_NAME = "Memory and CPU"
+RSS_LABEL = "RSS (GB)"
+CPU_LABEL = "CPU (cores)"
+LABEL_GAP = 2
+
+
 class ResourcePlotPane(PlotextPlot):
-    """Dual-axis RSS and CPU plot over a time window."""
+    """Dual-axis RSS and CPU plot over a time window.
+
+    Takes a source that returns the points to draw and an optional
+    refresh interval. With an interval the plot replots on a timer and
+    rolls forward, for the Live window; without one it draws once and
+    stays fixed, for a historic span.
+    """
 
     can_focus = False
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(
+        self,
+        source: Callable[[], ResourcePlot],
+        refresh_interval: float | None = None,
+        reload: Callable[[int], None] | None = None,
+        **kwargs,
+    ) -> None:
         super().__init__(**kwargs)
-        self.data = None
+        self.source = source
+        self.refresh_interval = refresh_interval
+        self.reload = reload
+        self.last_budget = None
 
-    def draw(self, data: ResourcePlot) -> None:
-        """Draw new data, and keep it for redraws at a new size."""
-        self.data = data
+    def on_mount(self) -> None:
+        """Draw once; with an interval, also replot on a timer to roll."""
         self.replot()
+        if self.refresh_interval is not None:
+            self.set_interval(self.refresh_interval, self.replot)
+        self.app.theme_changed_signal.subscribe(
+            self, lambda theme: self.replot()
+        )
+
+    def on_resize(self) -> None:
+        """Redraw at the new size, and re-read if the pane got wider.
+
+        A visible pane whose point budget changed asks the owner to
+        re-read, so a wider pane shows more detail. A hidden pane has
+        width 0 and is skipped.
+        """
+        self.replot()
+        if self.reload is not None and self.size.width > 0:
+            budget = point_budget(self.size.width)
+            if budget != self.last_budget:
+                self.last_budget = budget
+                self.reload(budget)
 
     def replot(self) -> None:
-        """Draw the current window: RSS on the left axis, CPU on the right.
+        """Draw the current window, and set the marker tooltip.
 
-        Frames the window and axes, then plots the two series or, when the
-        window holds no samples, a centered note. Restarts show as an
-        orange stop line and a green start line, with the series broken
-        across the downtime between them.
+        Skipped while hidden; being shown fires a resize that redraws.
         """
-        if self.data is None:
+        if not self.display:
             return
-        data = self.data
+        data = self.source()
+        legend = marker_legend(data, self.app.current_theme.dark)
+        self.tooltip = legend or None
         self.plt.clear_figure()
         self.plt.xlim(data.start_s, data.end_s)
         rss_max, cpu_max = self.draw_axes(data)
@@ -239,7 +307,7 @@ class ResourcePlotPane(PlotextPlot):
     def draw_labels(
         self, data: ResourcePlot, rss_max: float, cpu_max: float | None
     ) -> None:
-        """Name each series in its axis corner.
+        """Name each series in its axis corner and the plot between them.
 
         The series names sit in the top corners, colored to match their
         lines, so the reader maps line to axis without a stacked legend.
@@ -249,7 +317,7 @@ class ResourcePlotPane(PlotextPlot):
         rss_color, cpu_color = series_colors(dark)
         plt = self.plt
         plt.text(
-            "RSS (GB)",
+            RSS_LABEL,
             data.start_s,
             rss_max,
             yside="left",
@@ -259,13 +327,28 @@ class ResourcePlotPane(PlotextPlot):
         )
         if cpu_max is not None:
             plt.text(
-                "CPU (cores)",
+                CPU_LABEL,
                 data.end_s,
                 cpu_max,
                 yside="right",
                 color=cpu_color,
                 background="default",
                 alignment="right",
+            )
+        # plotext neither wraps nor clips, so a name that does not fit
+        # would be painted over the data.
+        row_width = len(RSS_LABEL) + len(PLOT_NAME) + 2 * LABEL_GAP
+        if cpu_max is not None:
+            row_width += len(CPU_LABEL)
+        if row_width <= self.size.width - Y_AXIS_CHROME:
+            plt.text(
+                PLOT_NAME,
+                (data.start_s + data.end_s) / 2,
+                rss_max,
+                yside="left",
+                background="default",
+                style="bold",
+                alignment="center",
             )
 
     def draw_series(self, data: ResourcePlot, rss_max: float) -> None:

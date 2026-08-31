@@ -171,19 +171,9 @@ DetailSwitcher {
     height: 1fr;
 }
 
-DetailSwitcher PlotWithHeading {
+DetailSwitcher ResourcePlotPane {
     height: 1fr;
     padding: 0 0 0 1;
-}
-
-/* PlotWithHeading */
-
-PlotWithHeading #plot-heading {
-    height: 1;
-}
-
-PlotWithHeading ResourcePlotPane {
-    height: 1fr;
 }
 
 /* SparqlPane */
@@ -314,6 +304,6 @@ ResourcePlotModal {
     background: $surface;
 }
 
-#resource-plot-modal PlotWithHeading {
+#resource-plot-modal PlotextPlot {
     height: 1fr;
 }
