@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import shlex
 import contextlib
+import shlex
 import subprocess
-
-import psutil
 import time
 from collections.abc import Callable
 from pathlib import Path
+
+import psutil
 
 from qlever.command import QleverCommand
 from qlever.commands.cache_stats import CacheStatsCommand
