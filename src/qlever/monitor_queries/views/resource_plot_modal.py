@@ -22,12 +22,11 @@ from qlever.monitor_queries.widgets.resource_plot_pane import ResourcePlotPane
 
 
 class ResourcePlotModal(ModalScreen):
-    """Full-screen shell around a ResourcePlotPane.
+    """Shows the resource plot full screen.
 
-    The pane owns the drawing and the roll timer; this modal only frames
-    it and handles closing. With a reader it also re-reads the window at
-    its own wider width once open, so a maximized historic plot shows
-    more detail than the inline pane.
+    The pane draws itself; this screen only frames it and closes it.
+    Historic passes a reader, so the window is read again at the bigger
+    size and the plot gains detail. Live reads from its buffer instead.
     """
 
     BINDINGS = [Binding("escape", "close", "Close")]

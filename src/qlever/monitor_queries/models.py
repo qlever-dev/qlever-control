@@ -131,17 +131,27 @@ class FilterState:
 
 @dataclass(frozen=True)
 class ResourceSample:
-    """One reading of server resource usage, in raw source units.
+    """One reading of server resource usage, as the log wrote it
 
-    Kept literal (rss bytes, cpu_percent across cores) so conversion
-    lives at the read seam. elapsed_s is the server's run time; it
-    resets on restart, so a drop between samples marks a new process.
+    elapsed_s: seconds the server has been running, resets on restart
+    ts_ms: wall-clock time of the sample
+    rss: memory in bytes
+    cpu_percent: CPU use, above 100 when several cores are busy
+    read_bytes_per_s, write_bytes_per_s: this server's disk I/O
+    io_stall_percent: share of time anything on the machine waited on disk,
+      so machine-wide and not just this server
+    rebuild_id: which index rebuild was running, counted from 1. None when
+      no rebuild in progress.
     """
 
     elapsed_s: float
     ts_ms: int
     rss: int
     cpu_percent: float
+    read_bytes_per_s: float | None = None
+    write_bytes_per_s: float | None = None
+    io_stall_percent: float | None = None
+    rebuild_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -184,16 +194,15 @@ class ResourceUsage:
 class ResourcePlot:
     """Points and frame for the dual-axis resource plot modal.
 
-    times_s is the shared x-axis in epoch seconds; rss_gb and cpu_cores
-    are the two y-series in display units. rss_total and cpu_total are
-    the capacities the left and right axes scale against; cpu_total is
-    None when the core count could not be read. start_s and
-    end_s are the requested window edges the plot frames its x-axis to,
-    which may be wider than the samples that fall inside it.
-    A restart shows as elapsed time dropping between two adjacent
-    samples. stop_times_s marks the earlier sample (server going down)
-    and start_times_s the later one (server coming back), both in epoch
-    seconds, so the downtime shows as the gap between the two.
+    times_s: shared x-axis, in epoch seconds
+    rss_gb, cpu_cores: the two y-series, in display units
+    rss_total, cpu_total: axis capacities, cpu_total None if unknown
+    start_s, end_s: window edges the x-axis frames, often wider than
+      the samples that fall inside them
+    start_times_s: first sample after it came back up
+    stop_times_s: last sample before the server went down
+    rebuild_start_times_s: first sample of an index rebuild
+    rebuild_end_times_s: last sample of index rebuild, finished or failed
     """
 
     times_s: tuple[float, ...]
@@ -203,5 +212,7 @@ class ResourcePlot:
     cpu_total: float | None
     start_s: float
     end_s: float
-    stop_times_s: tuple[float, ...]
     start_times_s: tuple[float, ...]
+    stop_times_s: tuple[float, ...]
+    rebuild_start_times_s: tuple[float, ...]
+    rebuild_end_times_s: tuple[float, ...]
