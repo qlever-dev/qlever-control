@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import shlex
+import contextlib
 import subprocess
+
+import psutil
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -219,12 +222,12 @@ def show_log_follow_info(log_name: str, run_in_foreground: bool) -> None:
 
 
 def make_server_liveness_check(
-    args, process: subprocess.Popen | None
+    args, process: subprocess.Popen | None, pid: int | None
 ) -> Callable[[], bool]:
     """
-    Build a check that tells whether the server started by `process` is
-    still running. With `nohup`, we have no handle on the server
-    process, so the check always says yes.
+    Build a check that tells whether the server is still running: via the
+    container runtime, via the `Popen` handle (foreground), or via the
+    `pid` of the process started with `nohup`.
     """
     if args.system in Containerize.supported_systems():
         return lambda: Containerize.is_running(
@@ -232,6 +235,8 @@ def make_server_liveness_check(
         )
     if args.run_in_foreground:
         return lambda: process.poll() is None
+    if pid is not None:
+        return lambda: psutil.pid_exists(pid)
     return lambda: True
 
 
@@ -386,7 +391,10 @@ class StartCommand(QleverCommand):
         elif args.run_in_foreground:
             start_cmd = f"{start_cmd}"
         else:
-            start_cmd = f"nohup {start_cmd} &"
+            # The `echo $!` reports the PID of the server process, which the
+            # liveness check below uses to detect a server that exits before
+            # it becomes ready (see `make_server_liveness_check`).
+            start_cmd = f"nohup {start_cmd} & echo $!"
 
         # Show the command line.
         self.show(start_cmd, only_show=args.show)
@@ -440,11 +448,26 @@ class StartCommand(QleverCommand):
         log_file.unlink(missing_ok=True)
 
         # Execute the command line.
+        # For a server started with `nohup`, the `echo $!` in the command
+        # reports its PID, which the liveness check below uses (a server in a
+        # container or in the foreground is checked via the container runtime
+        # or the process handle instead, see `make_server_liveness_check`).
+        capture_pid = (
+            not args.run_in_foreground
+            and args.system not in Containerize.supported_systems()
+        )
+        pid = None
         try:
-            process = run_command(
-                start_cmd,
-                use_popen=args.run_in_foreground,
-            )
+            if capture_pid:
+                output = run_command(start_cmd, return_output=True)
+                process = None
+                with contextlib.suppress(ValueError, AttributeError):
+                    pid = int(output.strip().splitlines()[-1])
+            else:
+                process = run_command(
+                    start_cmd,
+                    use_popen=args.run_in_foreground,
+                )
         except Exception as e:
             log.error(f"Starting the QLever server failed ({e})")
             return False
@@ -458,7 +481,7 @@ class StartCommand(QleverCommand):
             return False
         if not wait_until_server_ready(
             lambda: is_qlever_server_alive(args.endpoint_url),
-            make_server_liveness_check(args, process),
+            make_server_liveness_check(args, process, pid),
         ):
             tail_proc.terminate()
             return False
