@@ -221,6 +221,28 @@ class Qleverfile:
             "large enough to contain the end of at least one statement "
             "(default: 10M)",
         )
+        index_args["geo_cell_grid_level"] = arg(
+            "--geo-cell-grid-level",
+            type=int,
+            default=None,
+            help="Level L of the geo cell grid for WKT literals: the grid "
+            "cell of each literal is encoded into its ID, which enables the "
+            "geo cell prefilter for spatial joins; requires VOCABULARY_TYPE "
+            "on-disk-compressed-geo-split (default: no grid)",
+        )
+        index_args["geo_cell_grid_scheme"] = arg(
+            "--geo-cell-grid-scheme",
+            type=str,
+            choices=[
+                "flat",
+                "flat-4-shifts",
+                "hierarchical",
+                "hierarchical-3-shifts",
+            ],
+            default=None,
+            help="Cell assignment scheme of the geo cell grid "
+            "(default: flat); only relevant with GEO_CELL_GRID_LEVEL > 0",
+        )
         index_args["encode_as_id"] = arg(
             "--encode-as-id",
             type=str,
