@@ -437,12 +437,12 @@ class TestStartCommand(unittest.TestCase):
             " -t"
             f" > {args.name}.server-log.txt 2>&1"
         )
-        run_call_2 = f"nohup {start_command} &"
+        run_call_2 = f"nohup {start_command} & echo $!"
         # Assert that run_command was called exactly twice with the
 
         mock_util_run_command.assert_has_calls([call(run_call_1)])
         mock_start_run_command.assert_has_calls(
-            [call(run_call_2, use_popen=False)]
+            [call(run_call_2, return_output=True)]
         )
         # Ensure execution was successful
         self.assertTrue(result)
