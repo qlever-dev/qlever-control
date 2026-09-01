@@ -233,8 +233,12 @@ class Qleverfile:
         index_args["geo_cell_grid_scheme"] = arg(
             "--geo-cell-grid-scheme",
             type=str,
-            choices=["flat", "flat-4-shifts", "hierarchical",
-                     "hierarchical-3-shifts"],
+            choices=[
+                "flat",
+                "flat-4-shifts",
+                "hierarchical",
+                "hierarchical-3-shifts",
+            ],
             default=None,
             help="Cell assignment scheme of the geo cell grid "
             "(default: flat); only relevant with GEO_CELL_GRID_LEVEL > 0",
