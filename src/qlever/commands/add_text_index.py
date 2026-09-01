@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-import subprocess
-
 from qlever.command import QleverCommand
 from qlever.containerize import Containerize
 from qlever.log import log
-from qlever.util import binary_exists, get_existing_index_files
+from qlever.util import (
+    binary_exists,
+    get_existing_index_files,
+    run_command,
+)
 
 
 class AddTextIndexCommand(QleverCommand):
@@ -61,7 +63,7 @@ class AddTextIndexCommand(QleverCommand):
             "from_text_records_and_literals",
         ]:
             add_text_index_cmd += " --text-words-from-literals"
-        add_text_index_cmd += f" | tee {args.name}.text-index-log.txt"
+        add_text_index_cmd += f" 2>&1 | tee {args.name}.text-index-log.txt"
 
         # Run the command in a container (if so desired).
         if args.system in Containerize.supported_systems():
@@ -98,9 +100,9 @@ class AddTextIndexCommand(QleverCommand):
 
         # Run the index command.
         try:
-            subprocess.run(add_text_index_cmd, shell=True, check=True)
+            run_command(add_text_index_cmd, show_output=True)
         except Exception as e:
-            log.error(f'Running "{add_text_index_cmd}" failed ({e})')
+            log.error(f"Adding the text index failed: {e}")
             return False
 
         return True
