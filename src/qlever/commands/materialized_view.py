@@ -68,6 +68,12 @@ class MaterializedViewCommand(QleverCommand):
             help="Delete an existing materialized view instead of "
             "creating one",
         )
+        subparser.add_argument(
+            "--overwrite-existing",
+            action="store_true",
+            default=False,
+            help="Overwrite an existing materialized view with the same name",
+        )
 
     def execute(self, args) -> bool:
         # SPARQL endpoint to use.
@@ -212,6 +218,22 @@ class MaterializedViewCommand(QleverCommand):
         self.show(materialized_view_cmd, only_show=args.show)
         if args.show:
             return True
+
+        # Check if files of a materialized view with that name already exist
+        # (their names all start with `<name>.view.<view name>.`; since view
+        # names cannot contain dots, the glob matches only this view's files).
+        existing_view_files = sorted(
+            path.name
+            for path in Path.cwd().glob(f"{args.name}.view.{args.view_name}.*")
+        )
+        if len(existing_view_files) > 0 and not args.overwrite_existing:
+            log.error(
+                f"Materialized view '{args.view_name}' already exists, "
+                f"if you want to overwrite it, use --overwrite-existing"
+            )
+            log.info("")
+            log.info(f"Existing files: {existing_view_files}")
+            return False
 
         # Run the command (and time it).
         time_start = time.monotonic()
