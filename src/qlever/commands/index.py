@@ -24,6 +24,8 @@ def render_usage_plot(
     settings_json: str,
     plot_max_points: int,
     plot_only: bool,
+    main_command_name: str,
+    engine_display_name: str,
 ) -> Path | None:
     """Render the resource-usage plot.
 
@@ -43,7 +45,7 @@ def render_usage_plot(
             log.info(
                 "To plot the resource-usage log, install matplotlib and "
                 "numpy (`pip install qlever[plot]`), then run "
-                "`qlever index --resource-usage-plot-only`."
+                f"`{main_command_name} index --resource-usage-plot-only`."
             )
         return None
     return usage_plot.render_usage_plot(
@@ -51,6 +53,7 @@ def render_usage_plot(
         stxxl_memory=stxxl_memory,
         settings_json=settings_json,
         plot_max_points=plot_max_points,
+        engine_display_name=engine_display_name,
     )
 
 
@@ -74,6 +77,8 @@ class IndexCommand(QleverCommand):
             "index": [
                 "input_files",
                 "cat_input_files",
+                "geo_cell_grid_level",
+                "geo_cell_grid_scheme",
                 "encode_as_id",
                 "multi_input_json",
                 "parallel_parsing",
@@ -239,6 +244,8 @@ class IndexCommand(QleverCommand):
                 settings_json=args.settings_json,
                 plot_max_points=args.resource_usage_plot_max_points,
                 plot_only=True,
+                main_command_name=args.main_command_name,
+                engine_display_name=args.engine_display_name,
             )
             if plot_path is None:
                 return False
@@ -278,10 +285,17 @@ class IndexCommand(QleverCommand):
                 "multiple input streams)"
             )
             log.info("")
-            log.info("See `qlever index --help` for more information")
+            log.info(
+                f"See `{args.main_command_name} index --help` for more "
+                "information"
+            )
             return False
 
         # Add remaining options.
+        if args.geo_cell_grid_level:
+            index_cmd += f" --geo-cell-grid-level {args.geo_cell_grid_level}"
+        if args.geo_cell_grid_scheme:
+            index_cmd += f" --geo-cell-grid-scheme {args.geo_cell_grid_scheme}"
         if args.encode_as_id:
             index_cmd += f" --encode-as-id {args.encode_as_id}"
         if args.only_pso_and_pos_permutations:
@@ -356,7 +370,7 @@ class IndexCommand(QleverCommand):
             return False
 
         # Check if all of the input files exist.
-        if not input_files_exist(args.input_files):
+        if not input_files_exist(args.input_files, args.main_command_name):
             return False
 
         # Check if index files (name.index.*) already exist.
@@ -413,6 +427,8 @@ class IndexCommand(QleverCommand):
                 settings_json=args.settings_json,
                 plot_max_points=args.resource_usage_plot_max_points,
                 plot_only=False,
+                main_command_name=args.main_command_name,
+                engine_display_name=args.engine_display_name,
             )
             if plot_path is not None:
                 log.info(f"Resource-usage plot saved to `{plot_path.name}`")

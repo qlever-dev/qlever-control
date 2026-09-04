@@ -21,7 +21,6 @@ class MaterializedViewCommand(QleverCommand):
 
     def __init__(self):
         self.materialized_view_name_regex = r"^[A-Za-z0-9-]+$"
-        pass
 
     def description(self) -> str:
         return (
@@ -168,7 +167,12 @@ class MaterializedViewCommand(QleverCommand):
             qleverfile_path = Path(getattr(args, "qleverfile", "Qleverfile"))
             if qleverfile_path.is_file():
                 try:
-                    qleverfile_config = Qleverfile.read(qleverfile_path)
+                    # The engine short name is only used for the default
+                    # container names, which are not read here.
+                    qleverfile_config = Qleverfile.read(
+                        qleverfile_path,
+                        vars(args).get("engine_short_name", "qlever"),
+                    )
                     materialized_views = json.loads(
                         qleverfile_config.get(
                             "index", "materialized_views", fallback="{}"

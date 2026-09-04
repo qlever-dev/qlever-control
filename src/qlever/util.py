@@ -14,12 +14,33 @@ import time
 from collections.abc import Iterator
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, NamedTuple, Optional
+from typing import Any, NamedTuple
 
 import psutil
+import yaml
 
-from qlever import script_name
 from qlever.log import log
+
+
+def dict_to_yaml(dictionary: dict) -> str:
+    """
+    Dump a dict to YAML, using the `|` block style for multiline strings.
+    """
+
+    class MultiLineDumper(yaml.SafeDumper):
+        def represent_scalar(self, tag, value, style=None):
+            # The `|` style does not work as expected with `\r\n`.
+            value = value.replace("\r\n", "\n")
+            if isinstance(value, str) and "\n" in value:
+                style = "|"
+            return super().represent_scalar(tag, value, style)
+
+    return yaml.dump(
+        dictionary,
+        sort_keys=False,
+        allow_unicode=True,
+        Dumper=MultiLineDumper,
+    )
 
 
 def get_total_file_size(
@@ -47,7 +68,7 @@ def run_command(
     show_output: bool = False,
     show_stderr: bool = False,
     use_popen: bool = False,
-) -> Optional[str | subprocess.Popen]:
+) -> str | subprocess.Popen | None:
     """
     Run the given command and throw an exception if the exit code is non-zero.
     If `return_output` is `True`, return what the command wrote to `stdout`.
@@ -404,7 +425,7 @@ def binary_exists(binary: str, cmd_arg: str, args) -> bool:
 
     is_containerized = args.system in Containerize.supported_systems()
     cmd = f"{binary} --help"
-    if is_containerized and script_name == "qlever":
+    if is_containerized and args.engine_short_name == "qlever":
         cmd = Containerize().containerize_command(
             cmd,
             args.system,
@@ -452,7 +473,7 @@ def is_server_alive(url: str) -> bool:
         return False
 
 
-def input_files_exist(input_files: str) -> bool:
+def input_files_exist(input_files: str, main_command_name: str) -> bool:
     """
     Check if all of the input files exist in current working directory.
     """
@@ -461,7 +482,7 @@ def input_files_exist(input_files: str) -> bool:
             log.error(f'No file matching "{pattern}" found')
             log.info("")
             log.info(
-                f"Did you call `{script_name} get-data`? If you did, "
+                f"Did you call `{main_command_name} get-data`? If you did, "
                 "check GET_DATA_CMD and INPUT_FILES in the Qleverfile"
             )
             return False
@@ -508,18 +529,148 @@ def get_container_image_id(system: str, image: str) -> str:
     return image_id
 
 
-def get_ini_sed_cmd(
-    section: str, option: str, new_value: str, is_suffix: bool = False
+def edit_option_line(
+    line: str,
+    new_value: str,
+    is_suffix: bool,
+    inline_comment_prefix: str | None,
 ) -> str:
     """
-    Generates a cross-platform sed command to update the value of a
-    key = value pair or append to one (by using is_suffix = True) in an INI file.
+    Return `line` with its value replaced by `new_value`, or with
+    `new_value` appended to it if `is_suffix` is true. An inline comment
+    after the value is kept.
     """
+    # Split off an inline comment (whitespace followed by the comment
+    # prefix) so that only the value part is edited.
+    value_part = line
+    comment_part = ""
+    if inline_comment_prefix is not None:
+        comment_match = re.search(
+            rf"\s{re.escape(inline_comment_prefix)}", line
+        )
+        if comment_match:
+            value_part = line[: comment_match.start()]
+            comment_part = "\t" + line[comment_match.start() :].strip()
+
     if is_suffix:
-        pattern = f"s/(^{option}.*)/\\1{new_value}/"
+        new_line = value_part.rstrip() + new_value
     else:
-        pattern = f"s/(^{option}[[:space:]]*=[[:space:]]*).*/\\1{new_value}/"
-    return f"sed -E '/^\\[{section}\\]/,/^\\[/ {pattern}'"
+        # Keep everything up to and including the `=` and the spacing
+        # after it, replace the old value.
+        # The non-greedy `\S+?` splits at the first `=`, like
+        # `ConfigParser` does.
+        prefix_end = re.match(r"^\s*\S+?\s*=\s*", value_part).end()
+        new_line = value_part[:prefix_end] + new_value
+    return new_line + comment_part
+
+
+def update_ini_values(
+    lines: list[str],
+    updates: dict[str, dict[str, tuple[str, bool]]],
+    inline_comment_prefix: str | None = None,
+) -> list[str]:
+    """
+    Update values in INI-style file content given as `lines` and return
+    the modified lines, preserving comments and unrelated lines.
+
+    `updates` maps `{section: {option: (new_value, is_suffix)}}`. An
+    existing option gets its value replaced, or `new_value` appended to
+    it if `is_suffix` is true. A missing option is added at the end of
+    its section, aligned with the section's existing options, a missing
+    section at the end of the file (suffix entries are skipped there,
+    they have no value to append to).
+
+    `inline_comment_prefix` is what starts a comment after a value on
+    the same line. If None, the whole line is treated as the value.
+    """
+    options_applied = {section: set() for section in updates}
+    sections_seen = set()
+    result_lines = []
+    current_section = None
+    # Per section, the column of the `=` of the last option line seen,
+    # so that added options can be aligned with the existing ones.
+    equals_columns = {}
+
+    def missing_option_lines(section: str) -> list[str]:
+        """
+        Lines for options of `section` that were not found in the file.
+        """
+        column = equals_columns.get(section)
+
+        def option_line(option: str, value: str) -> str:
+            if column is not None and len(option) < column:
+                return f"{option.ljust(column)}= {value}"
+            return f"{option} = {value}"
+
+        return [
+            option_line(option, value)
+            for option, (value, is_suffix) in updates[section].items()
+            if option not in options_applied[section] and not is_suffix
+        ]
+
+    def flush_missing_options(section: str):
+        """
+        Insert options of `section` that were not found in the file,
+        before any blank lines that separate it from the next section.
+        """
+        insert_at = len(result_lines)
+        while insert_at > 0 and result_lines[insert_at - 1].strip() == "":
+            insert_at -= 1
+        result_lines[insert_at:insert_at] = missing_option_lines(section)
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Section headers like `[server]`. Commented-out headers like
+        # `;[server]` do not match because of the `^` anchor.
+        header_match = re.match(r"^\[([^\]]+)\]", stripped)
+        if header_match:
+            # Add options that were missing from the section we leave.
+            if current_section in updates:
+                flush_missing_options(current_section)
+            current_section = header_match.group(1)
+            sections_seen.add(current_section)
+            result_lines.append(line)
+            continue
+
+        if current_section not in updates:
+            result_lines.append(line)
+            continue
+
+        # The non-greedy `\S+?` splits at the first `=`, like
+        # `ConfigParser` does.
+        option_match = re.match(r"^(\S+?)\s*=\s*", stripped)
+        if option_match:
+            equals_columns[current_section] = (
+                re.match(r"^\s*\S+?\s*=", line).end() - 1
+            )
+        if (
+            option_match is None
+            or option_match.group(1) not in updates[current_section]
+        ):
+            result_lines.append(line)
+            continue
+
+        option_name = option_match.group(1)
+        new_value, is_suffix = updates[current_section][option_name]
+        result_lines.append(
+            edit_option_line(line, new_value, is_suffix, inline_comment_prefix)
+        )
+        options_applied[current_section].add(option_name)
+
+    # Add options missing from the last section in the file.
+    if current_section in updates:
+        flush_missing_options(current_section)
+
+    # Add sections that were not in the file at all, each preceded by a
+    # blank line.
+    for section in updates:
+        if section not in sections_seen:
+            result_lines.append("")
+            result_lines.append(f"[{section}]")
+            result_lines.extend(missing_option_lines(section))
+
+    return result_lines
 
 
 def parse_memory(value: str) -> str:

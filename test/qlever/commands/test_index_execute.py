@@ -47,6 +47,8 @@ class TestIndexCommand(unittest.TestCase):
         args.image = "test_image"
         args.multi_input_json = False
         args.ulimit = None
+        args.geo_cell_grid_level = None
+        args.geo_cell_grid_scheme = None
         args.encode_as_id = None
         args.parser_buffer_size = None
         args.materialized_views = None
@@ -264,6 +266,8 @@ class TestIndexCommand(unittest.TestCase):
         args.image = "test_image"
         args.multi_input_json = False
         args.ulimit = None
+        args.geo_cell_grid_level = None
+        args.geo_cell_grid_scheme = None
         args.encode_as_id = None
         args.parser_buffer_size = None
         args.materialized_views = None
@@ -335,6 +339,7 @@ class TestIndexCommand(unittest.TestCase):
         args.resource_usage_plot_only = False
         args.cat_input_files = True
         args.multi_input_json = True
+        args.main_command_name = "qlever"
 
         # Instantiate IndexCommand and execute the function
         result = IndexCommand().execute(args)
@@ -379,6 +384,8 @@ class TestIndexCommand(unittest.TestCase):
         args.vocabulary_type = "on-disk-compressed"
         args.show = True
         args.ulimit = None
+        args.geo_cell_grid_level = None
+        args.geo_cell_grid_scheme = None
         args.encode_as_id = None
         args.parser_buffer_size = None
         args.materialized_views = None

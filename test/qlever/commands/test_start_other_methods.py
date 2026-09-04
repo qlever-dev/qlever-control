@@ -11,7 +11,7 @@ class TestStartCommand(unittest.TestCase):
             StartCommand().description(),
             "Start the "
             "QLever server (requires that you have built "
-            "an index with `qlever index` before)",
+            "an index with the `index` command before)",
         )
 
     def test_should_have_qleverfile(self):
@@ -42,6 +42,7 @@ class TestStartCommand(unittest.TestCase):
                     "persist_updates",
                     "rebuild_index_strategy",
                     "rebuild_keep_previous_index_dirs",
+                    "set_runtime_parameters",
                     "only_pso_and_pos_permutations",
                     "use_patterns",
                     "use_text_index",
@@ -94,7 +95,7 @@ class TestStartCommand(unittest.TestCase):
         self.assertEqual(argument_help, "Do not execute the warmup command")
 
     def test_preload_materialized_views_qleverfile_argument(self):
-        args, kwargs = Qleverfile.all_arguments()["server"][
+        args, kwargs = Qleverfile.all_arguments("qlever")["server"][
             "preload_materialized_views"
         ]
 
