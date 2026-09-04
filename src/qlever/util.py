@@ -757,6 +757,7 @@ def add_memory_options(subparser, index=True, server=True):
 def tail_log_file(
     log_file: Path,
     max_wait_seconds: int = 30,
+    from_beginning: bool = True,
 ) -> subprocess.Popen | None:
     """
     Wait for the log file to appear and start tailing it from the
@@ -776,7 +777,8 @@ def tail_log_file(
             return None
         time.sleep(0.1)
         waited += 0.1
-    tail_cmd = f"exec tail -n +1 -f {log_file}"
+    tail_from = "+1" if from_beginning else "0"
+    tail_cmd = f"exec tail -n {tail_from} -f {log_file}"
     return subprocess.Popen(tail_cmd, shell=True)
 
 

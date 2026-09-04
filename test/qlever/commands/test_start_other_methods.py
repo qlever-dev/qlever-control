@@ -50,6 +50,7 @@ class TestStartCommand(unittest.TestCase):
                     "resource_usage_log",
                     "resource_usage_interval",
                     "preload_materialized_views",
+                    "server_log_mode",
                     "warmup_cmd",
                     "enable_metrics",
                 ],

@@ -804,3 +804,69 @@ class TestMergeRuntimeParameters(unittest.TestCase):
 
         args = SimpleNamespace(qleverfile="/nonexistent/Qleverfile")
         self.assertEqual(get_runtime_parameters_from_qleverfile(args), [])
+
+
+# Tests that `--server-log-mode append` appends to the server log instead
+# of truncating it, and that `no-log` writes no log at all.
+def test_construct_command_server_log_mode_append_and_no_log():
+    args = MagicMock()
+    args.name = "TestName"
+    args.server_log_mode = "append"
+    args.run_in_foreground = False
+    args.timeout = False
+    args.access_token = False
+    args.persist_updates = False
+    args.rebuild_index_strategy = "manual"
+    args.rebuild_keep_previous_index_dirs = "original-and-most-recent"
+    args.set_runtime_parameters = []
+    args.only_pso_and_pos_permutations = False
+    args.use_patterns = "yes"
+    args.use_text_index = "no"
+    args.enable_metrics = False
+    args.metrics_log = "yes"
+    args.resource_usage_log = "yes"
+    args.resource_usage_interval = 2
+    args.preload_materialized_views = None
+
+    result = qlever.commands.start.construct_command(args)
+    assert result.endswith(f" >> {args.name}.server-log.txt 2>&1")
+
+    # `no-log` in the background discards the output ...
+    args.server_log_mode = "no-log"
+    args.run_in_foreground = False
+    result = qlever.commands.start.construct_command(args)
+    assert result.endswith(" > /dev/null 2>&1")
+    assert "server-log.txt" not in result
+
+    # ... and in the foreground, it goes to the terminal.
+    args.run_in_foreground = True
+    result = qlever.commands.start.construct_command(args)
+    assert "/dev/null" not in result
+    assert "server-log.txt" not in result
+
+
+# Tests the rotation of the server log: the existing log moves to `.1`,
+# older generations shift up, and all generations are kept.
+def test_rotate_server_log(tmp_path):
+    log_file = tmp_path / "TestName.server-log.txt"
+
+    # Rotating a non-existing log does nothing.
+    qlever.commands.start.rotate_server_log(log_file)
+    assert list(tmp_path.iterdir()) == []
+
+    # Rotate four times; all generations are kept, newest first.
+    for run in range(4):
+        log_file.write_text(f"run {run}")
+        qlever.commands.start.rotate_server_log(log_file)
+        assert not log_file.exists()
+    generations = sorted(p.name for p in tmp_path.iterdir())
+    assert generations == [
+        "TestName.server-log.txt.1",
+        "TestName.server-log.txt.2",
+        "TestName.server-log.txt.3",
+        "TestName.server-log.txt.4",
+    ]
+    for i in range(1, 5):
+        expected = f"run {4 - i}"
+        actual = (tmp_path / f"TestName.server-log.txt.{i}").read_text()
+        assert actual == expected
