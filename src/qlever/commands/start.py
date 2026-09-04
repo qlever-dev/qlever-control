@@ -208,8 +208,6 @@ def merge_runtime_parameters(
     return list(merged.values())
 
 
-
-
 def rotate_server_log(log_file: Path) -> None:
     """
     Move an existing server log to `<log>.1`, first shifting all older
@@ -284,7 +282,7 @@ def wait_until_server_ready(
 
 def wait_for_foreground_server(
     process: subprocess.Popen,
-    log_proc: subprocess.Popen,
+    log_proc: subprocess.Popen | None,
     on_interrupt: Callable[[], None],
 ) -> None:
     """
@@ -498,10 +496,22 @@ class StartCommand(QleverCommand):
                 with contextlib.suppress(ValueError, AttributeError):
                     pid = int(output.strip().splitlines()[-1])
             else:
-                process = run_command(
-                    start_cmd,
-                    use_popen=args.run_in_foreground,
-                )
+                # For `no-log` in the foreground, the command has no
+                # redirection, so the output must go to the terminal
+                # (otherwise it would fill a pipe that nobody reads and
+                # eventually block the server).
+                if args.run_in_foreground and args.server_log_mode == "no-log":
+                    process = run_command(
+                        start_cmd,
+                        use_popen=True,
+                        show_output=True,
+                        show_stderr=True,
+                    )
+                else:
+                    process = run_command(
+                        start_cmd,
+                        use_popen=args.run_in_foreground,
+                    )
         except Exception as e:
             log.error(f"Starting the QLever server failed ({e})")
             return False
