@@ -460,6 +460,18 @@ class Qleverfile:
             help="Whether to produce the per-query metrics log, a JSONL log of "
             "query start/end events (`.metrics-log.jsonl`)",
         )
+        server_args["server_log_mode"] = arg(
+            "--server-log-mode",
+            choices=["append", "overwrite", "rotate", "no-log"],
+            default="rotate",
+            help="What to do with the server log of a previous run when "
+            "starting the server: `append` = keep it and append, "
+            "`overwrite` = remove it (the behavior before this option "
+            "existed), `rotate` = move it to `<log>.1`, shifting older "
+            "generations up (all are kept), `no-log` = write no server "
+            "log at all (in the foreground, the server output goes to "
+            "the terminal)",
+        )
         server_args["resource_usage_log"] = arg(
             "--resource-usage-log",
             choices=["yes", "no"],

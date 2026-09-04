@@ -94,7 +94,14 @@ def construct_command(args) -> str:
             f" {shlex.quote(view_name)}"
             for view_name in preload_materialized_views
         )
-    start_cmd += f" > {args.name}.server-log.txt 2>&1"
+    if args.server_log_mode == "no-log":
+        # No log file is written. In the foreground, the server output
+        # goes to the terminal; in the background, it is discarded.
+        if not args.run_in_foreground:
+            start_cmd += " > /dev/null 2>&1"
+    else:
+        redirect = ">>" if args.server_log_mode == "append" else ">"
+        start_cmd += f" {redirect} {args.name}.server-log.txt 2>&1"
     return start_cmd
 
 
@@ -201,6 +208,22 @@ def merge_runtime_parameters(
     return list(merged.values())
 
 
+def rotate_server_log(log_file: Path) -> None:
+    """
+    Move an existing server log to `<log>.1`, first shifting all older
+    generations up by one (`<log>.1` -> `<log>.2`, ...). All generations
+    are kept.
+    """
+    if not log_file.exists():
+        return
+    num_old = 0
+    while Path(f"{log_file}.{num_old + 1}").exists():
+        num_old += 1
+    for i in range(num_old, 0, -1):
+        Path(f"{log_file}.{i}").rename(f"{log_file}.{i + 1}")
+    log_file.rename(f"{log_file}.1")
+
+
 def show_log_follow_info(log_name: str, run_in_foreground: bool) -> None:
     """
     Tell the user which log is being followed, until when, and what
@@ -259,7 +282,7 @@ def wait_until_server_ready(
 
 def wait_for_foreground_server(
     process: subprocess.Popen,
-    log_proc: subprocess.Popen,
+    log_proc: subprocess.Popen | None,
     on_interrupt: Callable[[], None],
 ) -> None:
     """
@@ -274,7 +297,8 @@ def wait_for_foreground_server(
         log.info("")
         process.terminate()
         on_interrupt()
-    log_proc.terminate()
+    if log_proc is not None:
+        log_proc.terminate()
 
 
 class StartCommand(QleverCommand):
@@ -319,6 +343,7 @@ class StartCommand(QleverCommand):
                 "resource_usage_log",
                 "resource_usage_interval",
                 "preload_materialized_views",
+                "server_log_mode",
                 "warmup_cmd",
                 "enable_metrics",
             ],
@@ -442,10 +467,17 @@ class StartCommand(QleverCommand):
         #                   f" (use `lsof -i :{port}` to find out which one)")
         #         return False
 
-        # Remove old log file so that the wait loop below correctly
-        # waits for the server to create a fresh one.
+        # Handle an existing log file from a previous server run according
+        # to `--server-log-mode`: keep it and append (`append`), remove it
+        # (`overwrite`), move it to `.1`, `.2`, ... (`rotate`, the
+        # default), or write no log at all (`no-log`). For `overwrite` and
+        # `rotate`, the wait loop below then correctly waits for the server
+        # to create a fresh log.
         log_file = Path(f"{args.name}.server-log.txt")
-        log_file.unlink(missing_ok=True)
+        if args.server_log_mode == "rotate":
+            rotate_server_log(log_file)
+        elif args.server_log_mode == "overwrite":
+            log_file.unlink(missing_ok=True)
 
         # Execute the command line.
         # For a server started with `nohup`, the `echo $!` in the command
@@ -464,10 +496,22 @@ class StartCommand(QleverCommand):
                 with contextlib.suppress(ValueError, AttributeError):
                     pid = int(output.strip().splitlines()[-1])
             else:
-                process = run_command(
-                    start_cmd,
-                    use_popen=args.run_in_foreground,
-                )
+                # For `no-log` in the foreground, the command has no
+                # redirection, so the output must go to the terminal
+                # (otherwise it would fill a pipe that nobody reads and
+                # eventually block the server).
+                if args.run_in_foreground and args.server_log_mode == "no-log":
+                    process = run_command(
+                        start_cmd,
+                        use_popen=True,
+                        show_output=True,
+                        show_stderr=True,
+                    )
+                else:
+                    process = run_command(
+                        start_cmd,
+                        use_popen=args.run_in_foreground,
+                    )
         except Exception as e:
             log.error(f"Starting the QLever server failed ({e})")
             return False
@@ -475,15 +519,31 @@ class StartCommand(QleverCommand):
         # Tail the server log until the server is ready (note that the `exec`
         # is important to make sure that the tail process is killed and not
         # just the bash process).
-        show_log_follow_info(str(log_file), args.run_in_foreground)
-        tail_proc = tail_log_file(log_file)
-        if tail_proc is None:
-            return False
+        if args.server_log_mode == "no-log":
+            if args.run_in_foreground:
+                log.info(
+                    "No server log is written, the server output goes to "
+                    "this terminal (Ctrl-C stops the server)"
+                )
+            else:
+                log.info("Server log disabled (`--server-log-mode no-log`)")
+            log.info("")
+            tail_proc = None
+        else:
+            show_log_follow_info(str(log_file), args.run_in_foreground)
+            # With `append`, only follow what the new server run writes,
+            # not the content of the previous runs.
+            tail_proc = tail_log_file(
+                log_file, from_beginning=args.server_log_mode != "append"
+            )
+            if tail_proc is None:
+                return False
         if not wait_until_server_ready(
             lambda: is_qlever_server_alive(args.endpoint_url),
             make_server_liveness_check(args, process, pid),
         ):
-            tail_proc.terminate()
+            if tail_proc is not None:
+                tail_proc.terminate()
             return False
 
         # Set the description for the index and text.
@@ -502,7 +562,7 @@ class StartCommand(QleverCommand):
                 return False
 
         # Kill the tail process. NOTE: `tail_proc.kill()` does not work.
-        if not args.run_in_foreground:
+        if not args.run_in_foreground and tail_proc is not None:
             tail_proc.terminate()
 
         # Execute the warmup command.
