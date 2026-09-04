@@ -760,9 +760,11 @@ def tail_log_file(
     from_beginning: bool = True,
 ) -> subprocess.Popen | None:
     """
-    Wait for the log file to appear and start tailing it from the
-    beginning. The old log file should be deleted before calling this
-    function.
+    Wait for the log file to appear and start tailing it. With
+    `from_beginning`, the whole file is shown (this assumes that the log
+    file of a previous run was deleted or rotated away before calling
+    this function); otherwise, only lines written after the tail starts
+    are shown (for a log file that is appended to).
 
     Returns the tail process, or None if the log file was not created
     within `max_wait_seconds`.
