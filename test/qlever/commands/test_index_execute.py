@@ -14,10 +14,10 @@ class TestIndexCommand(unittest.TestCase):
     @patch("qlever.commands.index.Containerize")
     @patch("qlever.commands.index.get_existing_index_files")
     @patch("qlever.commands.index.get_total_file_size")
-    @patch("qlever.commands.index.glob")
+    @patch("qlever.commands.index.input_files_exist")
     def test_execute_successful_indexing_without_extras(
         self,
-        mock_glob,
+        mock_input_files_exist,
         mock_get_total_file_size,
         mock_get_existing_index_files,
         mock_containerize,
@@ -26,6 +26,7 @@ class TestIndexCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
+        args.resource_usage_plot_only = False
         args.name = "TestName"
         args.format = "turtle"
         args.cat_input_files = "cat input.nt"
@@ -46,13 +47,17 @@ class TestIndexCommand(unittest.TestCase):
         args.image = "test_image"
         args.multi_input_json = False
         args.ulimit = None
+        args.geo_cell_grid_level = None
+        args.geo_cell_grid_scheme = None
         args.encode_as_id = None
         args.parser_buffer_size = None
         args.materialized_views = None
+        args.resource_usage_log = "yes"
+        args.resource_usage_interval = 1
 
-        # Mock glob, get_total_file_size, get_existing_index_files,
-        # run_command and containerize
-        mock_glob.glob.return_value = ["input1.nt", "input2.nt"]
+        # Mock input_files_exist, get_total_file_size,
+        # get_existing_index_files, run_command and containerize
+        mock_input_files_exist.return_value = True
         mock_get_total_file_size.return_value = 5e9  # 5 GB
         mock_get_existing_index_files.return_value = []
         mock_index_run_command.return_value = None
@@ -98,10 +103,10 @@ class TestIndexCommand(unittest.TestCase):
     @patch("qlever.commands.index.get_existing_index_files")
     @patch("qlever.commands.index.get_total_file_size")
     @patch("qlever.commands.index.log")
-    @patch("qlever.commands.index.glob")
+    @patch("qlever.commands.index.input_files_exist")
     def test_execute_indexing_with_already_existing_files(
         self,
-        mock_glob,
+        mock_input_files_exist,
         mock_log,
         mock_get_total_file_size,
         mock_get_existing_index_files,
@@ -110,6 +115,7 @@ class TestIndexCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
+        args.resource_usage_plot_only = False
         args.name = "TestName"
         args.format = "turtle"
         args.cat_input_files = "cat input.nt"
@@ -129,9 +135,9 @@ class TestIndexCommand(unittest.TestCase):
         args.multi_input_json = False
         args.materialized_views = None
 
-        # Mock glob, get_total_file_size, get_existing_index_files,
-        # run_command and containerize
-        mock_glob.glob.return_value = ["input1.nt", "input2.nt"]
+        # Mock input_files_exist, get_total_file_size,
+        # get_existing_index_files, run_command and containerize
+        mock_input_files_exist.return_value = True
         mock_get_total_file_size.return_value = 5e9  # 5 GB
         mock_get_existing_index_files.return_value = ["TestName.index"]
         mock_run_command.return_value = None
@@ -173,6 +179,7 @@ class TestIndexCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
+        args.resource_usage_plot_only = False
         args.name = "TestName"
         args.format = "turtle"
         args.cat_input_files = "cat input.nt"
@@ -226,10 +233,10 @@ class TestIndexCommand(unittest.TestCase):
     @patch("qlever.commands.index.Containerize")
     @patch("qlever.commands.index.get_existing_index_files")
     @patch("qlever.commands.index.get_total_file_size")
-    @patch("qlever.commands.index.glob")
+    @patch("qlever.commands.index.input_files_exist")
     def test_execute_total_file_size_greater_than_ten_gb(
         self,
-        mock_glob,
+        mock_input_files_exist,
         mock_get_total_file_size,
         mock_get_existing_index_files,
         mock_containerize,
@@ -238,6 +245,7 @@ class TestIndexCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
+        args.resource_usage_plot_only = False
         args.name = "TestName"
         args.format = "turtle"
         args.cat_input_files = "cat input.nt"
@@ -258,13 +266,17 @@ class TestIndexCommand(unittest.TestCase):
         args.image = "test_image"
         args.multi_input_json = False
         args.ulimit = None
+        args.geo_cell_grid_level = None
+        args.geo_cell_grid_scheme = None
         args.encode_as_id = None
         args.parser_buffer_size = None
         args.materialized_views = None
+        args.resource_usage_log = "yes"
+        args.resource_usage_interval = 1
 
-        # Mock glob, get_total_file_size, get_existing_index_files,
-        # run_command and containerize
-        mock_glob.glob.return_value = ["input1.nt", "input2.nt"]
+        # Mock input_files_exist, get_total_file_size,
+        # get_existing_index_files, run_command and containerize
+        mock_input_files_exist.return_value = True
         mock_get_total_file_size.return_value = 15e9  # 15 GB
         mock_get_existing_index_files.return_value = []
         mock_index_run_command.return_value = None
@@ -295,6 +307,7 @@ class TestIndexCommand(unittest.TestCase):
     def test_execute_get_input_options_error(self, mock_json, mock_log):
         # Setup args
         args = MagicMock()
+        args.resource_usage_plot_only = False
         args.cat_input_files = False
         args.multi_input_json = '{"cmd": "test_data"}'
 
@@ -323,8 +336,10 @@ class TestIndexCommand(unittest.TestCase):
     def test_execute_cat_files_and_multi_json(self, mock_log):
         # Setup args
         args = MagicMock()
+        args.resource_usage_plot_only = False
         args.cat_input_files = True
         args.multi_input_json = True
+        args.main_command_name = "qlever"
 
         # Instantiate IndexCommand and execute the function
         result = IndexCommand().execute(args)
@@ -353,6 +368,7 @@ class TestIndexCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
+        args.resource_usage_plot_only = False
         args.name = "TestName"
         args.index_binary = "/test/path/index-binary"
         args.multi_input_json = True
@@ -368,9 +384,13 @@ class TestIndexCommand(unittest.TestCase):
         args.vocabulary_type = "on-disk-compressed"
         args.show = True
         args.ulimit = None
+        args.geo_cell_grid_level = None
+        args.geo_cell_grid_scheme = None
         args.encode_as_id = None
         args.parser_buffer_size = None
         args.materialized_views = None
+        args.resource_usage_log = "yes"
+        args.resource_usage_interval = 1
 
         # Mock get_input_options_for_json
         mock_input_json.return_value = "test_input_stream"

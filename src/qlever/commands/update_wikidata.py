@@ -7,7 +7,7 @@ import os
 import re
 import signal
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum, auto
 from pathlib import Path
 from threading import Event
@@ -129,6 +129,9 @@ class UpdateWikidataCommand(QleverCommand):
         self.ctrl_c_pressed = Event()
         # Set to `True` when finished.
         self.finished = False
+        # Size of the triple history right after the last prune (see
+        # `prune_triple_history`).
+        self.triple_history_size_after_last_prune = 0
 
     def description(self) -> str:
         return "Update from given SSE stream"
@@ -144,8 +147,10 @@ class UpdateWikidataCommand(QleverCommand):
             "sse_stream_url",
             nargs="?",
             type=str,
-            default=self.wikidata_update_stream_url,
-            help="URL of the SSE stream to update from",
+            default=None,
+            help="URL of the SSE stream to update from (default: the"
+            " Wikidata stream, or the Wikimedia Commons stream with"
+            " `--wikimedia-commons`)",
         )
         subparser.add_argument(
             "--batch-size",
@@ -186,15 +191,42 @@ class UpdateWikidataCommand(QleverCommand):
         subparser.add_argument(
             "--topic",
             type=str,
-            default="eqiad.rdf-streaming-updater.mutation",
+            default=None,
             help="The topic to consume from the SSE stream (default: "
-            "eqiad.rdf-streaming-updater.mutation)",
+            "eqiad.rdf-streaming-updater.mutation, or "
+            "eqiad.mediainfo-streaming-updater.mutation with "
+            "`--wikimedia-commons`)",
         )
         subparser.add_argument(
             "--partition",
             type=int,
             default=0,
             help="The partition to consume from the SSE stream (default: 0)",
+        )
+        subparser.add_argument(
+            "--entity-prefix",
+            type=str,
+            default=None,
+            help="Prefix used to format entity IDs in the entity-delete"
+            " operation (default: wd:, or sdc: with `--wikimedia-commons`)",
+        )
+        subparser.add_argument(
+            "--entity-namespace",
+            type=str,
+            default=None,
+            help="IRI namespace bound to `--entity-prefix` in the entity-delete"
+            " operation (default: http://www.wikidata.org/entity/, or"
+            " https://commons.wikimedia.org/entity/ with `--wikimedia-commons`)",
+        )
+        subparser.add_argument(
+            "--wikimedia-commons",
+            action="store_true",
+            default=False,
+            help="Update from the Wikimedia Commons (mediainfo) stream"
+            " instead of Wikidata; sets `sse_stream_url`, `--topic`,"
+            " `--entity-prefix`, and `--entity-namespace` to their"
+            " Commons-appropriate values, unless those are overridden"
+            " explicitly",
         )
         subparser.add_argument(
             "--wait-between-batches",
@@ -209,6 +241,16 @@ class UpdateWikidataCommand(QleverCommand):
             type=int,
             help="Process exactly this many messages and then exit "
             "(default: no bound on the number of messages)",
+        )
+        subparser.add_argument(
+            "--triple-history-minutes",
+            type=int,
+            default=30,
+            help="Remember the causally newest event for each triple for "
+            "this many minutes of stream time, ACROSS batches, and ignore "
+            "inserts and deletes that are superseded by such an event; the "
+            "stream can reorder events by minutes, so checking only within "
+            "a batch is not enough (0 disables the history)",
         )
         subparser.add_argument(
             "--verbose",
@@ -282,7 +324,7 @@ class UpdateWikidataCommand(QleverCommand):
                         delay_str = f"{retry_delay // 60}min"
                     else:
                         delay_str = f"{retry_delay}s"
-                    log.warn(
+                    log.warning(
                         f"{operation_name} failed (attempt {attempt + 1}/{max_retries}): {e}. "
                         f"Retrying in {delay_str} ..."
                     )
@@ -301,17 +343,43 @@ class UpdateWikidataCommand(QleverCommand):
         else:
             self.ctrl_c_pressed.set()
 
-    def determine_batch_size_for_cached_update(self, offset: int, batch_size: int) -> int | None:
+    @staticmethod
+    def iter_sse_events(source):
+        """
+        Yield events from the SSE stream. If the stream connection drops (e.g.
+        HTTP 503), log a warning and stop the iteration so the caller can
+        reconnect.
+        """
+        try:
+            yield from source
+        except Exception as e:
+            log.warning(
+                f"SSE stream connection lost ({e}), will reconnect ..."
+            )
+
+    def determine_batch_size_for_cached_update(
+        self, offset: int, batch_size: int
+    ) -> int | None:
         options = list(Path.cwd().glob(f"update.{offset}.*.sparql"))
         if len(options) == 0:
-            log.warn(f"Found no cached SPARQL update. Continuing with update stream.")
+            log.warning(
+                "Found no cached SPARQL update. Continuing with update stream."
+            )
             return None
         elif len(options) > 1:
-            log.warn(f"Found {len(options)} candidates for cached SPARQL update. Using {options[0].name}.")
-        return int(re.search(r"update\.\d+\.(\d+)\.sparql", options[0].name).group(1))
+            log.warning(
+                f"Found {len(options)} candidates for cached SPARQL update. Using {options[0].name}."
+            )
+        return int(
+            re.search(r"update\.\d+\.(\d+)\.sparql", options[0].name).group(1)
+        )
 
-    def determine_next_cached_update(self, first_offset_in_batch: int, batch_size: int) -> tuple[str, int] | None:
-        batch_size = self.determine_batch_size_for_cached_update(first_offset_in_batch, batch_size)
+    def determine_next_cached_update(
+        self, first_offset_in_batch: int, batch_size: int
+    ) -> tuple[str, int] | None:
+        batch_size = self.determine_batch_size_for_cached_update(
+            first_offset_in_batch, batch_size
+        )
         if batch_size is None:
             return None
         cached_file_name = (
@@ -337,7 +405,97 @@ class UpdateWikidataCommand(QleverCommand):
 
         return cached_file_name, batch_size
 
+    def prune_triple_history(
+        self,
+        triple_history: dict[str, tuple[tuple[int, int], bool, str]],
+        latest_event_date: str | None,
+        history_minutes: int,
+    ) -> dict[str, tuple[tuple[int, int], bool, str]]:
+        """
+        Return the given triple history without the entries that are older
+        than `history_minutes` before the given latest event date (the
+        event dates are ISO strings and compare lexicographically).
+
+        A prune is linear in the size of the history, so it only actually
+        happens when the history has at least doubled in size since the
+        last prune; the total pruning cost is then linear in the total
+        number of insertions, no matter how often this is called. Keeping
+        entries longer than `history_minutes` is harmless for correctness,
+        the window is only a bound on the memory usage.
+        """
+        if not triple_history or latest_event_date is None:
+            return triple_history
+        if len(triple_history) < max(
+            2 * self.triple_history_size_after_last_prune, 10_000
+        ):
+            return triple_history
+        cutoff_date = (
+            datetime.strptime(latest_event_date, "%Y-%m-%dT%H:%M:%SZ")
+            - timedelta(minutes=history_minutes)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        triple_history = {
+            triple: history
+            for triple, history in triple_history.items()
+            if history[2] >= cutoff_date
+        }
+        self.triple_history_size_after_last_prune = len(triple_history)
+        return triple_history
+
+    def check_and_update_triple_history(
+        self,
+        triple_history: dict[str, tuple[tuple[int, int], bool, str]],
+        triple: str,
+        rev_key: tuple[int, int],
+        is_insert: bool,
+        event_date: str,
+    ) -> bool:
+        """
+        Check the given event against the history of the causally newest
+        event per triple (see `triple_history` in `execute`) and return
+        whether the event should be applied. An insert is superseded by a
+        causally strictly newer delete of the same triple, a delete by a
+        causally newer or equally new insert (an insert wins a tie, a
+        delete does not, matching the per-batch tie semantics). If the
+        event is the causally newest one for its triple so far, it is
+        recorded in the history (which is modified in place).
+        """
+        history = triple_history.get(triple)
+        is_newest = history is None or (
+            rev_key >= history[0] if is_insert else rev_key > history[0]
+        )
+        if is_newest:
+            triple_history[triple] = (rev_key, is_insert, event_date)
+            return True
+
+        # An event that is not the causally newest one is superseded only
+        # by an event of the other kind (a delete by an insert and vice
+        # versa); a duplicate of the same kind is harmless.
+        return history[1] == is_insert
+
     def execute(self, args) -> bool:
+        # Resolve the four args that depend on `--wikimedia-commons`. A
+        # `None` value means the user did not pass that arg, so fill in
+        # the source-appropriate default; any explicit value wins.
+        commons_defaults = {
+            "sse_stream_url": "https://stream.wikimedia.org/v2/stream/"
+            "mediainfo-streaming-updater.mutation.v2",
+            "topic": "eqiad.mediainfo-streaming-updater.mutation",
+            "entity_prefix": "sdc:",
+            "entity_namespace": "https://commons.wikimedia.org/entity/",
+        }
+        wikidata_defaults = {
+            "sse_stream_url": self.wikidata_update_stream_url,
+            "topic": "eqiad.rdf-streaming-updater.mutation",
+            "entity_prefix": "wd:",
+            "entity_namespace": "http://www.wikidata.org/entity/",
+        }
+        defaults = (
+            commons_defaults if args.wikimedia_commons else wikidata_defaults
+        )
+        for arg_name, default_value in defaults.items():
+            if getattr(args, arg_name) is None:
+                setattr(args, arg_name, default_value)
+
         # cURL command to get the date until which the updates of the
         # SPARQL endpoint are complete.
         sparql_endpoint = f"http://{args.host_name}:{args.port}"
@@ -383,7 +541,7 @@ class UpdateWikidataCommand(QleverCommand):
 
         # Special handling of Ctrl+C, see `handle_ctrl_c` above.
         signal.signal(signal.SIGINT, self.handle_ctrl_c)
-        log.warn("Press Ctrl+C to finish and exit gracefully")
+        log.warning("Press Ctrl+C to finish and exit gracefully")
         log.info("")
 
         # If no `--offset` is provided, try to get the offset from
@@ -428,13 +586,31 @@ class UpdateWikidataCommand(QleverCommand):
                     )
                 args.offset = offset
             except KeyboardInterrupt:
-                log.warn(
+                log.warning(
                     "\rCtrl+C pressed while determine current state, exiting"
                 )
                 return True
             except Exception as e:
                 log.error(f"Error determining offset from stream: {e}")
                 return False
+
+        # History of the causal-order key of the chronologically newest
+        # event seen for each triple, kept ACROSS batches: maps the triple
+        # to `(rev_key, is_insert, event_date)`. The per-batch
+        # `insert_triples` / `delete_triples` below catch out-of-order
+        # events WITHIN a batch, but the stream can reorder events by
+        # minutes, while batches span only seconds when tailing the live
+        # stream. Without this history, a delete that arrives after the
+        # causally newer insert of the same triple was applied in an
+        # earlier batch deletes that triple (observed live: a sitelink
+        # moved from a duplicate entity to the right one, where the
+        # delete for the duplicate arrived two minutes late and stripped
+        # the article triples of the right entity). Entries older than
+        # `--triple-history-minutes` of stream time are pruned at each
+        # batch start.
+        triple_history: dict[str, tuple[tuple[int, int], bool, str]] = {}
+        latest_event_date = None
+        use_triple_history = args.triple_history_minutes > 0
 
         # Initialize all the statistics variables.
         batch_count = 0
@@ -464,16 +640,17 @@ class UpdateWikidataCommand(QleverCommand):
             # Optionally wait before processing the next batch (make sure that
             # the wait is interruptible by Ctrl+C).
             if wait_before_next_batch:
-                log.info(
-                    f"Waiting {args.wait_between_batches} "
-                    f"second{'s' if args.wait_between_batches > 1 else ''} "
-                    f"before processing the next batch"
-                )
-                log.info("")
+                if args.verbose == "yes":
+                    log.info(
+                        f"Waiting {args.wait_between_batches} "
+                        f"second{'s' if args.wait_between_batches > 1 else ''} "
+                        f"before processing the next batch"
+                    )
+                    log.info("")
                 wait_before_next_batch = False
                 self.ctrl_c_pressed.wait(args.wait_between_batches)
             if self.ctrl_c_pressed.is_set():
-                log.warn(
+                log.warning(
                     "\rCtrl+C pressed while waiting in between batches, "
                     "exiting"
                 )
@@ -511,7 +688,7 @@ class UpdateWikidataCommand(QleverCommand):
                     args.num_retries,
                 )
             except KeyboardInterrupt:
-                log.warn(
+                log.warning(
                     "\rCtrl+C pressed while while connecting to stream, "
                     "exiting"
                 )
@@ -557,7 +734,7 @@ class UpdateWikidataCommand(QleverCommand):
                         args.num_retries,
                     )
                 except KeyboardInterrupt:
-                    log.warn(
+                    log.warning(
                         "\rCtrl+C pressed while while verifying state, exiting"
                     )
                     break
@@ -612,18 +789,42 @@ class UpdateWikidataCommand(QleverCommand):
             delete_entity_ids = set()
             delta_to_now_list = []
             batch_assembly_start_time = time.perf_counter()
-            insert_triples = set()
-            delete_triples = set()
+            # Maps each triple to the `(rev_id, sequence)` of the event that
+            # last wrote it. The SSE stream may deliver events out of `rev_id`
+            # order (notably during a Wikidata merge, where the source's
+            # DELETE and the target's ADD for a transferred article URL share
+            # the same `dt` and the target often arrives first). Tracking the
+            # `rev_id` per triple makes the cross-set "remove from the other
+            # side" step respect the causal order, so the chronologically
+            # last event for a given triple wins regardless of arrival order.
+            insert_triples: dict[str, tuple[int, int]] = {}
+            delete_triples: dict[str, tuple[int, int]] = {}
+
+            # Prune old entries from the triple history.
+            if use_triple_history:
+                triple_history = self.prune_triple_history(
+                    triple_history,
+                    latest_event_date,
+                    args.triple_history_minutes,
+                )
 
             # Check if we can use a cached SPARQL query file
+            #
+            # NOTE: A cached batch is applied without processing its events,
+            # so it contributes nothing to `triple_history`. For events in
+            # such a batch, the protection against out-of-order events is
+            # therefore only as good as it was before the introduction of
+            # `triple_history` (namely, within the batch that produced the
+            # cached file).
             use_cached_file = False
             cached_file_name = None
             if (
                 args.use_cached_sparql_queries
                 and first_offset_in_batch is not None
             ):
-                cached_update = self.determine_next_cached_update(first_offset_in_batch,
-                                                                     args.batch_size)
+                cached_update = self.determine_next_cached_update(
+                    first_offset_in_batch, args.batch_size
+                )
                 if cached_update is not None:
                     cached_file_name, current_batch_size = cached_update
                     use_cached_file = True
@@ -637,7 +838,7 @@ class UpdateWikidataCommand(QleverCommand):
                     leave=False,
                     bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}{postfix}",
                 ) as pbar:
-                    for event in source:
+                    for event in self.iter_sse_events(source):
                         # Skip events that are not of type `message` (should not
                         # happen), have no field `data` (should not happen either), or
                         # where the topic is not in `args.topics` (one topic by itself
@@ -660,6 +861,11 @@ class UpdateWikidataCommand(QleverCommand):
                             # Get the date (rounded *down* to seconds).
                             date = meta.get("dt")
                             date = re.sub(r"\.\d*Z$", "Z", date)
+                            if (
+                                latest_event_date is None
+                                or date > latest_event_date
+                            ):
+                                latest_event_date = date
 
                             # Get the other relevant fields from the message.
                             entity_id = event_data.get("entity_id")
@@ -674,6 +880,14 @@ class UpdateWikidataCommand(QleverCommand):
                             # rdf_unlinked_shared_data = event_data.get(
                             #     "rdf_unlinked_shared_data"
                             # )
+
+                            # Causal-order key for this event (see comment at
+                            # the `insert_triples` / `delete_triples`
+                            # initialization above).
+                            rev_key = (
+                                event_data.get("rev_id", 0),
+                                event_data.get("sequence", 0),
+                            )
 
                             # Check batch completion conditions BEFORE processing the
                             # data of this message. If any of the conditions is met,
@@ -695,7 +909,7 @@ class UpdateWikidataCommand(QleverCommand):
                                 and entity_id in delete_entity_ids
                             ):
                                 if args.verbose == "yes":
-                                    log.warn(
+                                    log.warning(
                                         f"Encountered operation that adds data for "
                                         f"an entity ID ({entity_id}) that was deleted "
                                         f"earlier in this batch; finishing batch and "
@@ -724,7 +938,7 @@ class UpdateWikidataCommand(QleverCommand):
                                 and current_batch_size > 0
                             ):
                                 if args.verbose == "yes":
-                                    log.warn(
+                                    log.warning(
                                         f"Encountered message with date {date}, which is within "
                                         f"{args.lag_seconds} "
                                         f"second{'s' if args.lag_seconds > 1 else ''} "
@@ -743,7 +957,7 @@ class UpdateWikidataCommand(QleverCommand):
                                 and date >= args.until
                                 and current_batch_size > 0
                             ):
-                                log.warn(
+                                log.warning(
                                     f"Reached --until date {args.until} "
                                     f"(message date: {date}), that's it folks"
                                 )
@@ -798,13 +1012,43 @@ class UpdateWikidataCommand(QleverCommand):
                                         )
                                         for s, p, o in graph:
                                             triple = f"{s.n3()} {p.n3()} {node_to_sparql(o)}"
+                                            # Cross-batch check, see
+                                            # `check_and_update_triple_history`.
+                                            if (
+                                                use_triple_history
+                                                and not self.check_and_update_triple_history(
+                                                    triple_history,
+                                                    triple,
+                                                    rev_key,
+                                                    is_insert=False,
+                                                    event_date=date,
+                                                )
+                                            ):
+                                                continue
                                             # NOTE: In case there was a previous `insert` of that
                                             # triple, it is safe to remove that `insert`, but not
                                             # the `delete` (in case the triple is contained in the
-                                            # original data).
+                                            # original data). The cross-set override only happens
+                                            # if this delete is strictly newer than the existing
+                                            # insert; otherwise the existing insert dominates and
+                                            # the (older) delete is discarded.
                                             if triple in insert_triples:
-                                                insert_triples.remove(triple)
-                                            delete_triples.add(triple)
+                                                if (
+                                                    rev_key
+                                                    > insert_triples[triple]
+                                                ):
+                                                    del insert_triples[triple]
+                                                    delete_triples[triple] = (
+                                                        rev_key
+                                                    )
+                                            elif (
+                                                triple not in delete_triples
+                                                or rev_key
+                                                > delete_triples[triple]
+                                            ):
+                                                delete_triples[triple] = (
+                                                    rev_key
+                                                )
                                     except Exception as e:
                                         log.error(
                                             f"Error reading `rdf_to_be_deleted_data`: {e}"
@@ -831,13 +1075,44 @@ class UpdateWikidataCommand(QleverCommand):
                                         )
                                         for s, p, o in graph:
                                             triple = f"{s.n3()} {p.n3()} {node_to_sparql(o)}"
+                                            # Cross-batch check, see
+                                            # `check_and_update_triple_history`.
+                                            if (
+                                                use_triple_history
+                                                and not self.check_and_update_triple_history(
+                                                    triple_history,
+                                                    triple,
+                                                    rev_key,
+                                                    is_insert=True,
+                                                    event_date=date,
+                                                )
+                                            ):
+                                                continue
                                             # NOTE: In case there was a previous `delete` of that
                                             # triple, it is safe to remove that `delete`, but not
                                             # the `insert` (in case the triple is not contained in
-                                            # the original data).
+                                            # the original data). Use `>=` on the cross-set check
+                                            # so that a same-event delete-then-add (deletes are
+                                            # processed first in the per-event loop) lets the
+                                            # add win, matching the previous within-event
+                                            # behaviour.
                                             if triple in delete_triples:
-                                                delete_triples.remove(triple)
-                                            insert_triples.add(triple)
+                                                if (
+                                                    rev_key
+                                                    >= delete_triples[triple]
+                                                ):
+                                                    del delete_triples[triple]
+                                                    insert_triples[triple] = (
+                                                        rev_key
+                                                    )
+                                            elif (
+                                                triple not in insert_triples
+                                                or rev_key
+                                                > insert_triples[triple]
+                                            ):
+                                                insert_triples[triple] = (
+                                                    rev_key
+                                                )
                                     except Exception as e:
                                         log.error(
                                             f"Error reading `rdf_to_be_added_data`: {e}"
@@ -851,6 +1126,17 @@ class UpdateWikidataCommand(QleverCommand):
 
                         # Message was successfully processed, update batch tracking
                         current_batch_size += 1
+                        if (
+                            use_triple_history
+                            and current_batch_size % 10000 == 0
+                        ):
+                            # A batch can span hours of stream time during
+                            # catch-up, so also prune within a batch.
+                            triple_history = self.prune_triple_history(
+                                triple_history,
+                                latest_event_date,
+                                args.triple_history_minutes,
+                            )
                         total_num_messages += 1
                         pbar_update_frequency = 100
                         if (current_batch_size % pbar_update_frequency) == 0:
@@ -885,7 +1171,7 @@ class UpdateWikidataCommand(QleverCommand):
                         # end of the inner event loop so that always at least one
                         # message is processed).
                         if self.ctrl_c_pressed.is_set():
-                            log.warn(
+                            log.warning(
                                 "\rCtrl+C pressed while processing a batch, "
                                 "finishing it and exiting"
                             )
@@ -900,6 +1186,11 @@ class UpdateWikidataCommand(QleverCommand):
                         "offset": first_offset_in_batch + current_batch_size,
                     }
                 ]
+
+            # If the stream died before any events were collected (e.g.,
+            # HTTP 503), skip straight to reconnecting.
+            if not use_cached_file and current_batch_size == 0:
+                continue
 
             # Process the current batch of messages (or skip if using cached).
             batch_count += 1
@@ -926,18 +1217,20 @@ class UpdateWikidataCommand(QleverCommand):
 
                 # Add a triples `wikibase:Dump wikibase:updatesCompleteUntil
                 # DATE` and `wikibase:Dump wikibase:updateStreamNextOffset
-                # OFFSET`.
-                insert_triples.add(
+                # OFFSET`. These are batch-level synthetic triples that
+                # never conflict with stream events, so the rev_key value
+                # stored alongside them is irrelevant — `(0, 0)` is fine.
+                insert_triples[
                     f"<http://wikiba.se/ontology#Dump> "
                     f"<http://wikiba.se/ontology#updatesCompleteUntil> "
                     f'"{date_list[-1]}"'
                     f"^^<http://www.w3.org/2001/XMLSchema#dateTime>"
-                )
-                insert_triples.add(
+                ] = (0, 0)
+                insert_triples[
                     "<http://wikiba.se/ontology#Dump> "
                     "<http://wikiba.se/ontology#updateStreamNextOffset> "
                     f'"{event_id_for_next_batch[0]["offset"]}"'
-                )
+                ] = (0, 0)
 
                 # Construct UPDATE operation.
                 delete_block = " . \n  ".join(delete_triples)
@@ -952,13 +1245,13 @@ class UpdateWikidataCommand(QleverCommand):
                 # operation that deletes all triples that are associated with only
                 # those entities.
                 delete_entity_ids_as_values = " ".join(
-                    [f"wd:{qid}" for qid in delete_entity_ids]
+                    [f"{args.entity_prefix}{qid}" for qid in delete_entity_ids]
                 )
                 if len(delete_entity_ids) > 0:
                     delete_where_operation = (
                         f"PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n"
                         f"PREFIX wikibase: <http://wikiba.se/ontology#>\n"
-                        f"PREFIX wd: <http://www.wikidata.org/entity/>\n"
+                        f"PREFIX {args.entity_prefix.rstrip(':')}: <{args.entity_namespace}>\n"
                         f"DELETE {{\n"
                         f"  ?s ?p ?o .\n"
                         f"}} WHERE {{\n"
@@ -986,6 +1279,16 @@ class UpdateWikidataCommand(QleverCommand):
                 # Use the cached file instead of writing a new one
                 update_arg_file_name = cached_file_name
             else:
+                # Refuse to write `update.None.*.sparql`: the offset must
+                # be a real integer here, otherwise the filename would
+                # later break the cleanup pass (`int("None")`).
+                if first_offset_in_batch is None:
+                    log.error(
+                        "Internal error: `first_offset_in_batch` is None "
+                        "when trying to write the update file; refusing "
+                        "to produce `update.None.*.sparql`. Please report."
+                    )
+                    return False
                 # Write the constructed SPARQL update to a file
                 update_arg_file_name = f"update.{first_offset_in_batch}.{current_batch_size}.sparql"
                 with open(update_arg_file_name, "w") as f:
@@ -1010,12 +1313,12 @@ class UpdateWikidataCommand(QleverCommand):
                 result = run_command(curl_cmd, return_output=True)
             except Exception:
                 if self.ctrl_c_pressed.is_set():
-                    log.warn(
+                    log.warning(
                         "\r  \nCtrl+C pressed while executing update, exiting"
                     )
                     return True
                 else:
-                    log.warn(
+                    log.warning(
                         "\r  \nUpdate request failed; will reconnect and retry"
                     )
                     event_id_for_next_batch = [
@@ -1038,9 +1341,13 @@ class UpdateWikidataCommand(QleverCommand):
                 update_files = {}
                 for ext in ["sparql", "meta", "result"]:
                     for file_path in glob.glob(f"update.*.*.{ext}"):
-                        # Extract offset from filename (update.OFFSET.SIZE.ext)
+                        # Extract offset from filename (update.OFFSET.SIZE.ext).
+                        # Skip files whose middle component is not a numeric
+                        # offset (e.g. a stale `update.None.*.sparql` from a
+                        # prior crashed run), so they cannot derail `int(x)`
+                        # below.
                         parts = Path(file_path).stem.split(".")
-                        if len(parts) >= 3:
+                        if len(parts) >= 3 and parts[1].isdigit():
                             offset = parts[1]
                             if offset not in update_files:
                                 update_files[offset] = []
@@ -1189,6 +1496,16 @@ class UpdateWikidataCommand(QleverCommand):
                         "total",
                         failure_mode=FailureMode.SILENTLY_RETURN_ZERO,
                     )
+                    # Time spent in `consolidateAll()` after the buffer
+                    # push_backs. Only emitted by servers built with the
+                    # `SortedLocatedTriplesVector` block layout (the
+                    # `update/replaceSet` change); zero on older servers.
+                    time_consolidate = get_time_ms(
+                        stats,
+                        "execution",
+                        "consolidateSortedDeltaTriples",
+                        failure_mode=FailureMode.SILENTLY_RETURN_ZERO,
+                    )
                     time_unaccounted = time_op_total - (
                         time_planning
                         + time_compute_ids
@@ -1196,6 +1513,7 @@ class UpdateWikidataCommand(QleverCommand):
                         + time_metadata
                         + time_delete
                         + time_insert
+                        + time_consolidate
                     )
                     if args.verbose == "yes":
                         log.info(
@@ -1205,11 +1523,12 @@ class UpdateWikidataCommand(QleverCommand):
                             f"IDS: {100 * time_compute_ids / time_op_total:2.0f}%, "
                             f"DELETE: {100 * time_delete / time_op_total:2.0f}%, "
                             f"INSERT: {100 * time_insert / time_op_total:2.0f}%, "
+                            f"CONSOLIDATE: {100 * time_consolidate / time_op_total:2.0f}%, "
                             f"UNACCOUNTED: {100 * time_unaccounted / time_op_total:2.0f}%",
                         )
 
                 except Exception as e:
-                    log.warn(
+                    log.warning(
                         f"Error extracting statistics: {e}, "
                         f"curl command was: {curl_cmd}"
                     )

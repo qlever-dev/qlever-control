@@ -20,10 +20,19 @@ def test_construct_command_with_if():
     args.cache_max_num_entries = 1000
     args.timeout = True
     args.persist_updates = False
+    args.rebuild_index_strategy = "automatic:10000:1000000:0.1"
+    args.rebuild_keep_previous_index_dirs = "most-recent-only"
+    args.set_runtime_parameters = [
+        "default-query-timeout=300s",
+        "rebuild-max-concurrent-permutation-pairs=1",
+    ]
     args.access_token = True
     args.only_pso_and_pos_permutations = True
     args.use_patterns = "no"
     args.use_text_index = "yes"
+    args.enable_metrics = False
+    args.resource_usage_log = "no"
+    args.preload_materialized_views = ["view-1", "view-2"]
 
     # Execute the function
     result = qlever.commands.start.construct_command(args)
@@ -39,9 +48,15 @@ def test_construct_command_with_if():
         f" -k {args.cache_max_num_entries}"
         f" -s {args.timeout}"
         f" -a {args.access_token}"
+        " --rebuild-index-strategy automatic:10000:1000000:0.1"
+        " --rebuild-keep-previous-index-dirs most-recent-only"
+        " --set-runtime-parameter default-query-timeout=300s"
+        " --set-runtime-parameter rebuild-max-concurrent-permutation-pairs=1"
         " --only-pso-and-pos-permutations"
         " --no-patterns"
         " -t"
+        " --no-resource-usage-log"
+        " --preload-materialized-views view-1 view-2"
         f" > {args.name}.server-log.txt 2>&1"
     )
     assert result == start_command
@@ -61,10 +76,17 @@ def test_construct_command_without_if():
     args.cache_max_num_entries = 1000
     args.timeout = False
     args.persist_updates = False
+    args.rebuild_index_strategy = "manual"
+    args.rebuild_keep_previous_index_dirs = "original-and-most-recent"
+    args.set_runtime_parameters = None
     args.access_token = False
     args.only_pso_and_pos_permutations = False
     args.use_patterns = True
     args.use_text_index = "no"
+    args.enable_metrics = False
+    args.resource_usage_log = "yes"
+    args.resource_usage_interval = 2
+    args.preload_materialized_views = None
 
     # Execute the function
     result = qlever.commands.start.construct_command(args)
@@ -83,6 +105,18 @@ def test_construct_command_without_if():
     assert result == start_command
 
 
+# Tests that a non-default sampling interval is passed to the binary
+def test_construct_command_non_default_resource_usage_interval():
+    args = MagicMock()
+    args.resource_usage_log = "yes"
+    args.resource_usage_interval = 5
+
+    result = qlever.commands.start.construct_command(args)
+
+    assert " --resource-usage-interval-s 5" in result
+    assert "--no-resource-usage-log" not in result
+
+
 # Tests `wrap_command_in_container`.
 @patch("qlever.commands.start.Containerize.containerize_command")
 def test_wrap_command_in_container(mock_containerize_command):
@@ -93,6 +127,8 @@ def test_wrap_command_in_container(mock_containerize_command):
     args.port = 1234
     args.system = "native"
     args.image = None
+    args.run_in_foreground = False
+    args.restart_policy = "unless-stopped"
 
     # Mock wrap_command_in_container
     mock_containerize_command.return_value = "Test_Container_Command"
@@ -106,7 +142,7 @@ def test_wrap_command_in_container(mock_containerize_command):
     mock_containerize_command.assert_called_once_with(
         start_cmd,
         args.system,
-        "run -d --restart=unless-stopped",
+        "run --restart=unless-stopped -d",
         args.image,
         args.server_container,
         volumes=[("$(pwd)", "/index")],
@@ -130,7 +166,9 @@ def test_check_binary_success(mock_run_cmd):
     mock_run_cmd.return_value = "Command works"
 
     # Execute the function
-    result = qlever.util.binary_exists(args.server_binary, "server-binary", args)
+    result = qlever.util.binary_exists(
+        args.server_binary, "server-binary", args
+    )
     # check if run_cmd was called once with
     mock_run_cmd.assert_called_once_with(f"{args.server_binary} --help")
     assert result
@@ -150,7 +188,9 @@ def test_check_binary_exception(mock_log, mock_run_cmd):
     mock_run_cmd.side_effect = Exception("Mocked command failure")
 
     # Execute the function
-    result = qlever.util.binary_exists(args.server_binary, "server-binary", args)
+    result = qlever.util.binary_exists(
+        args.server_binary, "server-binary", args
+    )
 
     # check if run_cmd was called once with
     mock_run_cmd.assert_called_once_with(f"{args.server_binary} --help")
@@ -295,6 +335,14 @@ def test_set_text_description_exception(mock_log, mock_run_cmd):
 
 
 class TestStartCommand(unittest.TestCase):
+    @staticmethod
+    def _mock_log_file(mock_path_cls, name):
+        mock_log_file = mock_path_cls.return_value
+        mock_log_file.exists.return_value = True
+        mock_log_file.__str__ = MagicMock(
+            return_value=f"{name}.server-log.txt"
+        )
+
     @patch("qlever.commands.start.CacheStatsCommand.execute")
     @patch("qlever.commands.stop.StopCommand.execute", return_value=True)
     @patch("qlever.util.run_command")
@@ -302,10 +350,12 @@ class TestStartCommand(unittest.TestCase):
     @patch("qlever.commands.start.is_qlever_server_alive")
     @patch("subprocess.Popen")
     @patch("qlever.commands.start.Containerize")
+    @patch("qlever.commands.start.Path")
     # Tests if killing existing server and restarting a new one works.
     # Also checks the start_command for all the extra options enabled.
     def test_execute_kills_existing_server_on_same_port(
         self,
+        mock_path_cls,
         mock_containerize,
         mock_popen,
         mock_is_qlever_server_alive,
@@ -331,10 +381,19 @@ class TestStartCommand(unittest.TestCase):
         args.run_in_foreground = False
         args.timeout = True
         args.persist_updates = False
+        args.rebuild_index_strategy = "manual"
+        args.rebuild_keep_previous_index_dirs = "original-and-most-recent"
         args.access_token = True
         args.only_pso_and_pos_permutations = True
         args.use_patterns = "no"
         args.use_text_index = "yes"
+        args.enable_metrics = False
+        args.resource_usage_log = "yes"
+        args.resource_usage_interval = 2
+        args.preload_materialized_views = None
+
+        # Configure Path mock so the log file wait loop is skipped
+        self._mock_log_file(mock_path_cls, args.name)
 
         # Mock CacheStatsCommand
         mock_cache_stats_command.return_value = None
@@ -378,12 +437,12 @@ class TestStartCommand(unittest.TestCase):
             " -t"
             f" > {args.name}.server-log.txt 2>&1"
         )
-        run_call_2 = f"nohup {start_command} &"
+        run_call_2 = f"nohup {start_command} & echo $!"
         # Assert that run_command was called exactly twice with the
 
         mock_util_run_command.assert_has_calls([call(run_call_1)])
         mock_start_run_command.assert_has_calls(
-            [call(run_call_2, use_popen=False)]
+            [call(run_call_2, return_output=True)]
         )
         # Ensure execution was successful
         self.assertTrue(result)
@@ -442,8 +501,10 @@ class TestStartCommand(unittest.TestCase):
     @patch("subprocess.Popen")
     @patch("qlever.commands.start.Containerize")
     @patch("time.sleep")
+    @patch("qlever.commands.start.Path")
     def test_execute_successful_server_start(
         self,
+        mock_path_cls,
         mock_sleep,
         mock_containerize,
         mock_popen,
@@ -466,6 +527,9 @@ class TestStartCommand(unittest.TestCase):
         args.system = "native"
         args.show = False
         args.no_warmup = True
+
+        # Configure Path mock so the log file wait loop is skipped
+        self._mock_log_file(mock_path_cls, args.name)
 
         # Mock server is not alive initially, then alive after starting
         mock_is_qlever_server_alive.side_effect = [False, True]
@@ -504,8 +568,10 @@ class TestStartCommand(unittest.TestCase):
     @patch("subprocess.Popen")
     @patch("subprocess.run")
     @patch("qlever.commands.start.Containerize")
+    @patch("qlever.commands.start.Path")
     def test_execute_server_with_warmup(
         self,
+        mock_path_cls,
         mock_containerize,
         mock_run,
         mock_popen,
@@ -530,6 +596,9 @@ class TestStartCommand(unittest.TestCase):
         args.warmup_cmd = "test_warmup_command"
         args.no_warmup = False
 
+        # Configure Path mock so the log file wait loop is skipped
+        self._mock_log_file(mock_path_cls, args.name)
+
         # Mock Popen
         mock_popen.return_value = MagicMock()
 
@@ -550,7 +619,7 @@ class TestStartCommand(unittest.TestCase):
 
         # Check that Popen was called
         mock_popen.assert_called_once_with(
-            f"exec tail -f {args.name}.server-log.txt", shell=True
+            f"exec tail -n +1 -f {args.name}.server-log.txt", shell=True
         )
 
         # Check warmup was called
@@ -574,8 +643,10 @@ class TestStartCommand(unittest.TestCase):
     @patch("qlever.commands.start.wrap_command_in_container")
     @patch("qlever.commands.start.construct_command")
     @patch("qlever.commands.start.binary_exists")
+    @patch("qlever.commands.start.Path")
     def test_execute_containerize_and_description(
         self,
+        mock_path_cls,
         mock_binary_exists,
         mock_construct_cl,
         mock_run_containerize,
@@ -681,3 +752,121 @@ class TestStartCommand(unittest.TestCase):
 
         # Execute the function and check if return is False
         self.assertTrue(StartCommand().execute(args))
+
+
+class TestMergeRuntimeParameters(unittest.TestCase):
+    def test_command_line_takes_precedence_per_name(self):
+        from qlever.commands.start import merge_runtime_parameters
+
+        self.assertEqual(
+            merge_runtime_parameters(
+                ["a=1", "b=2"],
+                ["b=3", "c=4"],
+            ),
+            ["a=1", "b=3", "c=4"],
+        )
+
+    def test_empty_lists(self):
+        from qlever.commands.start import merge_runtime_parameters
+
+        self.assertEqual(merge_runtime_parameters([], []), [])
+        self.assertEqual(merge_runtime_parameters(["a=1"], []), ["a=1"])
+        self.assertEqual(merge_runtime_parameters([], ["a=1"]), ["a=1"])
+
+    def test_qleverfile_parameters_are_read_and_merged(self):
+        import tempfile
+        from types import SimpleNamespace
+
+        from qlever.commands.start import (
+            get_runtime_parameters_from_qleverfile,
+        )
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".qleverfile"
+        ) as file:
+            file.write(
+                "[data]\nNAME = test\n\n[server]\n"
+                "SET_RUNTIME_PARAMETERS = a=1 b=2\n"
+            )
+            file.flush()
+            args = SimpleNamespace(qleverfile=file.name)
+            self.assertEqual(
+                get_runtime_parameters_from_qleverfile(args),
+                ["a=1", "b=2"],
+            )
+
+    def test_no_qleverfile_yields_empty_list(self):
+        from types import SimpleNamespace
+
+        from qlever.commands.start import (
+            get_runtime_parameters_from_qleverfile,
+        )
+
+        args = SimpleNamespace(qleverfile="/nonexistent/Qleverfile")
+        self.assertEqual(get_runtime_parameters_from_qleverfile(args), [])
+
+
+# Tests that `--server-log-mode append` appends to the server log instead
+# of truncating it, and that `no-log` writes no log at all.
+def test_construct_command_server_log_mode_append_and_no_log():
+    args = MagicMock()
+    args.name = "TestName"
+    args.server_log_mode = "append"
+    args.run_in_foreground = False
+    args.timeout = False
+    args.access_token = False
+    args.persist_updates = False
+    args.rebuild_index_strategy = "manual"
+    args.rebuild_keep_previous_index_dirs = "original-and-most-recent"
+    args.set_runtime_parameters = []
+    args.only_pso_and_pos_permutations = False
+    args.use_patterns = "yes"
+    args.use_text_index = "no"
+    args.enable_metrics = False
+    args.metrics_log = "yes"
+    args.resource_usage_log = "yes"
+    args.resource_usage_interval = 2
+    args.preload_materialized_views = None
+
+    result = qlever.commands.start.construct_command(args)
+    assert result.endswith(f" >> {args.name}.server-log.txt 2>&1")
+
+    # `no-log` in the background discards the output ...
+    args.server_log_mode = "no-log"
+    args.run_in_foreground = False
+    result = qlever.commands.start.construct_command(args)
+    assert result.endswith(" > /dev/null 2>&1")
+    assert "server-log.txt" not in result
+
+    # ... and in the foreground, it goes to the terminal.
+    args.run_in_foreground = True
+    result = qlever.commands.start.construct_command(args)
+    assert "/dev/null" not in result
+    assert "server-log.txt" not in result
+
+
+# Tests the rotation of the server log: the existing log moves to `.1`,
+# older generations shift up, and all generations are kept.
+def test_rotate_server_log(tmp_path):
+    log_file = tmp_path / "TestName.server-log.txt"
+
+    # Rotating a non-existing log does nothing.
+    qlever.commands.start.rotate_server_log(log_file)
+    assert list(tmp_path.iterdir()) == []
+
+    # Rotate four times; all generations are kept, newest first.
+    for run in range(4):
+        log_file.write_text(f"run {run}")
+        qlever.commands.start.rotate_server_log(log_file)
+        assert not log_file.exists()
+    generations = sorted(p.name for p in tmp_path.iterdir())
+    assert generations == [
+        "TestName.server-log.txt.1",
+        "TestName.server-log.txt.2",
+        "TestName.server-log.txt.3",
+        "TestName.server-log.txt.4",
+    ]
+    for i in range(1, 5):
+        expected = f"run {4 - i}"
+        actual = (tmp_path / f"TestName.server-log.txt.{i}").read_text()
+        assert actual == expected

@@ -15,7 +15,7 @@ DESCRIPTION  = OSM ${COUNTRY}, PBF from ${GET_DATA_URL}, converted to RDF with o
 
 [index]
 INPUT_FILES      = ${data:NAME}.ttl.gz
-CAT_INPUT_FILES  = zcat ${data:NAME}.ttl.gz
+CAT_INPUT_FILES  = gunzip -c ${data:NAME}.ttl.gz
 PARALLEL_PARSING = true
 VOCABULARY_TYPE  = on-disk-compressed-geo-split
 STXXL_MEMORY     = 10G

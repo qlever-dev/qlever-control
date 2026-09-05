@@ -3,12 +3,24 @@ from __future__ import annotations
 import re
 import socket
 import subprocess
+from argparse import ArgumentTypeError
 from configparser import ConfigParser, ExtendedInterpolation, RawConfigParser
 from pathlib import Path
 
-from qlever import script_name
 from qlever.containerize import Containerize
 from qlever.log import log
+from qlever.util import positive_int
+
+
+def bool_type(val: str) -> bool:
+    if val in ["True", "true", "1", "on", "yes"]:
+        return True
+    elif val in ["False", "false", "0", "off", "no"]:
+        return False
+    else:
+        raise ArgumentTypeError(
+            f'"{val}" is not a valid boolean value. Use True/False, true/false, yes/no, 1/0 or on/off.'
+        )
 
 
 class QleverfileException(Exception):
@@ -25,23 +37,36 @@ class Qleverfile:
     SERVER_RUNTIME_PARAMETERS = [
         "cache-max-num-entries",
         "cache-max-size",
+        "cache-max-size-lazy-result",
         "cache-max-size-single-entry",
         "cache-service-results",
+        "construct-deduplication",
         "default-query-timeout",
+        "disable-caching",
         "division-by-zero-is-undef",
         "enable-distributive-union",
+        "enable-materialized-view-query-rewrite",
         "enable-prefilter-on-index-scans",
         "group-by-disable-index-scan-optimizations",
         "group-by-hash-map-enabled",
         "lazy-index-scan-max-size-materialization",
         "lazy-index-scan-num-threads",
         "lazy-index-scan-queue-size",
-        "lazy-result-max-cache-size",
+        "log-level",
+        "materialized-view-writer-memory",
+        "parallel-sort-num-threads",
+        "pattern-trick-num-threads",
+        "permutation-writer-num-threads",
+        "prefiltered-optional-join",
         "query-planning-budget",
+        "rebuild-index-scan-num-threads",
+        "rebuild-max-concurrent-permutation-pairs",
+        "rebuild-permutation-writer-num-threads",
         "request-body-limit",
         "service-allowed-iri-prefixes",
         "service-max-redirects",
         "service-max-value-rows",
+        "small-index-scan-size-estimate-divisor",
         "sort-estimate-cancellation-factor",
         "sort-in-memory-threshold",
         "sparql-results-json-with-time",
@@ -52,11 +77,13 @@ class Qleverfile:
         "throw-on-unbound-variables",
         "treat-default-graph-as-named-graph",
         "use-binsearch-transitive-path",
+        "vacuum-minimum-block-size",
         "websocket-updates-enabled",
+        "zero-cost-estimate-for-cached-subtree",
     ]
 
     @staticmethod
-    def all_arguments():
+    def all_arguments(main_command_name: str) -> dict:
         """
         Define all possible parameters. A value of `None` means that there is
         no default value.
@@ -194,6 +221,28 @@ class Qleverfile:
             "large enough to contain the end of at least one statement "
             "(default: 10M)",
         )
+        index_args["geo_cell_grid_level"] = arg(
+            "--geo-cell-grid-level",
+            type=int,
+            default=None,
+            help="Level L of the geo cell grid for WKT literals: the grid "
+            "cell of each literal is encoded into its ID, which enables the "
+            "geo cell prefilter for spatial joins; requires VOCABULARY_TYPE "
+            "on-disk-compressed-geo-split (default: no grid)",
+        )
+        index_args["geo_cell_grid_scheme"] = arg(
+            "--geo-cell-grid-scheme",
+            type=str,
+            choices=[
+                "flat",
+                "flat-4-shifts",
+                "hierarchical",
+                "hierarchical-3-shifts",
+            ],
+            default=None,
+            help="Cell assignment scheme of the geo cell grid "
+            "(default: flat); only relevant with GEO_CELL_GRID_LEVEL > 0",
+        )
         index_args["encode_as_id"] = arg(
             "--encode-as-id",
             type=str,
@@ -248,6 +297,27 @@ class Qleverfile:
             default=None,
             help="File with the documents for the text index (one line "
             "per document, format: `id\tdocument text`)",
+        )
+        index_args["resource_usage_log"] = arg(
+            "--resource-usage-log",
+            choices=["yes", "no"],
+            default="yes",
+            help="Whether the index binary writes a TSV log of its RSS "
+            "and CPU usage (`<name>.index.resource-usage-log.tsv`)",
+        )
+        index_args["resource_usage_interval"] = arg(
+            "--resource-usage-interval",
+            type=positive_int,
+            default=1,
+            help="Seconds between the samples in the resource-usage log",
+        )
+        index_args["resource_usage_plot_max_points"] = arg(
+            "--resource-usage-plot-max-points",
+            type=positive_int,
+            default=500,
+            help="Maximum number of points per line (RSS and CPU) in "
+            "the resource-usage plot. Sampling is unaffected; samples "
+            "are bucketed and reduced with max",
         )
 
         server_args["server_binary"] = arg(
@@ -323,6 +393,52 @@ class Qleverfile:
             help="Persist updates to the index (write updates to disk and "
             "read them back in when restarting the server)",
         )
+        server_args["rebuild_index_strategy"] = arg(
+            "--rebuild-index-strategy",
+            type=str,
+            default="manual",
+            help="When to rebuild the index from the current data (including "
+            'updates): "manual" (only when explicitly requested via '
+            f"`{main_command_name} rebuild-index`) or "
+            '"automatic:min:max:fraction" (additionally '
+            "rebuild automatically in the background once the number of delta "
+            "triples reaches the given `fraction` of the number of index "
+            "triples, but never below `min` and always at `max`, "
+            'e.g. "automatic:10000:1000000:0.1")',
+        )
+        server_args["rebuild_keep_previous_index_dirs"] = arg(
+            "--rebuild-keep-previous-index-dirs",
+            choices=[
+                "all",
+                "none",
+                "original-only",
+                "most-recent-only",
+                "original-and-most-recent",
+            ],
+            default="original-and-most-recent",
+            help="Which `previous.*` index directories the server keeps after "
+            "a successful index rebuild, manual or automatic (each rebuild "
+            "moves the index that was served so far into such a directory): "
+            "all (keep all), "
+            "none (delete all), "
+            "original-only (keep only the very first), "
+            "most-recent-only (keep only the most recently created), "
+            "original-and-most-recent (keep both)",
+        )
+        server_args["set_runtime_parameters"] = arg(
+            "--set-runtime-parameters",
+            nargs="+",
+            default=None,
+            metavar="NAME=VALUE",
+            help="Space-separated list of runtime parameters to set at "
+            "server startup, each in the form `name=value` (for the list of "
+            "runtime parameters and their default values, run "
+            "`qlever-server --set-runtime-parameter help`; they can also be "
+            f"changed while the server is running, via `{main_command_name} "
+            "settings`); "
+            "parameters given on the command line are merged with those "
+            "from the Qleverfile and take precedence for the same name",
+        )
         server_args["only_pso_and_pos_permutations"] = arg(
             "--only-pso-and-pos-permutations",
             action="store_true",
@@ -335,21 +451,67 @@ class Qleverfile:
             choices=["yes", "no"],
             default="yes",
             help="Whether to use the patterns precomputed during the index "
-            "build (see `qlever index --help` for their utility)",
+            f"build (see `{main_command_name} index --help` for their utility)",
+        )
+        server_args["metrics_log"] = arg(
+            "--metrics-log",
+            choices=["yes", "no"],
+            default="yes",
+            help="Whether to produce the per-query metrics log, a JSONL log of "
+            "query start/end events (`.metrics-log.jsonl`)",
+        )
+        server_args["server_log_mode"] = arg(
+            "--server-log-mode",
+            choices=["append", "overwrite", "rotate", "no-log"],
+            default="rotate",
+            help="What to do with the server log of a previous run when "
+            "starting the server: `append` = keep it and append, "
+            "`overwrite` = remove it (the behavior before this option "
+            "existed), `rotate` = move it to `<log>.1`, shifting older "
+            "generations up (all are kept), `no-log` = write no server "
+            "log at all (in the foreground, the server output goes to "
+            "the terminal)",
+        )
+        server_args["resource_usage_log"] = arg(
+            "--resource-usage-log",
+            choices=["yes", "no"],
+            default="yes",
+            help="Whether the server writes a TSV log of its RSS and "
+            "CPU usage (`<name>.server.resource-usage-log.tsv`)",
+        )
+        server_args["resource_usage_interval"] = arg(
+            "--resource-usage-interval",
+            type=positive_int,
+            default=2,
+            help="Seconds between the samples in the resource-usage log",
         )
         server_args["use_text_index"] = arg(
             "--use-text-index",
             choices=["yes", "no"],
             default="no",
             help="Whether to use the text index (requires that one was "
-            "built, see `qlever index`)",
+            f"built, see `{main_command_name} index`)",
+        )
+        server_args["preload_materialized_views"] = arg(
+            "-l",
+            "--preload-materialized-views",
+            nargs="+",
+            default=None,
+            help="Names of one or more materialized views to preload on "
+            "startup",
         )
         server_args["warmup_cmd"] = arg(
             "--warmup-cmd",
             type=str,
             help="Command executed after the server has started "
-            " (executed as part of `qlever start` unless "
-            " `--no-warmup` is specified, or with `qlever warmup`)",
+            f" (executed as part of `{main_command_name} start` unless "
+            f" `--no-warmup` is specified, or with `{main_command_name} warmup`)",
+        )
+        server_args["enable_metrics"] = arg(
+            "--enable-metrics",
+            type=bool_type,
+            default=False,
+            help="Enable the metrics endpoint at `/metrics` (only available with the access token)",
         )
 
         runtime_args["system"] = arg(
@@ -372,19 +534,30 @@ class Qleverfile:
         runtime_args["index_container"] = arg(
             "--index-container",
             type=str,
-            help=f"The name of the container used by `{script_name} index`",
+            help=f"The name of the container used by `{main_command_name} index`",
         )
         runtime_args["server_container"] = arg(
             "--server-container",
             type=str,
-            help=f"The name of the container used by `{script_name} start`",
+            help=f"The name of the container used by `{main_command_name} start`",
+        )
+        runtime_args["restart_policy"] = arg(
+            "--restart-policy",
+            type=str,
+            choices=["no", "always", "unless-stopped", "on-failure"],
+            default="unless-stopped",
+            help="Restart policy for the server container"
+            " (only applies when running in a container)"
+            " (default: unless-stopped)",
         )
 
         ui_args["ui_port"] = arg(
             "--ui-port",
             type=int,
             default=8176,
-            help="The port of the Qlever UI when running `qlever ui`",
+            help=(
+                f"The port of the Qlever UI when running `{main_command_name} ui`"
+            ),
         )
         ui_args["ui_config"] = arg(
             "--ui-config",
@@ -398,26 +571,29 @@ class Qleverfile:
             type=str,
             choices=Containerize.supported_systems(),
             default="docker",
-            help="Which container system to use for `qlever ui`"
-            " (unlike for `qlever index` and `qlever start`, "
-            ' "native" is not yet supported here)',
+            help=(
+                f"Which container system to use for `{main_command_name} ui` "
+                f"(unlike for `{main_command_name} index` and "
+                f'`{main_command_name} start`, "native" is not yet supported '
+                "here)"
+            ),
         )
         ui_args["ui_image"] = arg(
             "--ui-image",
             type=str,
             default="docker.io/adfreiburg/qlever-ui",
-            help="The name of the image used for `qlever ui`",
+            help=f"The name of the image used for `{main_command_name} ui`",
         )
         ui_args["ui_container"] = arg(
             "--ui-container",
             type=str,
-            help="The name of the container used for `qlever ui`",
+            help=f"The name of the container used for `{main_command_name} ui`",
         )
 
         return all_args
 
     @staticmethod
-    def read(qleverfile_path):
+    def read(qleverfile_path: Path, engine_short_name: str) -> ConfigParser:
         """
         Read the given Qleverfile (the function assumes that it exists) and
         return a `ConfigParser` object with all the options and their values.
@@ -470,21 +646,26 @@ class Qleverfile:
                 config[section] = {}
 
         # Add default values that are based on other values.
+        index = config["index"]
+        server = config["server"]
         if "name" in config["data"]:
             name = config["data"]["name"]
             runtime = config["runtime"]
             if "server_container" not in runtime:
-                runtime["server_container"] = f"{script_name}.server.{name}"
+                runtime["server_container"] = (
+                    f"{engine_short_name}.server.{name}"
+                )
             if "index_container" not in runtime:
-                runtime["index_container"] = f"{script_name}.index.{name}"
+                runtime["index_container"] = (
+                    f"{engine_short_name}.index.{name}"
+                )
             if "ui_container" not in config["ui"]:
                 config["ui"]["ui_container"] = f"qlever.ui.{name}"
-            index = config["index"]
             if "text_words_file" not in index:
                 index["text_words_file"] = f"{name}.wordsfile.tsv"
             if "text_docs_file" not in index:
                 index["text_docs_file"] = f"{name}.docsfile.tsv"
-            server = config["server"]
+
         if index.get("text_index", "none") != "none":
             server["use_text_index"] = "yes"
         if index.get("only_pso_and_pos_permutations", "false") == "true":
@@ -500,7 +681,6 @@ class Qleverfile:
             log.warning(
                 "Could not get the hostname, using `localhost` as default"
             )
-            pass
 
         # Return the parsed Qleverfile with the added inherited values.
         return config
@@ -513,8 +693,8 @@ class Qleverfile:
         Given a filter criteria (key: section_header, value: list[options]),
         return a RawConfigParser object to create a new filtered Qleverfile
         with only the specified sections and options (selects all options if
-        list[options] is empty). Mainly to be used by non-qlever scripts for
-        the setup-config command
+        list[options] is empty). Mainly to be used by `qeval` for the
+        `setup-config` command of non-qlever engines.
         """
         # Read the Qleverfile.
         config = RawConfigParser()

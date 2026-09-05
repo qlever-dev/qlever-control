@@ -14,7 +14,7 @@ TEXT_DESCRIPTION  = All literals, search with FILTER KEYWORDS(?text, "...")
 
 [index]
 INPUT_FILES       = dblp.ttl.gz affiliations.nt affiliations.additions.nt citations.nt
-CAT_INPUT_FILES   = zcat -f ${INPUT_FILES}
+CAT_INPUT_FILES   = gunzip -cf ${INPUT_FILES}
 SETTINGS_JSON     = { "ascii-prefixes-only": false, "num-triples-per-batch": 1000000, "prefixes-external": [ "<https://w3id.org", "<https://doi.org", "<http://dx.doi.org" ] }
 TEXT_INDEX        = from_literals
 

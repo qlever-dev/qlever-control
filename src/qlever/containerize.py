@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import shlex
 import subprocess
-from typing import Optional
 
 from qlever.log import log
 from qlever.util import get_random_string, run_command
@@ -39,7 +38,7 @@ class Containerize:
         container_name: str,
         volumes: list[tuple[str, str]] = [],
         ports: list[tuple[int, int]] = [],
-        working_directory: Optional[str] = None,
+        working_directory: str | None = None,
         use_bash: bool = True,
     ) -> str:
         """
@@ -148,7 +147,7 @@ class Containerize:
             return False
 
     @staticmethod
-    def run_in_container(cmd: str, args) -> Optional[str]:
+    def run_in_container(cmd: str, args) -> str | None:
         """
         Run an arbitrary command in the qlever container and return its output.
         """
