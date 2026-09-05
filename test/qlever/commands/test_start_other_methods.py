@@ -59,6 +59,7 @@ class TestStartCommand(unittest.TestCase):
                     "image",
                     "server_container",
                     "restart_policy",
+                    "seccomp_profile",
                 ],
             },
         )
