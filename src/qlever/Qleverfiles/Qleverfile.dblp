@@ -16,10 +16,11 @@ DESCRIPTION  = DBLP computer science bibliography + citations from OpenCitations
 FORMAT       = ttl
 
 [index]
-INPUT_FILES      = *.gz
-MULTI_INPUT_JSON = { "cmd": "zcat {}", "for-each": "*.gz" }
-SETTINGS_JSON    = { "num-triples-per-batch": 5000000 }
-STXXL_MEMORY     = 5G
+INPUT_FILES          = *.gz
+MULTI_INPUT_JSON     = { "cmd": "zcat {}", "for-each": "*.gz" }
+SETTINGS_JSON        = { "num-triples-per-batch": 5000000 }
+STXXL_MEMORY         = 5G
+ADD_HAS_WORD_TRIPLES = true
 
 [server]
 PORT               = 7015
