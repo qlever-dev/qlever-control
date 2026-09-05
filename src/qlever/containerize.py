@@ -41,7 +41,7 @@ class Containerize:
         ports: list[tuple[int, int]] = [],
         working_directory: str | None = None,
         use_bash: bool = True,
-        seccomp_profile: Optional[str] = None,
+        seccomp_profile: str | None = None,
     ) -> str:
         """
         Get the command to run `cmd` with the given `container_system` and the

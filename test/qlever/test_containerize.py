@@ -1,4 +1,5 @@
 import os
+import shlex
 
 from qlever.containerize import Containerize
 
@@ -33,7 +34,7 @@ def test_containerize_command_with_seccomp_profile():
     cmd = _cmd(seccomp_profile="/etc/qlever/seccomp.json")
     assert " --security-opt seccomp=/etc/qlever/seccomp.json" in cmd
     cmd = _cmd(seccomp_profile="seccomp.json")
-    expected = os.path.join(os.getcwd(), "seccomp.json")
+    expected = shlex.quote(os.path.join(os.getcwd(), "seccomp.json"))
     assert f" --security-opt seccomp={expected}" in cmd
     # The option comes after `--init` and before the image name.
     assert cmd.index("--init") < cmd.index("--security-opt")
