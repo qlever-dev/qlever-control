@@ -133,6 +133,7 @@ def wrap_command_in_container(args, start_cmd) -> str:
         volumes=[("$(pwd)", "/index")],
         ports=[(args.port, args.port)],
         working_directory="/index",
+        seccomp_profile=args.seccomp_profile,
     )
     return start_cmd
 
@@ -352,6 +353,7 @@ class StartCommand(QleverCommand):
                 "image",
                 "server_container",
                 "restart_policy",
+                "seccomp_profile",
             ],
         }
 
