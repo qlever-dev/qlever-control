@@ -25,7 +25,7 @@ class MaterializedViewCommand(QleverCommand):
     def description(self) -> str:
         return (
             "Create a materialized view from the given query, "
-            "or load or delete an existing one"
+            "or load, unload, or delete an existing one"
         )
 
     def should_have_qleverfile(self) -> bool:
@@ -62,6 +62,13 @@ class MaterializedViewCommand(QleverCommand):
             help="Load an existing materialized view instead of creating one",
         )
         subparser.add_argument(
+            "--unload",
+            action="store_true",
+            default=False,
+            help="Unload an existing materialized view (keep it on disk, "
+            "so it can be loaded again later) instead of creating one",
+        )
+        subparser.add_argument(
             "--delete",
             action="store_true",
             default=False,
@@ -91,15 +98,20 @@ class MaterializedViewCommand(QleverCommand):
             )
             return False
 
-        if args.load and args.delete:
-            log.error("Cannot use `--load` and `--delete` together")
+        if sum([args.load, args.unload, args.delete]) > 1:
+            log.error(
+                "Cannot use more than one of `--load`, `--unload`, "
+                "and `--delete` together"
+            )
             return False
 
-        # With `--load` or `--delete`, no query must be given.
-        if (args.load or args.delete) and args.view_query is not None:
+        # With `--load`, `--unload`, or `--delete`, no query must be given.
+        if (
+            args.load or args.unload or args.delete
+        ) and args.view_query is not None:
             log.error(
                 "A query must not be given together with "
-                "`--load` or `--delete`"
+                "`--load`, `--unload`, or `--delete`"
             )
             return False
 
@@ -132,6 +144,37 @@ class MaterializedViewCommand(QleverCommand):
                 return False
             view_name = result_json.get("materialized-view-deleted")
             log.info(f"Materialized view '{view_name}' deleted")
+            return True
+
+        # If `--unload` is set, unload an existing materialized view.
+        if args.unload:
+            url = (
+                f"{sparql_endpoint}"
+                f"?cmd=unload-materialized-view"
+                f"&view-name={args.view_name}"
+            )
+            unload_cmd = (
+                f"curl -s {shlex.quote(url)} "
+                f"-H 'Authorization: Bearer {args.access_token}'"
+            )
+            self.show(unload_cmd, only_show=args.show)
+            if args.show:
+                return True
+            try:
+                result = run_command(unload_cmd, return_output=True)
+            except Exception as e:
+                log.error(f"Unloading the materialized view failed: {e}")
+                return False
+            try:
+                result_json = json.loads(result)
+            except json.JSONDecodeError:
+                # An error response from the server is plain text, not JSON.
+                log.error(
+                    f"Unloading the materialized view failed: {result.strip()}"
+                )
+                return False
+            view_name = result_json.get("materialized-view-unloaded")
+            log.info(f"Materialized view '{view_name}' unloaded")
             return True
 
         # If `--load` is set, load an existing materialized view.
@@ -198,8 +241,8 @@ class MaterializedViewCommand(QleverCommand):
             log.error(
                 f"No query given for materialized view '{args.view_name}', "
                 "and none found for it in MATERIALIZED_VIEWS in the "
-                "Qleverfile (use --load to load an existing one, or "
-                "--delete to delete one)"
+                "Qleverfile (use --load to load an existing one, --unload "
+                "to unload one, or --delete to delete one)"
             )
             return False
 
