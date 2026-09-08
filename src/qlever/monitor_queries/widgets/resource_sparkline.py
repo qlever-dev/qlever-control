@@ -8,15 +8,13 @@ near-capacity load reads tall and red.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-
 from rich.text import Text
 from textual.color import Color
 from textual.message import Message
 from textual.reactive import Reactive
 from textual.widgets import Static
 
-from qlever.monitor_queries.models import ResourceSeries
+from qlever.monitor_queries.models import ResourceSeries, ResourceWindow
 
 BARS = "▁▂▃▄▅▆▇█"
 
@@ -33,13 +31,25 @@ def load_color(ratio: float) -> str:
     return AMBER.blend(RED, (ratio - 0.5) * 2).hex
 
 
-def bucket_max(values: tuple[float, ...], width: int) -> Iterator[float]:
-    """Group values into `width` columns, each the max of its slice."""
-    step = len(values) / width
-    for column in range(width):
-        lo, hi = int(column * step), int((column + 1) * step)
-        chunk = values[lo:hi] or values[lo : lo + 1] or values[-1:]
-        yield max(chunk)
+def column_values(
+    series: ResourceSeries, window: ResourceWindow, width: int
+) -> list[float]:
+    """One bar height per terminal column, placed by the reading's time.
+
+    The window frames the time axis the readings are placed along. An
+    empty column stays at zero, so a young server draws only at the
+    right and an outage leaves a real gap. A column holding several
+    readings shows the largest, so a spike survives.
+    """
+    span_s = window.end_s - window.start_s
+    if span_s <= 0:
+        return [0.0] * width
+    columns = [0.0] * width
+    for value, time_s in zip(series.values, window.times_s):
+        index = int((time_s - window.start_s) / span_s * width)
+        index = min(max(index, 0), width - 1)
+        columns[index] = max(columns[index], value)
+    return columns
 
 
 def series_title(series: ResourceSeries, stale: bool) -> str:
@@ -63,10 +73,12 @@ def series_title(series: ResourceSeries, stale: bool) -> str:
 
 
 class ResourceSparkline(Static):
-    """One bordered bar gauge for a ResourceSeries.
+    """One bordered bar gauge for one column of a resource window.
 
     Bar height and color both come from value/total, drawn over the two
-    content rows under a blank top border that carries the label.
+    content rows under a blank top border that carries the label. It
+    takes the whole window because a bar's place along the width comes
+    from its reading's time.
     """
 
     can_focus = False
@@ -74,17 +86,23 @@ class ResourceSparkline(Static):
     class Clicked(Message):
         """Posted when the gauge is clicked, to open the plot modal."""
 
-    series = Reactive(None, init=False)
+    window = Reactive(None, init=False)
     stale = Reactive(False, init=False)
 
-    def __init__(self, series: ResourceSeries, stale: bool) -> None:
+    def __init__(self, window: ResourceWindow, key: str, stale: bool) -> None:
         super().__init__()
-        self.set_reactive(ResourceSparkline.series, series)
+        self.key = key
+        self.set_reactive(ResourceSparkline.window, window)
         self.set_reactive(ResourceSparkline.stale, stale)
-        self.border_title = series_title(series, stale)
+        self.border_title = series_title(self.series, stale)
 
-    def watch_series(self, series: ResourceSeries) -> None:
-        self.border_title = series_title(series, self.stale)
+    @property
+    def series(self) -> ResourceSeries:
+        """This sparkline's column, which the log always carries."""
+        return self.window.series[self.key]
+
+    def watch_window(self) -> None:
+        self.border_title = series_title(self.series, self.stale)
 
     def watch_stale(self, stale: bool) -> None:
         self.border_title = series_title(self.series, stale)
@@ -94,12 +112,13 @@ class ResourceSparkline(Static):
 
     def render(self) -> Text:
         width, height = self.size.width, self.size.height
-        total = self.series.total
-        if width < 1 or height < 1 or not total or not self.series.values:
+        series = self.series
+        total = series.total
+        if width < 1 or height < 1 or not total or not series.values:
             return Text()
         # One (height, color) per column, both from the curved load.
         cells = []
-        for value in bucket_max(self.series.values, width):
+        for value in column_values(series, self.window, width):
             load = min(1.0, max(0.0, value / total))
             # The curve expands the low band the process actually uses and
             # compresses the top it never reaches

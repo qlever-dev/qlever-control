@@ -74,6 +74,16 @@ class MonitorQueriesCommand(QleverCommand):
             " (default = server timeout - 10s)",
         )
         subparser.add_argument(
+            "--read-write-min-max-mbs",
+            type=str,
+            default=None,
+            metavar="MIN:MAX",
+            help="Bounds for the y-axis of the disk read and write rates"
+            " in the resource plots, in MB/s, e.g. 100:200: the axis"
+            " scales to the data, but never below MIN and never above"
+            " MAX (default = scale the axis to the data alone)",
+        )
+        subparser.add_argument(
             "--refresh",
             type=float,
             default=1,
@@ -112,6 +122,25 @@ class MonitorQueriesCommand(QleverCommand):
                 return False
             args.slow_threshold = max(1, timeout_s - 10)
 
+        if args.read_write_min_max_mbs is not None:
+            try:
+                low, high = args.read_write_min_max_mbs.split(":")
+                args.read_write_min_max_mbs = (float(low), float(high))
+            except ValueError:
+                log.error(
+                    "--read-write-min-max-mbs must be two colon-separated"
+                    f" numbers like 100:200, got"
+                    f" {args.read_write_min_max_mbs!r}"
+                )
+                return False
+            low_mbs, high_mbs = args.read_write_min_max_mbs
+            if not 0 <= low_mbs <= high_mbs or high_mbs == 0:
+                log.error(
+                    "--read-write-min-max-mbs needs 0 <= MIN <= MAX with"
+                    f" MAX positive, got {low_mbs:g}:{high_mbs:g}"
+                )
+                return False
+
         if args.refresh < REFRESH_MIN_S or args.refresh > REFRESH_MAX_S:
             log.error(
                 f"--refresh must be between {REFRESH_MIN_S} and"
@@ -134,5 +163,6 @@ class MonitorQueriesCommand(QleverCommand):
             system=args.system,
             resource_log=args.resource_usage_log,
             sample_interval_s=args.resource_usage_interval,
+            read_write_min_max_mbs=args.read_write_min_max_mbs,
         ).run()
         return True

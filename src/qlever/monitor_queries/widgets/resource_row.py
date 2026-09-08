@@ -11,7 +11,7 @@ from textual.containers import Horizontal
 from textual.reactive import Reactive
 from textual.widgets import Static
 
-from qlever.monitor_queries.models import LiveSubtitle, ResourceUsage
+from qlever.monitor_queries.models import LiveSubtitle, ResourceWindow
 from qlever.monitor_queries.widgets.resource_sparkline import ResourceSparkline
 
 
@@ -50,34 +50,36 @@ class ResourceRow(Horizontal):
     can_focus = False
 
     subtitle = Reactive(None, init=False)
-    usage = Reactive(None, init=False)
+    window = Reactive(None, init=False)
     stale = Reactive(False, init=False)
 
     def __init__(
-        self, server_subtitle: LiveSubtitle, usage: ResourceUsage
+        self, server_subtitle: LiveSubtitle, window: ResourceWindow
     ) -> None:
         super().__init__()
         self.set_reactive(ResourceRow.subtitle, server_subtitle)
-        self.set_reactive(ResourceRow.usage, usage)
+        self.set_reactive(ResourceRow.window, window)
 
     def compose(self) -> ComposeResult:
-        self.rss_spark = ResourceSparkline(self.usage.rss, self.stale)
+        self.rss_spark = ResourceSparkline(self.window, "rss", self.stale)
         yield self.rss_spark
         center = Static(
             format_subtitle(self.subtitle), classes="resource-center"
         )
         center.styles.width = subtitle_width(self.subtitle.endpoint)
         yield center
-        self.cpu_spark = ResourceSparkline(self.usage.cpu, self.stale)
+        self.cpu_spark = ResourceSparkline(
+            self.window, "cpu_percent", self.stale
+        )
         yield self.cpu_spark
 
     def watch_subtitle(self, subtitle: LiveSubtitle) -> None:
         static = self.query_one(".resource-center", Static)
         static.update(format_subtitle(subtitle))
 
-    def watch_usage(self, usage: ResourceUsage) -> None:
-        self.rss_spark.series = usage.rss
-        self.cpu_spark.series = usage.cpu
+    def watch_window(self, window: ResourceWindow) -> None:
+        self.rss_spark.window = window
+        self.cpu_spark.window = window
 
     def watch_stale(self, stale: bool) -> None:
         self.set_class(stale, "stale")

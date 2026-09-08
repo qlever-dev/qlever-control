@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+import psutil
 from textual import work
 from textual.app import App
 from textual.binding import Binding
@@ -22,12 +23,14 @@ from qlever.monitor_queries.log_reader import (
     open_log_buffer,
     read_first_timestamp,
 )
-from qlever.monitor_queries.resource_data import system_totals
+from qlever.monitor_queries.models import ResourceWindow
+from qlever.monitor_queries.resource_data import Capacity
 from qlever.monitor_queries.util import clipboard_install_hint, copy_text
 from qlever.monitor_queries.views.historic import HistoricScreen
 from qlever.monitor_queries.views.live import LiveScreen
 from qlever.monitor_queries.widgets.header_row import ThemeSelect
 from qlever.monitor_queries.widgets.query_table import QueryTable
+from qlever.monitor_queries.widgets.resource_plot_pane import ResourcePlotPane
 from qlever.monitor_queries.widgets.sparql_pane import SparqlPane, SparqlScroll
 from qlever.util import pretty_printed_query
 
@@ -77,6 +80,7 @@ class MonitorQueriesApp(App):
         resource_log: Path,
         sample_interval_s: int,
         system: str = "docker",
+        read_write_min_max_mbs: tuple[float, float] | None = None,
     ) -> None:
         super().__init__()
         self.log_file = log_file
@@ -89,9 +93,13 @@ class MonitorQueriesApp(App):
         # Seconds between the log's samples, as the server was started.
         # Sizes the live buffer and how long a sample counts as fresh.
         self.sample_interval_s = sample_interval_s
-        # Host-wide RAM/core capacities for the resource plot axes; fixed
-        # for the machine's lifetime and shared by Live and Historic.
-        self.resource_totals = system_totals()
+        # What the machine has, read once because it cannot change while
+        # we run. Shared by Live and Historic.
+        self.capacity = Capacity(
+            ram_gb=psutil.virtual_memory().total / 1e9,
+            cores=psutil.cpu_count(),
+            read_write_min_max_mbs=read_write_min_max_mbs,
+        )
         self.system = system
         self.live_state = LiveState()
         self.log_start_ms = None
@@ -164,6 +172,32 @@ class MonitorQueriesApp(App):
         self.live_state.metrics_known_from_ms = max(
             log_start_or_boot, self.boot_time_ms - LIVE_HORIZON_MS
         )
+
+    def push_resource_window(self, window: ResourceWindow) -> None:
+        """Hand fresh readings to every resource plot on screen.
+
+        The maximized plot is a screen of its own, so the screen that
+        read the window cannot reach it. The app owns the screen stack,
+        so it hands the window over: while the plot is maximized, it and
+        the pane underneath show the same readings.
+        """
+        for screen in self.screen_stack:
+            for pane in screen.query(ResourcePlotPane):
+                pane.window = window
+
+    def on_resource_plot_pane_buckets_changed(
+        self, event: ResourcePlotPane.BucketsChanged
+    ) -> None:
+        """Let Historic re-read its readings at the plot's new width.
+
+        Live has nothing to do here, because its window is the buffer it
+        already holds and a width cannot change that. This sits on the
+        app because a maximized plot has no log of its own to read, and
+        the app can find the screen that has one.
+        """
+        for screen in self.screen_stack:
+            if isinstance(screen, HistoricScreen):
+                screen.reread_resource_window(event.buckets)
 
     def action_swap_screen(self) -> None:
         """Toggle between Live and Historic (bound to Tab on each screen)."""

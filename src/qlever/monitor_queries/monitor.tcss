@@ -297,10 +297,14 @@ ResourcePlotModal {
     align: center middle;
 }
 
+/* Inset in rows and columns rather than a percentage, so the dimmed
+   screen stays visible around it on a short terminal too, and the
+   plots keep every row they can. */
 #resource-plot-modal {
-    width: 90%;
-    height: 90%;
-    padding: 1 2;
+    width: 100%;
+    height: 100%;
+    margin: 1 3;
+    padding: 0 1;
     background: $surface;
 }
 
