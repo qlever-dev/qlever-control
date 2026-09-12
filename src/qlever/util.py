@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import errno
 import glob
+import os
 import re
 import secrets
 import shlex
@@ -424,6 +425,38 @@ def systemd_unit_name(name: str) -> str:
     return f"qlever.server.{name}"
 
 
+def systemd_user_env() -> dict[str, str]:
+    """
+    The environment for `systemctl --user`, `systemd-run --user`, and
+    `loginctl`. Outside of a login session (for example, in a cron job), the
+    variables that point to the user's systemd instance are not set, so they
+    are filled in with their standard values.
+    """
+    env = os.environ.copy()
+    runtime_dir = env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path={runtime_dir}/bus")
+    return env
+
+
+def systemd_linger_status() -> str | None:
+    """
+    Whether lingering is enabled for the current user ("yes" or "no"), that
+    is, whether the user's systemd instance and its services keep running
+    after the last login session ends. `None` if `loginctl` cannot tell (no
+    systemd, or no user instance).
+    """
+    if shutil.which("loginctl") is None:
+        return None
+    result = subprocess.run(
+        ["loginctl", "show-user", str(os.getuid()), "-p", "Linger", "--value"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=systemd_user_env(),
+    )
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
 def systemd_unit_is_loaded(unit: str) -> bool:
     """
     Whether the systemd user service `unit` currently exists (active,
@@ -436,6 +469,7 @@ def systemd_unit_is_loaded(unit: str) -> bool:
         capture_output=True,
         text=True,
         check=False,
+        env=systemd_user_env(),
     )
     return result.stdout.strip() == "loaded"
 
@@ -449,6 +483,7 @@ def systemd_unit_is_active(unit: str) -> bool:
         ["systemctl", "--user", "is-active", "--quiet", unit],
         capture_output=True,
         check=False,
+        env=systemd_user_env(),
     )
     return result.returncode == 0
 
@@ -460,11 +495,16 @@ def stop_systemd_unit(unit: str) -> bool:
     """
     if not systemd_unit_is_loaded(unit):
         return False
-    run_command(f"systemctl --user stop {unit}")
+    subprocess.run(
+        ["systemctl", "--user", "stop", unit],
+        check=True,
+        env=systemd_user_env(),
+    )
     subprocess.run(
         ["systemctl", "--user", "reset-failed", unit],
         capture_output=True,
         check=False,
+        env=systemd_user_env(),
     )
     return True
 

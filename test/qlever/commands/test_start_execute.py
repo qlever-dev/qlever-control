@@ -165,9 +165,9 @@ def test_wrap_command_in_systemd_unit():
     result = qlever.commands.start.wrap_command_in_systemd_unit(
         args, "Test_start_cmd"
     )
-    assert result.startswith(
+    assert (
         "systemd-run --user --unit qlever.server.TestName"
-        ' --working-directory "$(pwd)"'
+        ' --working-directory "$(pwd)"' in result
     )
     assert " -p Restart=always -p RestartSec=5" in result
     assert (
@@ -184,13 +184,13 @@ def test_wrap_command_in_systemd_unit():
     assert " -p StandardOutput=null " in result
 
 
-# With `--system systemd`, the command line has no shell redirect (the unit
-# writes the log), and the liveness check asks systemd.
+# For a server run as a systemd unit, the command line has no shell redirect
+# (the unit writes the log), and the liveness check asks systemd.
 @patch("qlever.commands.start.systemd_unit_is_active")
 def test_construct_command_and_liveness_check_systemd(mock_is_active):
     args = MagicMock()
     args.name = "TestName"
-    args.system = "systemd"
+    args.system = "native"
     args.timeout = False
     args.access_token = False
     args.persist_updates = False
@@ -206,35 +206,39 @@ def test_construct_command_and_liveness_check_systemd(mock_is_active):
     args.resource_usage_interval = 2
     args.preload_materialized_views = None
 
-    result = qlever.commands.start.construct_command(args)
+    result = qlever.commands.start.construct_command(args, use_systemd=True)
     assert "server-log.txt" not in result
     assert not result.endswith("2>&1")
 
     mock_is_active.return_value = True
     is_still_running = qlever.commands.start.make_server_liveness_check(
-        args, None, None
+        args, None, None, use_systemd=True
     )
     assert is_still_running()
     mock_is_active.assert_called_once_with("qlever.server.TestName")
 
 
-# Tests `warn_if_no_linger`: warns iff lingering is off, silent if `loginctl`
-# is not available.
-@patch("qlever.commands.start.run_command")
-@patch("qlever.commands.start.log")
-def test_warn_if_no_linger(mock_log, mock_run_cmd):
-    mock_run_cmd.return_value = "yes\n"
-    qlever.commands.start.warn_if_no_linger()
-    mock_log.warning.assert_not_called()
-
-    mock_run_cmd.return_value = "no\n"
-    qlever.commands.start.warn_if_no_linger()
-    mock_log.warning.assert_called_once()
-    assert "loginctl enable-linger" in mock_log.warning.call_args.args[0]
-
-    mock_run_cmd.side_effect = Exception("no loginctl")
-    qlever.commands.start.warn_if_no_linger()
-    mock_log.warning.assert_called_once()
+# Tests `check_systemd_for_restarts`: systemd on Linux with lingering is
+# "ok", without lingering "no-linger", everything else "no-systemd".
+@patch("qlever.commands.start.systemd_linger_status")
+@patch("qlever.commands.start.shutil.which")
+@patch("qlever.commands.start.platform.system")
+def test_check_systemd_for_restarts(mock_system, mock_which, mock_linger):
+    check = qlever.commands.start.check_systemd_for_restarts
+    mock_system.return_value = "Linux"
+    mock_which.return_value = "/usr/bin/systemd-run"
+    mock_linger.return_value = "yes"
+    assert check() == "ok"
+    mock_linger.return_value = "no"
+    assert check() == "no-linger"
+    mock_linger.return_value = None
+    assert check() == "no-systemd"
+    mock_linger.return_value = "yes"
+    mock_which.return_value = None
+    assert check() == "no-systemd"
+    mock_which.return_value = "/usr/bin/systemd-run"
+    mock_system.return_value = "Darwin"
+    assert check() == "no-systemd"
 
 
 # Tests the check_binary help function for the case of success of the
@@ -449,6 +453,7 @@ class TestStartCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
+        args.restart_policy = "no"
         args.kill_existing_with_same_port = True
         args.port = 1234
         args.server_binary = "/test/path/server_binary"
@@ -538,6 +543,7 @@ class TestStartCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
+        args.restart_policy = "no"
         args.kill_existing_with_same_port = False
         args.port = "localhorst"
         args.port = 1234
@@ -598,6 +604,7 @@ class TestStartCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
+        args.restart_policy = "no"
         args.kill_existing_with_same_port = False
         args.port = 1234
         args.server_binary = "/test/path/server_binary"
@@ -665,6 +672,7 @@ class TestStartCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
+        args.restart_policy = "no"
         args.kill_existing_with_same_port = False
         args.port = 1234
         args.server_binary = "/test/path/server_binary"
@@ -822,18 +830,61 @@ class TestStartCommand(unittest.TestCase):
         # Ensure execution was successful
         self.assertTrue(result)
 
-    # `--run-in-foreground` is rejected with `--system systemd`.
+    # Without a usable systemd, an explicit restart policy is an error, the
+    # default falls back to `nohup` with a note, and missing lingering gives
+    # a warning. In the latter two cases, the start continues (and stops at
+    # the already running server here).
+    @patch("qlever.commands.start.StatusCommand.execute")
+    @patch("qlever.commands.start.is_qlever_server_alive")
+    @patch("qlever.commands.start.binary_exists")
+    @patch("qlever.commands.start.Containerize")
+    @patch("qlever.commands.start.check_systemd_for_restarts")
     @patch("qlever.commands.start.log")
-    def test_execute_systemd_rejects_foreground(self, mock_log):
-        args = MagicMock()
-        args.kill_existing_with_same_port = False
-        args.system = "systemd"
-        args.run_in_foreground = True
-        self.assertFalse(StartCommand().execute(args))
+    def test_execute_restart_policy_without_systemd(
+        self,
+        mock_log,
+        mock_check,
+        mock_containerize,
+        mock_binary_exists,
+        mock_is_alive,
+        mock_status,
+    ):
+        def make_args(restart_policy):
+            args = MagicMock()
+            args.kill_existing_with_same_port = False
+            args.system = "native"
+            args.run_in_foreground = False
+            args.show = False
+            args.restart_policy = restart_policy
+            args.name = "TestName"
+            args.port = 1234
+            return args
+
+        mock_containerize.supported_systems.return_value = []
+        mock_binary_exists.return_value = True
+        mock_is_alive.return_value = True
+
+        mock_check.return_value = "no-systemd"
+        self.assertFalse(StartCommand().execute(make_args("always")))
         mock_log.error.assert_called_once()
+        self.assertIn("need systemd", mock_log.error.call_args.args[0])
+        mock_is_alive.assert_not_called()
+
+        mock_log.reset_mock()
+        args = make_args(None)
+        self.assertFalse(StartCommand().execute(args))
+        self.assertEqual(args.restart_policy, "unless-stopped")
         self.assertIn(
-            "not supported with `--system systemd`",
-            mock_log.error.call_args.args[0],
+            "starting without them", mock_log.info.call_args_list[0].args[0]
+        )
+        mock_is_alive.assert_called_once()
+
+        mock_log.reset_mock()
+        mock_check.return_value = "no-linger"
+        self.assertFalse(StartCommand().execute(make_args(None)))
+        mock_log.warning.assert_called_once()
+        self.assertIn(
+            "loginctl enable-linger", mock_log.warning.call_args.args[0]
         )
 
     # check if execute returns False for args.show = True

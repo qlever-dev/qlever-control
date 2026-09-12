@@ -9,9 +9,11 @@ from qlever.util import (
     parse_git_hash,
     positive_int,
     stop_systemd_unit,
+    systemd_linger_status,
     systemd_unit_is_active,
     systemd_unit_is_loaded,
     systemd_unit_name,
+    systemd_user_env,
     update_ini_values,
 )
 
@@ -277,47 +279,64 @@ def test_update_ini_values_keeps_unrelated_lines():
     ]
 
 
-# The systemd helpers ask `systemctl --user` about the unit of the dataset.
-def test_systemd_unit_helpers(monkeypatch):
+# The systemd helpers ask `systemctl --user` and `loginctl` (with the
+# environment that points to the user's systemd instance, see
+# `systemd_user_env`).
+def test_systemd_helpers(monkeypatch):
     import subprocess
     from unittest.mock import MagicMock
 
     assert systemd_unit_name("olympics") == "qlever.server.olympics"
 
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
+    env = systemd_user_env()
+    assert env["XDG_RUNTIME_DIR"].startswith("/run/user/")
+    assert env["DBUS_SESSION_BUS_ADDRESS"] == (
+        f"unix:path={env['XDG_RUNTIME_DIR']}/bus"
+    )
+
     calls = []
 
     def fake_run(cmd, **kwargs):
         calls.append(cmd)
+        assert "XDG_RUNTIME_DIR" in kwargs["env"]
         result = MagicMock()
-        if "show" in cmd:
+        if cmd[0] == "loginctl":
+            result.stdout = "yes\n"
+        elif "show" in cmd:
             result.stdout = "loaded\n" if fake_run.loaded else "not-found\n"
-        result.returncode = 0 if fake_run.active else 3
+        result.returncode = 0 if fake_run.ok else 3
         return result
 
     fake_run.loaded = True
-    fake_run.active = True
+    fake_run.ok = True
     monkeypatch.setattr(subprocess, "run", fake_run)
     monkeypatch.setattr(
         "qlever.util.shutil.which", lambda _: "/usr/bin/systemctl"
     )
-    run_commands = []
-    monkeypatch.setattr(
-        "qlever.util.run_command", lambda cmd, **kw: run_commands.append(cmd)
-    )
 
+    assert systemd_linger_status() == "yes"
     assert systemd_unit_is_loaded("qlever.server.olympics")
     assert systemd_unit_is_active("qlever.server.olympics")
     assert stop_systemd_unit("qlever.server.olympics")
-    assert run_commands == ["systemctl --user stop qlever.server.olympics"]
+    assert calls[-2][:4] == [
+        "systemctl",
+        "--user",
+        "stop",
+        "qlever.server.olympics",
+    ]
     assert calls[-1][:3] == ["systemctl", "--user", "reset-failed"]
 
     fake_run.loaded = False
-    fake_run.active = False
+    fake_run.ok = False
+    assert systemd_linger_status() is None
     assert not systemd_unit_is_active("qlever.server.olympics")
     assert not stop_systemd_unit("qlever.server.olympics")
-    assert len(run_commands) == 1
 
-    # Without `systemctl` there is no unit, whatever `subprocess` would say.
+    # Without `systemctl` and `loginctl`, systemd is not usable at all.
     fake_run.loaded = True
+    fake_run.ok = True
     monkeypatch.setattr("qlever.util.shutil.which", lambda _: None)
     assert not systemd_unit_is_loaded("qlever.server.olympics")
+    assert systemd_linger_status() is None
