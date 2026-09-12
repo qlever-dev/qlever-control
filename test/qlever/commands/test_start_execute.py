@@ -27,6 +27,8 @@ def test_construct_command_with_if():
         "rebuild-max-concurrent-permutation-pairs=1",
     ]
     args.access_token = True
+    args.description = "Test description"
+    args.text_description = "Text description"
     args.only_pso_and_pos_permutations = True
     args.use_patterns = "no"
     args.use_text_index = "yes"
@@ -48,6 +50,8 @@ def test_construct_command_with_if():
         f" -k {args.cache_max_num_entries}"
         f" -s {args.timeout}"
         f" -a {args.access_token}"
+        " --index-description 'Test description'"
+        " --text-description 'Text description'"
         " --rebuild-index-strategy automatic:10000:1000000:0.1"
         " --rebuild-keep-previous-index-dirs most-recent-only"
         " --set-runtime-parameter default-query-timeout=300s"
@@ -80,6 +84,8 @@ def test_construct_command_without_if():
     args.rebuild_keep_previous_index_dirs = "original-and-most-recent"
     args.set_runtime_parameters = None
     args.access_token = False
+    args.description = None
+    args.text_description = None
     args.only_pso_and_pos_permutations = False
     args.use_patterns = True
     args.use_text_index = "no"
@@ -108,6 +114,8 @@ def test_construct_command_without_if():
 # Tests that a non-default sampling interval is passed to the binary
 def test_construct_command_non_default_resource_usage_interval():
     args = MagicMock()
+    args.description = None
+    args.text_description = None
     args.resource_usage_log = "yes"
     args.resource_usage_interval = 5
 
@@ -206,132 +214,24 @@ def test_check_binary_exception(mock_log, mock_run_cmd):
     assert not result
 
 
-# Tests the set_index_description help function for the case of success
-# of the run_cmd in the try/except block
+# Tests `server_supports_description_options`: decided by the `--help` output
+# of the server binary; a binary that cannot be run counts as supporting them.
 @patch("qlever.commands.start.run_command")
-@patch("qlever.commands.start.log")
-def test_set_index_description_success(mock_log, mock_run_cmd):
-    # Setup args
+def test_server_supports_description_options(mock_run_cmd):
     args = MagicMock()
-    args.access_token = True
-    args.port = 1234
-    args.description = "TestDescription"
-    access_arg = f'--data-urlencode "access-token={args.access_token}"'
+    args.server_binary = "/test/path/server_binary"
+    args.system = "native"
+    help_cmd = f"{args.server_binary} --help"
 
-    # Execute the function
-    qlever.commands.start.set_index_description(
-        access_arg, args.port, args.description
-    )
-    # Asserts
-    curl_cmd = (
-        f"curl -Gs http://localhost:{args.port}/api"
-        f' --data-urlencode "index-description={args.description}"'
-        f" {access_arg} > /dev/null"
-    )
-    # Verify that the debug message was logged
-    mock_log.debug.assert_called_once_with(curl_cmd)
-    # check if run_cmd was called once with correct parameters
-    mock_run_cmd.assert_called_once_with(curl_cmd)
+    mock_run_cmd.return_value = "... --index-description arg ..."
+    assert qlever.commands.start.server_supports_description_options(args)
+    mock_run_cmd.assert_called_once_with(help_cmd, return_output=True)
 
+    mock_run_cmd.return_value = "... --text arg ..."
+    assert not qlever.commands.start.server_supports_description_options(args)
 
-# Tests the set_index_description help function for the case of exception
-# for the run_cmd in the try/except block
-@patch("qlever.commands.start.run_command")
-@patch("qlever.commands.start.log")
-def test_set_index_description_exception(mock_log, mock_run_cmd):
-    # Setup args
-    args = MagicMock()
-    args.access_token = True
-    args.port = 1234
-    args.description = "ErrorDescription"
-    access_arg = f'--data-urlencode "access-token={args.access_token}"'
-
-    # Simulate an exception when run_command is called
     mock_run_cmd.side_effect = Exception("Mocked command failure")
-
-    # Execute the function
-    qlever.commands.start.set_index_description(
-        access_arg, args.port, args.description
-    )
-
-    # Asserts
-    curl_cmd = (
-        f"curl -Gs http://localhost:{args.port}/api"
-        f' --data-urlencode "index-description={args.description}"'
-        f" {access_arg} > /dev/null"
-    )
-    # Verify that the debug message was logged
-    mock_log.debug.assert_called_once_with(curl_cmd)
-    # check if run_cmd was called once with correct parameters
-    mock_run_cmd.assert_called_once_with(curl_cmd)
-    # Verify that the error message was logged
-    mock_log.error.assert_called_once_with(
-        "Setting the index description failed (Mocked command failure)"
-    )
-
-
-# Tests the set_text_description help function for the case of success
-# of the run_cmd in the try/except block
-@patch("qlever.commands.start.run_command")
-@patch("qlever.commands.start.log")
-def test_set_text_description_success(mock_log, mock_run_cmd):
-    # Setup args
-    args = MagicMock()
-    args.access_token = True
-    args.port = 1234
-    args.description = "TestDescription"
-    access_arg = f'--data-urlencode "access-token={args.access_token}"'
-
-    # Execute the function
-    qlever.commands.start.set_text_description(
-        access_arg, args.port, args.description
-    )
-    # Asserts
-    curl_cmd = (
-        f"curl -Gs http://localhost:{args.port}/api"
-        f' --data-urlencode "text-description={args.description}"'
-        f" {access_arg} > /dev/null"
-    )
-    # Verify that the debug message was logged
-    mock_log.debug.assert_called_once_with(curl_cmd)
-    # check if run_cmd was called once with correct parameters
-    mock_run_cmd.assert_called_once_with(curl_cmd)
-
-
-# Tests the set_text_description help function for the case of exception
-# for the run_cmd in the try/except block
-@patch("qlever.commands.start.run_command")
-@patch("qlever.commands.start.log")
-def test_set_text_description_exception(mock_log, mock_run_cmd):
-    # Setup args
-    args = MagicMock()
-    args.access_token = True
-    args.port = 1234
-    args.description = "ErrorDescription"
-    access_arg = f'--data-urlencode "access-token={args.access_token}"'
-
-    # Simulate an exception when run_command is called
-    mock_run_cmd.side_effect = Exception("Mocked command failure")
-
-    # Execute the function
-    qlever.commands.start.set_text_description(
-        access_arg, args.port, args.description
-    )
-
-    # Asserts
-    curl_cmd = (
-        f"curl -Gs http://localhost:{args.port}/api"
-        f' --data-urlencode "text-description={args.description}"'
-        f" {access_arg} > /dev/null"
-    )
-    # Verify that the debug message was logged
-    mock_log.debug.assert_called_once_with(curl_cmd)
-    # check if run_cmd was called once with correct parameters
-    mock_run_cmd.assert_called_once_with(curl_cmd)
-    # Verify that the error message was logged
-    mock_log.error.assert_called_once_with(
-        "Setting the text description failed (Mocked command failure)"
-    )
+    assert qlever.commands.start.server_supports_description_options(args)
 
 
 class TestStartCommand(unittest.TestCase):
@@ -366,6 +266,8 @@ class TestStartCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
+        args.description = None
+        args.text_description = None
         args.kill_existing_with_same_port = True
         args.port = 1234
         args.server_binary = "/test/path/server_binary"
@@ -455,6 +357,8 @@ class TestStartCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
+        args.description = None
+        args.text_description = None
         args.kill_existing_with_same_port = False
         args.port = "localhorst"
         args.port = 1234
@@ -494,6 +398,46 @@ class TestStartCommand(unittest.TestCase):
         # The function should return False if the server is already running
         self.assertFalse(result)
 
+    # With a server binary that does not know the description options, the
+    # descriptions are dropped from the command line with a warning.
+    @patch("qlever.commands.start.log")
+    @patch("qlever.commands.start.server_supports_description_options")
+    @patch("qlever.util.run_command")
+    @patch("qlever.commands.start.is_qlever_server_alive")
+    @patch("qlever.commands.start.Containerize")
+    def test_execute_warns_about_old_server_binary(
+        self,
+        mock_containerize,
+        mock_is_qlever_server_alive,
+        mock_run_command,
+        mock_supports_description_options,
+        mock_log,
+    ):
+        args = MagicMock()
+        args.description = "TestDescription"
+        args.text_description = None
+        args.kill_existing_with_same_port = False
+        args.port = 1234
+        args.server_binary = "/test/path/server_binary"
+        args.name = "TestName"
+        args.system = "native"
+        args.show = False
+        mock_supports_description_options.return_value = False
+        # Stop right after the warning: the server is already running.
+        mock_is_qlever_server_alive.return_value = True
+        mock_containerize.supported_systems.return_value = []
+
+        self.assertFalse(StartCommand().execute(args))
+
+        mock_supports_description_options.assert_called_once_with(args)
+        mock_log.warning.assert_called_once()
+        self.assertIn(
+            "descriptions from the Qleverfile are NOT set",
+            mock_log.warning.call_args.args[0],
+        )
+        self.assertIsNone(args.description)
+        self.assertIsNone(args.text_description)
+
     @patch("qlever.commands.start.CacheStatsCommand.execute")
     @patch("qlever.util.run_command")
     @patch("qlever.commands.start.run_command")
@@ -515,6 +459,8 @@ class TestStartCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
+        args.description = None
+        args.text_description = None
         args.kill_existing_with_same_port = False
         args.port = 1234
         args.server_binary = "/test/path/server_binary"
@@ -582,6 +528,8 @@ class TestStartCommand(unittest.TestCase):
     ):
         # Setup args
         args = MagicMock()
+        args.description = None
+        args.text_description = None
         args.kill_existing_with_same_port = False
         args.port = 1234
         args.server_binary = "/test/path/server_binary"
@@ -644,7 +592,7 @@ class TestStartCommand(unittest.TestCase):
     @patch("qlever.commands.start.construct_command")
     @patch("qlever.commands.start.binary_exists")
     @patch("qlever.commands.start.Path")
-    def test_execute_containerize_and_description(
+    def test_execute_containerize(
         self,
         mock_path_cls,
         mock_binary_exists,
@@ -670,8 +618,8 @@ class TestStartCommand(unittest.TestCase):
         args.cache_max_num_entries = 1000
         args.system = "test1"
         args.show = False
-        args.description = "TestDescription"
-        args.text_description = "TestTextDescription"
+        args.description = None
+        args.text_description = None
         args.access_token = "TestToken"
         args.run_in_foreground = False
 
@@ -711,29 +659,14 @@ class TestStartCommand(unittest.TestCase):
         # Calls for run command
         run_call_1 = f"{args.system} rm -f {args.server_container}"
         run_call_2 = "TestStart2"
-        access_arg = f'--data-urlencode "access-token={args.access_token}"'
-        run_call_3 = (
-            f"curl -Gs http://localhost:{args.port}/api"
-            f' --data-urlencode "index-description={args.description}"'
-            f" {access_arg} > /dev/null"
-        )
-        run_call_4 = (
-            f"curl -Gs http://localhost:{args.port}/api"
-            f' --data-urlencode "text-description='
-            f'{args.text_description}"'
-            f" {access_arg} > /dev/null"
-        )
-        # Assert that run_command was called exactly 4 times with the
-        # correct arguments in order
+        # Assert that run_command was called exactly twice with the
+        # correct arguments in order (the descriptions are part of the
+        # server command line, not set via the API after the start)
         mock_run_command.assert_has_calls(
-            [
-                call(run_call_1),
-                call(run_call_2, use_popen=False),
-                call(run_call_3),
-                call(run_call_4),
-            ],
+            [call(run_call_1), call(run_call_2, use_popen=False)],
             any_order=False,
         )
+        self.assertEqual(mock_run_command.call_count, 2)
         # Server status should be checked
         mock_is_qlever_server_alive.assert_called()
         # Ensure execution was successful
@@ -815,6 +748,8 @@ def test_construct_command_server_log_mode_append_and_no_log():
     args.run_in_foreground = False
     args.timeout = False
     args.access_token = False
+    args.description = None
+    args.text_description = None
     args.persist_updates = False
     args.rebuild_index_strategy = "manual"
     args.rebuild_keep_previous_index_dirs = "original-and-most-recent"
