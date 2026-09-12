@@ -8,6 +8,10 @@ from qlever.util import (
     get_random_string,
     parse_git_hash,
     positive_int,
+    stop_systemd_unit,
+    systemd_unit_is_active,
+    systemd_unit_is_loaded,
+    systemd_unit_name,
     update_ini_values,
 )
 
@@ -271,3 +275,49 @@ def test_update_ini_values_keeps_unrelated_lines():
         "PORT = 9999",
         "HOST = localhost",
     ]
+
+
+# The systemd helpers ask `systemctl --user` about the unit of the dataset.
+def test_systemd_unit_helpers(monkeypatch):
+    import subprocess
+    from unittest.mock import MagicMock
+
+    assert systemd_unit_name("olympics") == "qlever.server.olympics"
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        result = MagicMock()
+        if "show" in cmd:
+            result.stdout = "loaded\n" if fake_run.loaded else "not-found\n"
+        result.returncode = 0 if fake_run.active else 3
+        return result
+
+    fake_run.loaded = True
+    fake_run.active = True
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        "qlever.util.shutil.which", lambda _: "/usr/bin/systemctl"
+    )
+    run_commands = []
+    monkeypatch.setattr(
+        "qlever.util.run_command", lambda cmd, **kw: run_commands.append(cmd)
+    )
+
+    assert systemd_unit_is_loaded("qlever.server.olympics")
+    assert systemd_unit_is_active("qlever.server.olympics")
+    assert stop_systemd_unit("qlever.server.olympics")
+    assert run_commands == ["systemctl --user stop qlever.server.olympics"]
+    assert calls[-1][:3] == ["systemctl", "--user", "reset-failed"]
+
+    fake_run.loaded = False
+    fake_run.active = False
+    assert not systemd_unit_is_active("qlever.server.olympics")
+    assert not stop_systemd_unit("qlever.server.olympics")
+    assert len(run_commands) == 1
+
+    # Without `systemctl` there is no unit, whatever `subprocess` would say.
+    fake_run.loaded = True
+    monkeypatch.setattr("qlever.util.shutil.which", lambda _: None)
+    assert not systemd_unit_is_loaded("qlever.server.olympics")

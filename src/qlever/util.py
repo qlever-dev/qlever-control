@@ -416,6 +416,59 @@ def stop_process_with_regex(cmdline_regex: str) -> list[bool] | None:
     return stop_process_results
 
 
+def systemd_unit_name(name: str) -> str:
+    """
+    The name of the transient systemd user service in which `start` runs the
+    server for the dataset with the given `name` (with `--system systemd`).
+    """
+    return f"qlever.server.{name}"
+
+
+def systemd_unit_is_loaded(unit: str) -> bool:
+    """
+    Whether the systemd user service `unit` currently exists (active,
+    restarting, or failed). `False` if there is no `systemctl`.
+    """
+    if shutil.which("systemctl") is None:
+        return False
+    result = subprocess.run(
+        ["systemctl", "--user", "show", unit, "-p", "LoadState", "--value"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout.strip() == "loaded"
+
+
+def systemd_unit_is_active(unit: str) -> bool:
+    """
+    Whether the systemd user service `unit` is active, that is, the server
+    process is running (not restarting after a crash, not failed).
+    """
+    result = subprocess.run(
+        ["systemctl", "--user", "is-active", "--quiet", unit],
+        capture_output=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def stop_systemd_unit(unit: str) -> bool:
+    """
+    Stop the systemd user service `unit` if it exists (this also ends the
+    automatic restarts) and forget it. Return `True` iff it existed.
+    """
+    if not systemd_unit_is_loaded(unit):
+        return False
+    run_command(f"systemctl --user stop {unit}")
+    subprocess.run(
+        ["systemctl", "--user", "reset-failed", unit],
+        capture_output=True,
+        check=False,
+    )
+    return True
+
+
 def binary_exists(binary: str, cmd_arg: str, args) -> bool:
     """
     Check if the binary exists on the user's system. If running inside a

@@ -22,6 +22,9 @@ from qlever.util import (
     binary_exists,
     is_qlever_server_alive,
     run_command,
+    stop_systemd_unit,
+    systemd_unit_is_active,
+    systemd_unit_name,
     tail_log_file,
 )
 
@@ -94,6 +97,10 @@ def construct_command(args) -> str:
             f" {shlex.quote(view_name)}"
             for view_name in preload_materialized_views
         )
+    # With `--system systemd`, the unit takes care of the log (see
+    # `wrap_command_in_systemd_unit`).
+    if args.system == "systemd":
+        return start_cmd
     if args.server_log_mode == "no-log":
         # No log file is written. In the foreground, the server output
         # goes to the terminal; in the background, it is discarded.
@@ -135,6 +142,59 @@ def wrap_command_in_container(args, start_cmd) -> str:
         working_directory="/index",
     )
     return start_cmd
+
+
+# Run the command as a transient systemd user service. Like a container with
+# a restart policy, the service restarts the server after a crash, and it has
+# to be stopped via `systemctl` (which `stop` does). Unlike a container, the
+# server runs natively, in the current directory.
+def wrap_command_in_systemd_unit(args, start_cmd) -> str:
+    # For systemd, a server killed with `SIGTERM` (as `earlyoom` does it) has
+    # exited cleanly, so only `always` also covers that case. The start limit
+    # ends a crash loop (a server that dies right after each start).
+    restart = (
+        "always"
+        if args.restart_policy == "unless-stopped"
+        else args.restart_policy
+    )
+    unit_cmd = (
+        f"systemd-run --user --unit {systemd_unit_name(args.name)}"
+        ' --working-directory "$(pwd)"'
+        f" -p Restart={restart} -p RestartSec=5"
+        " -p StartLimitIntervalSec=1h -p StartLimitBurst=5"
+        " -p Delegate=yes"
+    )
+    # The server log is appended by the unit, so that a restart after a crash
+    # does not truncate the log of the crashed run. The rotation or removal
+    # of an existing log according to `--server-log-mode` still happens in
+    # `execute`, before the unit is created.
+    if args.server_log_mode == "no-log":
+        unit_cmd += " -p StandardOutput=null"
+    else:
+        # The path has to be absolute.
+        unit_cmd += (
+            f' -p StandardOutput=append:"$(pwd)"/{args.name}.server-log.txt'
+        )
+    unit_cmd += " -p StandardError=inherit"
+    return f"{unit_cmd} {start_cmd}"
+
+
+# A systemd user service stops together with the user's last login session,
+# unless lingering is enabled for the user. Warn if it is not.
+def warn_if_no_linger() -> None:
+    try:
+        linger = run_command(
+            "loginctl show-user $USER -p Linger --value", return_output=True
+        ).strip()
+    except Exception:
+        return
+    if linger != "yes":
+        log.warning(
+            "Lingering is not enabled for your user, so the server will be "
+            "stopped when your last login session ends. Enable it once with "
+            "`loginctl enable-linger`"
+        )
+        log.info("")
 
 
 # Set the index description.
@@ -256,6 +316,9 @@ def make_server_liveness_check(
         return lambda: Containerize.is_running(
             args.system, args.server_container
         )
+    if args.system == "systemd":
+        unit = systemd_unit_name(args.name)
+        return lambda: systemd_unit_is_active(unit)
     if args.run_in_foreground:
         return lambda: process.poll() is None
     if pid is not None:
@@ -405,14 +468,25 @@ class StartCommand(QleverCommand):
             if not kill_existing_server(args):
                 return False
 
+        if args.system == "systemd" and args.run_in_foreground:
+            log.error(
+                "`--run-in-foreground` is not supported with `--system "
+                "systemd`, follow the server log with "
+                f"`{args.main_command_name} log` instead"
+            )
+            return False
+
         # Construct the command line based on the config file.
         start_cmd = construct_command(args)
 
-        # Run the command in a container (if so desired). Otherwise run with
-        # `nohup` so that it keeps running after the shell is closed. With
-        # `--run-in-foreground`, run the server in the foreground.
+        # Run the command in a container or as a systemd service (if so
+        # desired). Otherwise run with `nohup` so that it keeps running after
+        # the shell is closed. With `--run-in-foreground`, run the server in
+        # the foreground.
         if args.system in Containerize.supported_systems():
             start_cmd = wrap_command_in_container(args, start_cmd)
+        elif args.system == "systemd":
+            start_cmd = wrap_command_in_systemd_unit(args, start_cmd)
         elif args.run_in_foreground:
             start_cmd = f"{start_cmd}"
         else:
@@ -447,6 +521,15 @@ class StartCommand(QleverCommand):
             log.info("")
             StatusCommand().execute(args)
             return False
+
+        # A leftover unit from a previous start (for example, one that hit
+        # the start limit after a crash loop) would prevent the new one.
+        if args.system == "systemd":
+            warn_if_no_linger()
+            unit = systemd_unit_name(args.name)
+            if stop_systemd_unit(unit):
+                log.info(f'Removed the leftover systemd unit "{unit}"')
+                log.info("")
 
         # Remove already existing container.
         if (
@@ -487,6 +570,7 @@ class StartCommand(QleverCommand):
         capture_pid = (
             not args.run_in_foreground
             and args.system not in Containerize.supported_systems()
+            and args.system != "systemd"
         )
         pid = None
         try:
@@ -544,6 +628,9 @@ class StartCommand(QleverCommand):
         ):
             if tail_proc is not None:
                 tail_proc.terminate()
+            # Otherwise the unit would keep restarting the server.
+            if args.system == "systemd":
+                stop_systemd_unit(systemd_unit_name(args.name))
             return False
 
         # Set the description for the index and text.

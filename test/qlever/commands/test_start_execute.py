@@ -154,6 +154,89 @@ def test_wrap_command_in_container(mock_containerize_command):
     assert result == start_command
 
 
+# Tests `wrap_command_in_systemd_unit`: the restart policy is mapped to the
+# `Restart=` property of the unit and the log is appended by the unit.
+def test_wrap_command_in_systemd_unit():
+    args = MagicMock()
+    args.name = "TestName"
+    args.restart_policy = "unless-stopped"
+    args.server_log_mode = "rotate"
+
+    result = qlever.commands.start.wrap_command_in_systemd_unit(
+        args, "Test_start_cmd"
+    )
+    assert result.startswith(
+        "systemd-run --user --unit qlever.server.TestName"
+        ' --working-directory "$(pwd)"'
+    )
+    assert " -p Restart=always -p RestartSec=5" in result
+    assert (
+        ' -p StandardOutput=append:"$(pwd)"/TestName.server-log.txt' in result
+    )
+    assert result.endswith(" -p StandardError=inherit Test_start_cmd")
+
+    args.restart_policy = "on-failure"
+    args.server_log_mode = "no-log"
+    result = qlever.commands.start.wrap_command_in_systemd_unit(
+        args, "Test_start_cmd"
+    )
+    assert " -p Restart=on-failure " in result
+    assert " -p StandardOutput=null " in result
+
+
+# With `--system systemd`, the command line has no shell redirect (the unit
+# writes the log), and the liveness check asks systemd.
+@patch("qlever.commands.start.systemd_unit_is_active")
+def test_construct_command_and_liveness_check_systemd(mock_is_active):
+    args = MagicMock()
+    args.name = "TestName"
+    args.system = "systemd"
+    args.timeout = False
+    args.access_token = False
+    args.persist_updates = False
+    args.rebuild_index_strategy = "manual"
+    args.rebuild_keep_previous_index_dirs = "original-and-most-recent"
+    args.set_runtime_parameters = None
+    args.only_pso_and_pos_permutations = False
+    args.use_patterns = "yes"
+    args.use_text_index = "no"
+    args.enable_metrics = False
+    args.metrics_log = "yes"
+    args.resource_usage_log = "yes"
+    args.resource_usage_interval = 2
+    args.preload_materialized_views = None
+
+    result = qlever.commands.start.construct_command(args)
+    assert "server-log.txt" not in result
+    assert not result.endswith("2>&1")
+
+    mock_is_active.return_value = True
+    is_still_running = qlever.commands.start.make_server_liveness_check(
+        args, None, None
+    )
+    assert is_still_running()
+    mock_is_active.assert_called_once_with("qlever.server.TestName")
+
+
+# Tests `warn_if_no_linger`: warns iff lingering is off, silent if `loginctl`
+# is not available.
+@patch("qlever.commands.start.run_command")
+@patch("qlever.commands.start.log")
+def test_warn_if_no_linger(mock_log, mock_run_cmd):
+    mock_run_cmd.return_value = "yes\n"
+    qlever.commands.start.warn_if_no_linger()
+    mock_log.warning.assert_not_called()
+
+    mock_run_cmd.return_value = "no\n"
+    qlever.commands.start.warn_if_no_linger()
+    mock_log.warning.assert_called_once()
+    assert "loginctl enable-linger" in mock_log.warning.call_args.args[0]
+
+    mock_run_cmd.side_effect = Exception("no loginctl")
+    qlever.commands.start.warn_if_no_linger()
+    mock_log.warning.assert_called_once()
+
+
 # Tests the check_binary help function for the case of success of the
 # run_cmd in the try/except block
 @patch("qlever.util.run_command")
@@ -738,6 +821,20 @@ class TestStartCommand(unittest.TestCase):
         mock_is_qlever_server_alive.assert_called()
         # Ensure execution was successful
         self.assertTrue(result)
+
+    # `--run-in-foreground` is rejected with `--system systemd`.
+    @patch("qlever.commands.start.log")
+    def test_execute_systemd_rejects_foreground(self, mock_log):
+        args = MagicMock()
+        args.kill_existing_with_same_port = False
+        args.system = "systemd"
+        args.run_in_foreground = True
+        self.assertFalse(StartCommand().execute(args))
+        mock_log.error.assert_called_once()
+        self.assertIn(
+            "not supported with `--system systemd`",
+            mock_log.error.call_args.args[0],
+        )
 
     # check if execute returns False for args.show = True
     @patch("qlever.commands.start.construct_command")

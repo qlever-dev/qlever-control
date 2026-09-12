@@ -517,12 +517,15 @@ class Qleverfile:
         runtime_args["system"] = arg(
             "--system",
             type=str,
-            choices=Containerize.supported_systems() + ["native"],
+            choices=Containerize.supported_systems() + ["native", "systemd"],
             default="docker",
             help=(
                 "Whether to run commands like `index` or `start` "
                 "natively or in a container, and if in a container, "
-                "which system to use"
+                "which system to use. With `systemd`, all commands run "
+                "natively, but `start` runs the server as a systemd user "
+                "service, which restarts it after a crash (see "
+                "`--restart-policy`)"
             ),
         )
         runtime_args["image"] = arg(
@@ -546,9 +549,9 @@ class Qleverfile:
             type=str,
             choices=["no", "always", "unless-stopped", "on-failure"],
             default="unless-stopped",
-            help="Restart policy for the server container"
-            " (only applies when running in a container)"
-            " (default: unless-stopped)",
+            help="Restart policy for the server (only applies when running "
+            "in a container or as a systemd service, where `unless-stopped` "
+            "means `always`) (default: unless-stopped)",
         )
 
         ui_args["ui_port"] = arg(
