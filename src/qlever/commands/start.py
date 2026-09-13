@@ -172,8 +172,9 @@ def wrap_command_in_systemd_unit(args, start_cmd) -> str:
         if var not in os.environ
     )
     # For systemd, a server killed with `SIGTERM` (as `earlyoom` does it) has
-    # exited cleanly, so only `always` also covers that case. The start limit
-    # ends a crash loop (a server that dies right after each start).
+    # exited cleanly, so only `always` also covers that case. The server is
+    # restarted at once (it can rebind its port right away), and the start
+    # limit ends a crash loop (a server that dies right after each start).
     restart = (
         "always"
         if args.restart_policy == "unless-stopped"
@@ -183,8 +184,8 @@ def wrap_command_in_systemd_unit(args, start_cmd) -> str:
         f"{prefix}systemd-run --user"
         f" --unit {shlex.quote(systemd_unit_name(args.name))}"
         ' --working-directory "$(pwd)"'
-        f" -p Restart={restart} -p RestartSec=5"
-        " -p StartLimitIntervalSec=1h -p StartLimitBurst=5"
+        f" -p Restart={restart} -p RestartSec=0"
+        " -p StartLimitIntervalSec=1h -p StartLimitBurst=20"
         " -p Delegate=yes"
     )
     # The server log is appended by the unit, so that a restart after a crash
@@ -712,7 +713,7 @@ class StartCommand(QleverCommand):
             # A server that dies before it is ready has a problem with its
             # configuration or its index, which restarting does not solve. So
             # stop the unit right away, instead of letting it restart the
-            # server every few seconds until the start limit is reached.
+            # server again and again until the start limit is reached.
             if use_systemd:
                 stop_systemd_unit(systemd_unit_name(args.name))
             return False

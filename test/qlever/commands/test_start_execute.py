@@ -178,7 +178,8 @@ def test_wrap_command_in_systemd_unit():
         "systemd-run --user --unit qlever.server.TestName"
         ' --working-directory "$(pwd)"' in result
     )
-    assert " -p Restart=always -p RestartSec=5" in result
+    assert " -p Restart=always -p RestartSec=0" in result
+    assert " -p StartLimitIntervalSec=1h -p StartLimitBurst=20 " in result
     assert (
         ' -p StandardOutput=append:"$(pwd)"/TestName.server-log.txt' in result
     )
