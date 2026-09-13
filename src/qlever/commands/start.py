@@ -179,7 +179,8 @@ def wrap_command_in_systemd_unit(args, start_cmd) -> str:
         else args.restart_policy
     )
     unit_cmd = (
-        f"{prefix}systemd-run --user --unit {systemd_unit_name(args.name)}"
+        f"{prefix}systemd-run --user"
+        f" --unit {shlex.quote(systemd_unit_name(args.name))}"
         ' --working-directory "$(pwd)"'
         f" -p Restart={restart} -p RestartSec=5"
         " -p StartLimitIntervalSec=1h -p StartLimitBurst=5"
@@ -194,7 +195,8 @@ def wrap_command_in_systemd_unit(args, start_cmd) -> str:
     else:
         # The path has to be absolute.
         unit_cmd += (
-            f' -p StandardOutput=append:"$(pwd)"/{args.name}.server-log.txt'
+            ' -p StandardOutput=append:"$(pwd)"/'
+            f"{shlex.quote(args.name + '.server-log.txt')}"
         )
     unit_cmd += " -p StandardError=inherit"
     return f"{unit_cmd} {start_cmd}"
@@ -682,6 +684,8 @@ class StartCommand(QleverCommand):
                 log_file, from_beginning=args.server_log_mode != "append"
             )
             if tail_proc is None:
+                if use_systemd:
+                    stop_systemd_unit(systemd_unit_name(args.name))
                 return False
         if not wait_until_server_ready(
             lambda: is_qlever_server_alive(args.endpoint_url),
@@ -689,7 +693,10 @@ class StartCommand(QleverCommand):
         ):
             if tail_proc is not None:
                 tail_proc.terminate()
-            # Otherwise the unit would keep restarting the server.
+            # A server that dies before it is ready has a problem with its
+            # configuration or its index, which restarting does not solve. So
+            # stop the unit right away, instead of letting it restart the
+            # server every few seconds until the start limit is reached.
             if use_systemd:
                 stop_systemd_unit(systemd_unit_name(args.name))
             return False

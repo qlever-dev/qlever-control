@@ -766,6 +766,65 @@ class TestStartCommand(unittest.TestCase):
         # Ensure execution was successful
         self.assertTrue(result)
 
+    # With a usable systemd and the default restart policy, the server is
+    # started as a systemd unit (after removing a leftover unit of the same
+    # name), and the start succeeds once the server answers.
+    @patch("qlever.commands.start.CacheStatsCommand.execute")
+    @patch("qlever.util.run_command")
+    @patch("qlever.commands.start.run_command")
+    @patch("qlever.commands.start.is_qlever_server_alive")
+    @patch("subprocess.Popen")
+    @patch("qlever.commands.start.Containerize")
+    @patch("time.sleep")
+    @patch("qlever.commands.start.Path")
+    @patch("qlever.commands.start.systemd_unit_is_active", return_value=True)
+    @patch("qlever.commands.start.stop_systemd_unit", return_value=True)
+    @patch("qlever.commands.start.check_systemd_for_restarts")
+    def test_execute_starts_systemd_unit(
+        self,
+        mock_check,
+        mock_stop_systemd_unit,
+        mock_unit_is_active,
+        mock_path_cls,
+        mock_sleep,
+        mock_containerize,
+        mock_popen,
+        mock_is_qlever_server_alive,
+        mock_start_run_command,
+        mock_util_run_command,
+        mock_cache_stats_command,
+    ):
+        args = MagicMock()
+        args.restart_policy = None
+        args.description = None
+        args.text_description = None
+        args.kill_existing_with_same_port = False
+        args.port = 1234
+        args.server_binary = "/test/path/server_binary"
+        args.name = "TestName"
+        args.system = "native"
+        args.run_in_foreground = False
+        args.show = False
+        args.no_warmup = True
+        self._mock_log_file(mock_path_cls, args.name)
+        mock_check.return_value = "ok"
+        mock_is_qlever_server_alive.side_effect = [False, True]
+        mock_containerize.supported_systems.return_value = []
+        mock_popen.return_value = MagicMock()
+
+        self.assertTrue(StartCommand().execute(args))
+
+        # The default policy `unless-stopped` becomes `Restart=always`.
+        start_cmd = mock_start_run_command.call_args.args[0]
+        self.assertIn(
+            "systemd-run --user --unit qlever.server.TestName", start_cmd
+        )
+        self.assertIn(" -p Restart=always ", start_cmd)
+        self.assertIn(" /test/path/server_binary -i TestName", start_cmd)
+        mock_stop_systemd_unit.assert_called_once_with(
+            "qlever.server.TestName"
+        )
+
     # Without a usable systemd, an explicit restart policy is an error, the
     # default falls back to `nohup` with a note, and missing lingering gives
     # a warning. In the latter two cases, the start continues (and stops at

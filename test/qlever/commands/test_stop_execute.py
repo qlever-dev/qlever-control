@@ -9,6 +9,7 @@ from qlever.commands.stop import StopCommand
 class TestStopCommand(unittest.TestCase):
     # A server running as a systemd unit is stopped via the unit, and neither
     # containers nor processes are touched.
+    @patch("qlever.commands.stop.systemd_unit_is_active", return_value=True)
     @patch("qlever.commands.stop.stop_systemd_unit")
     @patch("psutil.process_iter")
     @patch("qlever.containerize.Containerize.stop_and_remove_container")
@@ -21,6 +22,7 @@ class TestStopCommand(unittest.TestCase):
         mock_stop_and_remove_container,
         mock_process_iter,
         mock_stop_systemd_unit,
+        mock_unit_is_active,
     ):
         args = MagicMock()
         args.cmdline_regex = "qlever-server.* -i [^ ]*%%NAME%%"

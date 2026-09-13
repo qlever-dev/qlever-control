@@ -478,8 +478,11 @@ def systemd_unit_is_loaded(unit: str) -> bool:
 def systemd_unit_is_active(unit: str) -> bool:
     """
     Whether the systemd user service `unit` is active, that is, the server
-    process is running (not restarting after a crash, not failed).
+    process is running (not restarting after a crash, not failed). `False`
+    if there is no `systemctl`.
     """
+    if shutil.which("systemctl") is None:
+        return False
     result = subprocess.run(
         ["systemctl", "--user", "is-active", "--quiet", unit],
         capture_output=True,

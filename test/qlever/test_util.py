@@ -339,4 +339,5 @@ def test_systemd_helpers(monkeypatch):
     fake_run.ok = True
     monkeypatch.setattr("qlever.util.shutil.which", lambda _: None)
     assert not systemd_unit_is_loaded("qlever.server.olympics")
+    assert not systemd_unit_is_active("qlever.server.olympics")
     assert systemd_linger_status() is None
