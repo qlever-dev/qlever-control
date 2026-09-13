@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess
 
@@ -40,6 +41,7 @@ class Containerize:
         ports: list[tuple[int, int]] = [],
         working_directory: str | None = None,
         use_bash: bool = True,
+        seccomp_profile: str | None = None,
     ) -> str:
         """
         Get the command to run `cmd` with the given `container_system` and the
@@ -75,6 +77,14 @@ class Containerize:
         working_directory_option = (
             f" -w {working_directory}" if working_directory is not None else ""
         )
+        # Optional seccomp profile (absolute path, so that the command works
+        # independently of the directory it is executed from).
+        seccomp_option = (
+            " --security-opt seccomp="
+            + shlex.quote(os.path.abspath(os.path.expanduser(seccomp_profile)))
+            if seccomp_profile
+            else ""
+        )
 
         # Construct the command that runs `cmd` with the given container
         # system.
@@ -87,6 +97,7 @@ class Containerize:
             f"{working_directory_option}"
             f" --name {container_name}"
             f" --init"
+            f"{seccomp_option}"
         )
         if use_bash:
             containerized_cmd += (

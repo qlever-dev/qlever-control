@@ -419,10 +419,10 @@ def stop_process_with_regex(cmdline_regex: str) -> list[bool] | None:
     return stop_process_results
 
 
-def binary_exists(binary: str, cmd_arg: str, args) -> bool:
+def binary_help_command(binary: str, args) -> str:
     """
-    Check if the binary exists on the user's system. If running inside a
-    container, check if the binary exists inside the container system.
+    The command that runs `binary --help` (inside the container system if
+    `--system` is one, using the image from `--image`).
     """
     from qlever.containerize import Containerize
 
@@ -438,9 +438,19 @@ def binary_exists(binary: str, cmd_arg: str, args) -> bool:
             volumes=[("$(pwd)", "/index")],
             working_directory="/index",
         )
+    return cmd
 
+
+def binary_exists(binary: str, cmd_arg: str, args) -> bool:
+    """
+    Check if the binary exists on the user's system. If running inside a
+    container, check if the binary exists inside the container system.
+    """
+    from qlever.containerize import Containerize
+
+    is_containerized = args.system in Containerize.supported_systems()
     try:
-        run_command(cmd)
+        run_command(binary_help_command(binary, args))
         return True
     except Exception as e:
         if is_containerized and (

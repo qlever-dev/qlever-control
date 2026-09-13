@@ -20,6 +20,7 @@ from qlever.log import log
 from qlever.qleverfile import Qleverfile
 from qlever.util import (
     binary_exists,
+    binary_help_command,
     is_qlever_server_alive,
     run_command,
     stop_tailing,
@@ -44,6 +45,12 @@ def construct_command(args) -> str:
         start_cmd += f" -s {args.timeout}"
     if args.access_token:
         start_cmd += f" -a {args.access_token}"
+    if args.description:
+        start_cmd += f" --index-description {shlex.quote(args.description)}"
+    if args.text_description:
+        start_cmd += (
+            f" --text-description {shlex.quote(args.text_description)}"
+        )
     if args.persist_updates:
         start_cmd += " --persist-updates"
     # Only pass the flags for non-default values, so that older server
@@ -134,40 +141,26 @@ def wrap_command_in_container(args, start_cmd) -> str:
         volumes=[("$(pwd)", "/index")],
         ports=[(args.port, args.port)],
         working_directory="/index",
+        seccomp_profile=args.seccomp_profile,
     )
     return start_cmd
 
 
-# Set the index description.
-def set_index_description(access_arg, port, desc) -> bool:
-    curl_cmd = (
-        f"curl -Gs http://localhost:{port}/api"
-        f' --data-urlencode "index-description={desc}"'
-        f" {access_arg} > /dev/null"
-    )
-    log.debug(curl_cmd)
+def server_supports_description_options(args) -> bool:
+    """
+    Whether the server binary knows the options `--index-description` and
+    `--text-description` (added to `qlever-server` in September 2026),
+    according to its `--help` output. A binary that cannot be run at all
+    counts as supporting them, so that the subsequent `binary_exists` check
+    reports the actual problem.
+    """
     try:
-        run_command(curl_cmd)
-    except Exception as e:
-        log.error(f"Setting the index description failed ({e})")
-        return False
-    return True
-
-
-# Set the text description.
-def set_text_description(access_arg, port, text_desc) -> bool:
-    curl_cmd = (
-        f"curl -Gs http://localhost:{port}/api"
-        f' --data-urlencode "text-description={text_desc}"'
-        f" {access_arg} > /dev/null"
-    )
-    log.debug(curl_cmd)
-    try:
-        run_command(curl_cmd)
-    except Exception as e:
-        log.error(f"Setting the text description failed ({e})")
-        return False
-    return True
+        help_text = run_command(
+            binary_help_command(args.server_binary, args), return_output=True
+        )
+    except Exception:
+        return True
+    return "--index-description" in help_text
 
 
 def get_runtime_parameters_from_qleverfile(args) -> list[str]:
@@ -353,6 +346,7 @@ class StartCommand(QleverCommand):
                 "image",
                 "server_container",
                 "restart_policy",
+                "seccomp_profile",
             ],
         }
 
@@ -405,6 +399,29 @@ class StartCommand(QleverCommand):
         if args.kill_existing_with_same_port:
             if not kill_existing_server(args):
                 return False
+
+        # The descriptions are options of the server binary since September
+        # 2026. With an older binary, start without them and say so (there is
+        # deliberately no fallback to setting them via the API afterwards).
+        if (
+            not args.show
+            and (args.description or args.text_description)
+            and not server_supports_description_options(args)
+        ):
+            log.warning(
+                "The server binary does not know the options "
+                "`--index-description` and `--text-description`, so the "
+                "descriptions from the Qleverfile are NOT set. Please use the "
+                "latest version of `qlever-server`"
+                + (
+                    f" (`{args.system} pull {args.image}`)"
+                    if args.system in Containerize.supported_systems()
+                    else ""
+                )
+            )
+            log.info("")
+            args.description = None
+            args.text_description = None
 
         # Construct the command line based on the config file.
         start_cmd = construct_command(args)
@@ -561,21 +578,6 @@ class StartCommand(QleverCommand):
             if tail_proc is not None:
                 stop_tailing(tail_proc)
             return False
-
-        # Set the description for the index and text.
-        access_arg = f'--data-urlencode "access-token={args.access_token}"'
-        if args.description:
-            ret = set_index_description(
-                access_arg, args.port, args.description
-            )
-            if not ret:
-                return False
-        if args.text_description:
-            ret = set_text_description(
-                access_arg, args.port, args.text_description
-            )
-            if not ret:
-                return False
 
         # Stop following the log.
         if not args.run_in_foreground and tail_proc is not None:
