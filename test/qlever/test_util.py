@@ -8,6 +8,7 @@ from qlever.util import (
     get_random_string,
     parse_git_hash,
     positive_int,
+    stop_process_with_regex,
     stop_tailing,
     tail_log_file,
     update_ini_values,
@@ -273,6 +274,43 @@ def test_update_ini_values_keeps_unrelated_lines():
         "PORT = 9999",
         "HOST = localhost",
     ]
+
+
+# `stop_process_with_regex` never kills the process that runs it or one of its
+# ancestors, even when their command lines match the regex.
+def test_stop_process_with_regex_skips_own_process(monkeypatch):
+    import os
+
+    import psutil
+
+    class FakeProcess:
+        def __init__(self, pid):
+            self.pid = pid
+            self.killed = False
+
+        def as_dict(self, attrs):
+            return {
+                "pid": self.pid,
+                "username": "user",
+                "create_time": 0,
+                "memory_info": None,
+                "cmdline": ["bash", "-c", "qlever stop --cmdline-regex x"],
+            }
+
+        def kill(self):
+            self.killed = True
+
+    own = FakeProcess(os.getpid())
+    ancestors = [FakeProcess(p.pid) for p in psutil.Process().parents()]
+    other = FakeProcess(2**31 - 1)
+    monkeypatch.setattr(
+        "qlever.util.psutil.process_iter", lambda: [own, *ancestors, other]
+    )
+
+    assert stop_process_with_regex("qlever stop") == [True]
+    assert not own.killed
+    assert not any(ancestor.killed for ancestor in ancestors)
+    assert other.killed
 
 
 # With `stop_after`, the tail of a log file ends by itself after the matching

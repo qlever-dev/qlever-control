@@ -388,8 +388,13 @@ def stop_process_with_regex(cmdline_regex: str) -> list[bool] | None:
     match the regex and return a list of their stopped status (bool).
     Show the matched processes as log info.
     """
+    # Never the own process or one of its ancestors (the shell that runs
+    # `qlever stop`), whose command lines can contain the regex itself.
+    own_pids = {os.getpid()} | {p.pid for p in psutil.Process().parents()}
     stop_process_results = []
     for proc in psutil.process_iter():
+        if proc.pid in own_pids:
+            continue
         try:
             pinfo = proc.as_dict(
                 attrs=[
