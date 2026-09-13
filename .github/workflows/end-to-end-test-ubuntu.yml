@@ -31,26 +31,14 @@ jobs:
           pip3 install -e .
           sudo apt update && sudo apt install unzip expect
 
-      - name: Cache for qlever code and binaries
-        uses: actions/cache@v3
-        env:
-          cache-name: qlever-code
-        with:
-          path: ${{github.workspace}}/qlever-code
-          key: ${{matrix.os}}-${{env.cache-name}}
-
-      - name: Build qlever binaries from source + download docker image
+      # The pre-release `latest-master` of QLever always holds the portable
+      # binaries of the last successfully built `master` commit (see the
+      # workflow `portable-binaries.yml` there), so there is nothing to build.
+      - name: Download the latest qlever binaries + docker image
         run: |
-          sudo apt update && sudo apt install -y wget
-          wget https://apt.kitware.com/kitware-archive.sh && chmod +x kitware-archive.sh && sudo ./kitware-archive.sh
-          sudo apt install -y build-essential cmake libicu-dev tzdata pkg-config uuid-runtime uuid-dev git libjemalloc-dev ninja-build libzstd-dev libssl-dev libboost1.83-dev libboost-program-options1.83-dev libboost-iostreams1.83-dev libboost-url1.83-dev libboost-container1.83-dev
-          if [ ! -d qlever-code ]; then
-            git clone https://github.com/ad-freiburg/qlever.git qlever-code; fi
-          cd qlever-code
-          git pull
-          mkdir -p build && cd $_
-          cmake -DCMAKE_BUILD_TYPE=Release -DLOGLEVEL=INFO -DUSE_PARALLEL=true -GNinja ..
-          ninja qlever-server qlever-index
+          mkdir -p qlever-code/build && cd $_
+          curl -sSL -o binaries.zip https://github.com/ad-freiburg/qlever/releases/download/latest-master/qlever-binaries-linux-x86_64.zip
+          unzip -o binaries.zip && rm binaries.zip
           docker pull adfreiburg/qlever
 
       - name: Check that qlever binaries, docker image, and qlever script are found and work
