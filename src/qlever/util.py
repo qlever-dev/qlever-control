@@ -800,10 +800,16 @@ def tail_log_file(
     tail_from = "+1" if from_beginning else "0"
     tail_cmd = f"tail -n {tail_from} -f {shlex.quote(str(log_file))}"
     if stop_after is not None:
-        # The `awk` prints each line right away and quits after the matching
-        # line; the `tail` then ends with the next line it cannot write. (Not
+        # The `awk` prints each line right away and quits after the first line
+        # that matches `stop_after` (passed as data, so that it can be any
+        # regular expression). The `tail` then ends by itself, either at once
+        # (GNU `tail` notices that its output is gone) or with the next line
+        # it cannot write, and `stop_tailing` gets it in any case. (Not
         # `sed -u`, which is GNU-only.)
-        tail_cmd += f" | awk '{{print; fflush()}} /{stop_after}/{{exit}}'"
+        tail_cmd += (
+            f" | awk -v pattern={shlex.quote(stop_after)}"
+            " '{print; fflush()} $0 ~ pattern {exit}'"
+        )
     # In a session of its own, so that `stop_tailing` can end the whole
     # pipeline, not just the shell that runs it.
     return subprocess.Popen(tail_cmd, shell=True, start_new_session=True)

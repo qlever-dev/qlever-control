@@ -276,14 +276,22 @@ def test_update_ini_values_keeps_unrelated_lines():
 
 
 # With `stop_after`, the tail of a log file ends by itself after the matching
-# line (the tail dies with the next line it cannot write to the finished
-# filter); without it, the tail runs until it is stopped.
+# line, at the latest with the next line (which the tail cannot write to the
+# finished filter any more); without it, the tail runs until it is stopped.
+# The pattern is a regular expression and may contain a slash.
 def test_tail_log_file_stop_after(tmp_path):
-    log_file = tmp_path / "server-log.txt"
-    log_file.write_text("Loading index\nThe server is ready, port 7\nquery\n")
+    import time
 
-    tail_proc = tail_log_file(log_file, stop_after="The server is ready")
+    log_file = tmp_path / "server-log.txt"
+    log_file.write_text("Loading index\n")
+    tail_proc = tail_log_file(log_file, stop_after="ready.*port [0-9]+/x")
     assert tail_proc is not None
+    time.sleep(0.5)
+    with log_file.open("a") as f:
+        f.write("The server is ready, port 7/x\n")
+    time.sleep(0.5)
+    with log_file.open("a") as f:
+        f.write("query\n")
     assert tail_proc.wait(timeout=10) == 0
 
     tail_proc = tail_log_file(log_file)
