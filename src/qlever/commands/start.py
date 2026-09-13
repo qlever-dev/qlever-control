@@ -330,9 +330,11 @@ def make_server_liveness_check(
             args.system, args.server_container
         )
     if use_systemd:
-        # A server that has died during the start is being restarted by
-        # systemd, possibly without delay, so the unit alone can look fine.
-        # The restart counter tells (the unit is new, see `execute`).
+        # A server that dies during the start is restarted by systemd, with
+        # no delay by default, so the unit can already be active again when
+        # it is checked. The unit is new (`execute` removes a leftover one
+        # before the start), so any restart counted on it means that the
+        # server has died.
         unit = systemd_unit_name(args.name)
         return lambda: (
             systemd_unit_is_active(unit) and systemd_unit_restarts(unit) == 0

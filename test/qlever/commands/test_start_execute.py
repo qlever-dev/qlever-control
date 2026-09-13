@@ -170,7 +170,7 @@ def test_wrap_command_in_systemd_unit():
     args.name = "TestName"
     args.restart_policy = "unless-stopped"
     args.restart_delay = "0"
-    args.restart_limit = 20
+    args.restart_limit = 10
     args.restart_limit_interval = "1h"
     args.server_log_mode = "rotate"
 
@@ -182,7 +182,7 @@ def test_wrap_command_in_systemd_unit():
         ' --working-directory "$(pwd)"' in result
     )
     assert " -p Restart=always -p RestartSec=0" in result
-    assert " -p StartLimitIntervalSec=1h -p StartLimitBurst=20 " in result
+    assert " -p StartLimitIntervalSec=1h -p StartLimitBurst=10 " in result
     assert (
         ' -p StandardOutput=append:"$(pwd)"/TestName.server-log.txt' in result
     )
@@ -836,7 +836,7 @@ class TestStartCommand(unittest.TestCase):
         args = MagicMock()
         args.restart_policy = None
         args.restart_delay = "0"
-        args.restart_limit = 20
+        args.restart_limit = 10
         args.restart_limit_interval = "1h"
         args.description = None
         args.text_description = None

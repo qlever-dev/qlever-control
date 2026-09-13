@@ -566,10 +566,11 @@ class Qleverfile:
             "--restart-limit",
             type=positive_int,
             default=10,
-            help="How often the server may be started within "
-            "`--restart-limit-interval` before it is given up on (against "
-            "a server that crashes right after each start). Only for a "
-            "native server that runs as a systemd user service",
+            help="How many starts of the server are allowed within "
+            "`--restart-limit-interval`. A server that crashes right after "
+            "each start is not restarted any more once this limit is "
+            "reached. Only for a native server that runs as a systemd user "
+            "service",
         )
         runtime_args["restart_limit_interval"] = arg(
             "--restart-limit-interval",

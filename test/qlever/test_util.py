@@ -15,6 +15,7 @@ from qlever.util import (
     systemd_unit_is_loaded,
     systemd_unit_name,
     systemd_unit_of_process,
+    systemd_unit_property,
     systemd_unit_restarts,
     systemd_user_env,
     tail_log_file,
@@ -327,6 +328,9 @@ def test_systemd_helpers(monkeypatch):
     )
 
     assert systemd_linger_status() == "yes"
+    assert systemd_unit_property("qlever.server.olympics", "LoadState") == (
+        "loaded"
+    )
     assert systemd_unit_is_loaded("qlever.server.olympics")
     assert systemd_unit_is_active("qlever.server.olympics")
     assert systemd_unit_restarts("qlever.server.olympics") == 2
@@ -348,6 +352,7 @@ def test_systemd_helpers(monkeypatch):
     fake_run.loaded = False
     fake_run.ok = False
     assert systemd_linger_status() is None
+    assert systemd_unit_property("qlever.server.olympics", "LoadState") is None
     assert not systemd_unit_is_active("qlever.server.olympics")
     assert systemd_unit_restarts("qlever.server.olympics") == 0
     assert not stop_systemd_unit("qlever.server.olympics")
