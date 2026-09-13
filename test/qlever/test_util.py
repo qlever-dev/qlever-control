@@ -14,6 +14,7 @@ from qlever.util import (
     systemd_unit_is_active,
     systemd_unit_is_loaded,
     systemd_unit_name,
+    systemd_unit_of_process,
     systemd_user_env,
     tail_log_file,
     update_ini_values,
@@ -343,6 +344,28 @@ def test_systemd_helpers(monkeypatch):
     assert not systemd_unit_is_loaded("qlever.server.olympics")
     assert not systemd_unit_is_active("qlever.server.olympics")
     assert systemd_linger_status() is None
+
+
+# The unit of a process is read from its control group; a process outside of
+# such a unit (like the test itself) or a nonexistent process has none.
+def test_systemd_unit_of_process(monkeypatch):
+    import os
+
+    assert systemd_unit_of_process(os.getpid()) is None
+    assert systemd_unit_of_process(2**31 - 1) is None
+
+    class FakeCgroupFile:
+        def __init__(self, path):
+            assert path == "/proc/4711/cgroup"
+
+        def read_text(self):
+            return (
+                "0::/user.slice/user-8288.slice/user@8288.service/app.slice"
+                "/qlever.server.olympics.service\n"
+            )
+
+    monkeypatch.setattr("qlever.util.Path", FakeCgroupFile)
+    assert systemd_unit_of_process(4711) == "qlever.server.olympics"
 
 
 # With `stop_after`, the tail of a log file ends by itself after the matching

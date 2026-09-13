@@ -415,6 +415,16 @@ def stop_process_with_regex(cmdline_regex: str) -> list[bool] | None:
                 f"{pinfo['username']} with command line: {cmdline}"
             )
             log.info("")
+            # A process that `start` runs as a systemd user service would
+            # just be restarted after a kill, so stop its unit instead.
+            unit = systemd_unit_of_process(pinfo["pid"])
+            if unit is not None and stop_systemd_unit(unit):
+                log.info(
+                    f'The process runs as systemd unit "{unit}", '
+                    "which is now stopped"
+                )
+                stop_process_results.append(True)
+                continue
             stop_process_results.append(stop_process(proc, pinfo))
     return stop_process_results
 
@@ -492,6 +502,21 @@ def systemd_unit_is_active(unit: str) -> bool:
         env=systemd_user_env(),
     )
     return result.returncode == 0
+
+
+def systemd_unit_of_process(pid: int) -> str | None:
+    """
+    The systemd user service in which `start` runs the process with the given
+    `pid` (see `systemd_unit_name`), or `None` if it does not run in one. This
+    is read from the control group of the process, so it also finds a server
+    that was started under another name or from another directory.
+    """
+    try:
+        cgroup = Path(f"/proc/{pid}/cgroup").read_text()
+    except OSError:
+        return None
+    match = re.search(r"/(qlever\.server\.[^/]+)\.service", cgroup)
+    return match.group(1) if match else None
 
 
 def stop_systemd_unit(unit: str) -> bool:
