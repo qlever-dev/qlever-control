@@ -36,14 +36,15 @@ jobs:
       # workflow `portable-binaries.yml` there), so there is nothing to build.
       - name: Download the latest qlever binaries + docker image
         run: |
-          mkdir -p qlever-code/build && cd $_
-          curl -sSL https://github.com/ad-freiburg/qlever/releases/download/latest-master/qlever-binaries-linux-x86_64.tar.gz | tar xz
+          mkdir -p qlever-binaries && cd $_
+          curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors \
+            https://github.com/ad-freiburg/qlever/releases/download/latest-master/qlever-binaries-linux-x86_64.tar.gz | tar xz
           docker pull adfreiburg/qlever
 
       - name: Check that qlever binaries, docker image, and qlever script are found and work
         run: |
           mkdir qlever-indices
-          export PATH="$PATH:$(pwd)/qlever-control:$(pwd)/qlever-code/build"
+          export PATH="$PATH:$(pwd)/qlever-control:$(pwd)/qlever-binaries"
           docker run --entrypoint bash adfreiburg/qlever -c "qlever-server --help" | head -3
           docker run --entrypoint bash adfreiburg/qlever -c "qlever-index --help" | head -3
           qlever-server --help | head -3; echo "..."
@@ -55,7 +56,7 @@ jobs:
       - name: Test qlever script for olympics dataset, with docker
         timeout-minutes: 1
         run: |
-          export PATH="$PATH:$(pwd)/qlever-code/build"
+          export PATH="$PATH:$(pwd)/qlever-binaries"
           export QLEVER_ARGCOMPLETE_ENABLED=1
           mkdir -p ${{github.workspace}}/qlever-indices/olympics.1 && cd $_
           qlever setup-config olympics
@@ -69,7 +70,7 @@ jobs:
       - name: Test qlever script for olympics dataset, without docker
         timeout-minutes: 1
         run: |
-          export PATH="$PATH:$(pwd)/qlever-code/build"
+          export PATH="$PATH:$(pwd)/qlever-binaries"
           export QLEVER_ARGCOMPLETE_ENABLED=1
           mkdir -p ${{github.workspace}}/qlever-indices/olympics.2 && cd $_
           qlever setup-config olympics
@@ -83,7 +84,7 @@ jobs:
       - name: Test qlever script for olympics dataset, with and without docker
         timeout-minutes: 1
         run: |
-          export PATH="$PATH:$(pwd)/qlever-code/build"
+          export PATH="$PATH:$(pwd)/qlever-binaries"
           export QLEVER_ARGCOMPLETE_ENABLED=1
           mkdir -p ${{github.workspace}}/qlever-indices/olympics.3 && cd $_
           qlever setup-config olympics
@@ -97,7 +98,7 @@ jobs:
       - name: Test that qlever and qeval qlever are interchangeable
         timeout-minutes: 1
         run: |
-          export PATH="$PATH:$(pwd)/qlever-code/build"
+          export PATH="$PATH:$(pwd)/qlever-binaries"
           export QEVAL_ARGCOMPLETE_ENABLED=1
           mkdir -p ${{github.workspace}}/qlever-indices/olympics.4 && cd $_
           qeval qlever setup-config olympics --system native
