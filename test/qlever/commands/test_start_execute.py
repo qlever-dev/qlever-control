@@ -169,6 +169,9 @@ def test_wrap_command_in_systemd_unit():
     args = MagicMock()
     args.name = "TestName"
     args.restart_policy = "unless-stopped"
+    args.restart_delay = "0"
+    args.restart_limit = 20
+    args.restart_limit_interval = "1h"
     args.server_log_mode = "rotate"
 
     result = qlever.commands.start.wrap_command_in_systemd_unit(
@@ -186,11 +189,15 @@ def test_wrap_command_in_systemd_unit():
     assert result.endswith(" -p StandardError=inherit Test_start_cmd")
 
     args.restart_policy = "on-failure"
+    args.restart_delay = "5s"
+    args.restart_limit = 3
+    args.restart_limit_interval = "10min"
     args.server_log_mode = "no-log"
     result = qlever.commands.start.wrap_command_in_systemd_unit(
         args, "Test_start_cmd"
     )
-    assert " -p Restart=on-failure " in result
+    assert " -p Restart=on-failure -p RestartSec=5s" in result
+    assert " -p StartLimitIntervalSec=10min -p StartLimitBurst=3 " in result
     assert " -p StandardOutput=null " in result
 
 
@@ -816,6 +823,9 @@ class TestStartCommand(unittest.TestCase):
     ):
         args = MagicMock()
         args.restart_policy = None
+        args.restart_delay = "0"
+        args.restart_limit = 20
+        args.restart_limit_interval = "1h"
         args.description = None
         args.text_description = None
         args.kill_existing_with_same_port = False

@@ -553,6 +553,32 @@ class Qleverfile:
             "`always`). On a system without systemd, `start` fails if the "
             "policy was set explicitly (default: unless-stopped)",
         )
+        runtime_args["restart_delay"] = arg(
+            "--restart-delay",
+            type=str,
+            default="0",
+            help="How long to wait before a crashed server is restarted, "
+            "in systemd time syntax (like `5s` or `1min`). Only for a native "
+            "server that runs as a systemd user service (see "
+            "`--restart-policy`)",
+        )
+        runtime_args["restart_limit"] = arg(
+            "--restart-limit",
+            type=int,
+            default=20,
+            help="How often the server may be started within "
+            "`--restart-limit-interval` before it is given up on (against "
+            "a server that crashes right after each start). Only for a "
+            "native server that runs as a systemd user service",
+        )
+        runtime_args["restart_limit_interval"] = arg(
+            "--restart-limit-interval",
+            type=str,
+            default="1h",
+            help="The interval for `--restart-limit`, in systemd time "
+            "syntax (like `1h` or `30min`). Only for a native server that "
+            "runs as a systemd user service",
+        )
         runtime_args["seccomp_profile"] = arg(
             "--seccomp-profile",
             type=str,

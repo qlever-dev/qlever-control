@@ -172,9 +172,11 @@ def wrap_command_in_systemd_unit(args, start_cmd) -> str:
         if var not in os.environ
     )
     # For systemd, a server killed with `SIGTERM` (as `earlyoom` does it) has
-    # exited cleanly, so only `always` also covers that case. The server is
-    # restarted at once (it can rebind its port right away), and the start
-    # limit ends a crash loop (a server that dies right after each start).
+    # exited cleanly, so only `always` also covers that case. By default, the
+    # server is restarted at once (it can rebind its port right away), and
+    # the start limit ends a crash loop (a server that dies right after each
+    # start); see `--restart-delay`, `--restart-limit` and
+    # `--restart-limit-interval`.
     restart = (
         "always"
         if args.restart_policy == "unless-stopped"
@@ -184,8 +186,10 @@ def wrap_command_in_systemd_unit(args, start_cmd) -> str:
         f"{prefix}systemd-run --user"
         f" --unit {shlex.quote(systemd_unit_name(args.name))}"
         ' --working-directory "$(pwd)"'
-        f" -p Restart={restart} -p RestartSec=0"
-        " -p StartLimitIntervalSec=1h -p StartLimitBurst=20"
+        f" -p Restart={restart}"
+        f" -p RestartSec={shlex.quote(args.restart_delay)}"
+        f" -p StartLimitIntervalSec={shlex.quote(args.restart_limit_interval)}"
+        f" -p StartLimitBurst={args.restart_limit}"
         " -p Delegate=yes"
     )
     # The server log is appended by the unit, so that a restart after a crash
@@ -423,6 +427,9 @@ class StartCommand(QleverCommand):
                 "image",
                 "server_container",
                 "restart_policy",
+                "restart_delay",
+                "restart_limit",
+                "restart_limit_interval",
                 "seccomp_profile",
             ],
         }
