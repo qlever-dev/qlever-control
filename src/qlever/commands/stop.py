@@ -76,8 +76,8 @@ class StopCommand(QleverCommand):
         if args.show:
             return True
 
-        # A server started with `--system systemd` has to be stopped via its
-        # unit (otherwise it would just be restarted).
+        # A server that runs as a systemd user service (see `start`) has to
+        # be stopped via its unit (otherwise it would just be restarted).
         unit = systemd_unit_name(args.name)
         if stop_systemd_unit(unit):
             log.info(f'Systemd unit "{unit}" stopped')

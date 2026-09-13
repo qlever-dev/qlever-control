@@ -550,9 +550,21 @@ class Qleverfile:
             "restarted automatically after a crash. Applies to a server in "
             "a container and, on Linux, to a native server, which then runs "
             "as a systemd user service (where `unless-stopped` means "
-            "`always`). If the policy is set explicitly but automatic "
-            "restarts are not possible, `start` fails (default: "
-            "unless-stopped)",
+            "`always`). On a system without systemd, `start` fails if the "
+            "policy was set explicitly (default: unless-stopped)",
+        )
+        runtime_args["seccomp_profile"] = arg(
+            "--seccomp-profile",
+            type=str,
+            default=None,
+            help=(
+                "Path to a seccomp profile (JSON file) for the server "
+                "container, passed to the container engine as "
+                "`--security-opt seccomp=<path>`; for example, to allow "
+                "the io_uring syscalls that the default profile blocks "
+                "(default: none, that is, the container engine's default "
+                "profile is used)"
+            ),
         )
 
         ui_args["ui_port"] = arg(
