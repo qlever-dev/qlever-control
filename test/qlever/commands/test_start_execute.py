@@ -343,8 +343,10 @@ class TestStartCommand(unittest.TestCase):
     @patch("qlever.commands.start.Path")
     # Tests if killing existing server and restarting a new one works.
     # Also checks the start_command for all the extra options enabled.
+    @patch("qlever.commands.start.stop_tailing")
     def test_execute_kills_existing_server_on_same_port(
         self,
+        mock_stop_tailing,
         mock_path_cls,
         mock_containerize,
         mock_popen,
@@ -443,8 +445,13 @@ class TestStartCommand(unittest.TestCase):
     @patch("qlever.util.run_command")
     @patch("qlever.commands.start.is_qlever_server_alive")
     @patch("qlever.commands.start.Containerize")
+    @patch("qlever.commands.start.stop_tailing")
     def test_execute_fails_due_to_existing_server(
-        self, mock_containerize, mock_is_qlever_server_alive, mock_run_command
+        self,
+        mock_stop_tailing,
+        mock_containerize,
+        mock_is_qlever_server_alive,
+        mock_run_command,
     ):
         # Setup args
         args = MagicMock()
@@ -497,8 +504,10 @@ class TestStartCommand(unittest.TestCase):
     @patch("qlever.util.run_command")
     @patch("qlever.commands.start.is_qlever_server_alive")
     @patch("qlever.commands.start.Containerize")
+    @patch("qlever.commands.start.stop_tailing")
     def test_execute_warns_about_old_server_binary(
         self,
+        mock_stop_tailing,
         mock_containerize,
         mock_is_qlever_server_alive,
         mock_run_command,
@@ -538,8 +547,10 @@ class TestStartCommand(unittest.TestCase):
     @patch("qlever.commands.start.Containerize")
     @patch("time.sleep")
     @patch("qlever.commands.start.Path")
+    @patch("qlever.commands.start.stop_tailing")
     def test_execute_successful_server_start(
         self,
+        mock_stop_tailing,
         mock_path_cls,
         mock_sleep,
         mock_containerize,
@@ -608,8 +619,10 @@ class TestStartCommand(unittest.TestCase):
     @patch("subprocess.run")
     @patch("qlever.commands.start.Containerize")
     @patch("qlever.commands.start.Path")
+    @patch("qlever.commands.start.stop_tailing")
     def test_execute_server_with_warmup(
         self,
+        mock_stop_tailing,
         mock_path_cls,
         mock_containerize,
         mock_run,
@@ -661,7 +674,9 @@ class TestStartCommand(unittest.TestCase):
 
         # Check that Popen was called
         mock_popen.assert_called_once_with(
-            f"exec tail -n +1 -f {args.name}.server-log.txt", shell=True
+            f"tail -n +1 -f {args.name}.server-log.txt",
+            shell=True,
+            start_new_session=True,
         )
 
         # Check warmup was called
@@ -686,8 +701,10 @@ class TestStartCommand(unittest.TestCase):
     @patch("qlever.commands.start.construct_command")
     @patch("qlever.commands.start.binary_exists")
     @patch("qlever.commands.start.Path")
+    @patch("qlever.commands.start.stop_tailing")
     def test_execute_containerize(
         self,
+        mock_stop_tailing,
         mock_path_cls,
         mock_binary_exists,
         mock_construct_cl,
@@ -780,8 +797,10 @@ class TestStartCommand(unittest.TestCase):
     @patch("qlever.commands.start.systemd_unit_is_active", return_value=True)
     @patch("qlever.commands.start.stop_systemd_unit", return_value=True)
     @patch("qlever.commands.start.check_systemd_for_restarts")
+    @patch("qlever.commands.start.stop_tailing")
     def test_execute_starts_systemd_unit(
         self,
+        mock_stop_tailing,
         mock_check,
         mock_stop_systemd_unit,
         mock_unit_is_active,
@@ -835,8 +854,10 @@ class TestStartCommand(unittest.TestCase):
     @patch("qlever.commands.start.Containerize")
     @patch("qlever.commands.start.check_systemd_for_restarts")
     @patch("qlever.commands.start.log")
+    @patch("qlever.commands.start.stop_tailing")
     def test_execute_restart_policy_without_systemd(
         self,
+        mock_stop_tailing,
         mock_log,
         mock_check,
         mock_containerize,
@@ -882,6 +903,47 @@ class TestStartCommand(unittest.TestCase):
         mock_log.warning.assert_called_once()
         self.assertIn(
             "loginctl enable-linger", mock_log.warning.call_args.args[0]
+        )
+
+    # Ctrl-C while waiting for the server stops the tail of the log (which
+    # runs in a session of its own and does not get the Ctrl-C itself).
+    @patch("qlever.commands.start.stop_tailing")
+    @patch("qlever.commands.start.wait_until_server_ready")
+    @patch("qlever.commands.start.tail_log_file")
+    @patch("qlever.commands.start.rotate_server_log")
+    @patch("qlever.commands.start.run_command")
+    @patch("qlever.commands.start.is_qlever_server_alive")
+    @patch("qlever.commands.start.binary_exists")
+    @patch("qlever.commands.start.Containerize")
+    def test_execute_ctrl_c_stops_tail(
+        self,
+        mock_containerize,
+        mock_binary_exists,
+        mock_is_alive,
+        mock_run_command,
+        mock_rotate,
+        mock_tail_log_file,
+        mock_wait,
+        mock_stop_tailing,
+    ):
+        args = MagicMock()
+        args.kill_existing_with_same_port = False
+        args.restart_policy = "no"
+        args.system = "native"
+        args.run_in_foreground = False
+        args.show = False
+        args.server_log_mode = "rotate"
+        args.name = "TestName"
+        mock_containerize.supported_systems.return_value = []
+        mock_binary_exists.return_value = True
+        mock_is_alive.return_value = False
+        mock_run_command.return_value = "4711"
+        mock_wait.side_effect = KeyboardInterrupt
+
+        with self.assertRaises(KeyboardInterrupt):
+            StartCommand().execute(args)
+        mock_stop_tailing.assert_called_once_with(
+            mock_tail_log_file.return_value
         )
 
     # check if execute returns False for args.show = True

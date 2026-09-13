@@ -9,11 +9,13 @@ from qlever.util import (
     parse_git_hash,
     positive_int,
     stop_systemd_unit,
+    stop_tailing,
     systemd_linger_status,
     systemd_unit_is_active,
     systemd_unit_is_loaded,
     systemd_unit_name,
     systemd_user_env,
+    tail_log_file,
     update_ini_values,
 )
 
@@ -341,3 +343,29 @@ def test_systemd_helpers(monkeypatch):
     assert not systemd_unit_is_loaded("qlever.server.olympics")
     assert not systemd_unit_is_active("qlever.server.olympics")
     assert systemd_linger_status() is None
+
+
+# With `stop_after`, the tail of a log file ends by itself after the matching
+# line, at the latest with the next line (which the tail cannot write to the
+# finished filter any more); without it, the tail runs until it is stopped.
+# The pattern is a regular expression and may contain a slash.
+def test_tail_log_file_stop_after(tmp_path):
+    import time
+
+    log_file = tmp_path / "server-log.txt"
+    log_file.write_text("Loading index\n")
+    tail_proc = tail_log_file(log_file, stop_after="ready.*port [0-9]+/x")
+    assert tail_proc is not None
+    time.sleep(0.5)
+    with log_file.open("a") as f:
+        f.write("The server is ready, port 7/x\n")
+    time.sleep(0.5)
+    with log_file.open("a") as f:
+        f.write("query\n")
+    assert tail_proc.wait(timeout=10) == 0
+
+    tail_proc = tail_log_file(log_file)
+    assert tail_proc is not None
+    assert tail_proc.poll() is None
+    stop_tailing(tail_proc)
+    assert tail_proc.wait(timeout=10) != 0

@@ -27,6 +27,7 @@ from qlever.util import (
     is_qlever_server_alive,
     run_command,
     stop_systemd_unit,
+    stop_tailing,
     systemd_linger_status,
     systemd_unit_is_active,
     systemd_unit_name,
@@ -367,7 +368,7 @@ def wait_for_foreground_server(
         process.terminate()
         on_interrupt()
     if log_proc is not None:
-        log_proc.terminate()
+        stop_tailing(log_proc)
 
 
 class StartCommand(QleverCommand):
@@ -679,20 +680,35 @@ class StartCommand(QleverCommand):
         else:
             show_log_follow_info(str(log_file), args.run_in_foreground)
             # With `append`, only follow what the new server run writes,
-            # not the content of the previous runs.
+            # not the content of the previous runs. In the background, stop
+            # following the log as soon as the server says it is ready
+            # (the queries that a busy server logs right after that would
+            # otherwise scroll the startup messages away).
             tail_proc = tail_log_file(
-                log_file, from_beginning=args.server_log_mode != "append"
+                log_file,
+                from_beginning=args.server_log_mode != "append",
+                stop_after=None
+                if args.run_in_foreground
+                else "The server is ready",
             )
             if tail_proc is None:
                 if use_systemd:
                     stop_systemd_unit(systemd_unit_name(args.name))
                 return False
-        if not wait_until_server_ready(
-            lambda: is_qlever_server_alive(args.endpoint_url),
-            make_server_liveness_check(args, process, pid, use_systemd),
-        ):
+        try:
+            server_ready = wait_until_server_ready(
+                lambda: is_qlever_server_alive(args.endpoint_url),
+                make_server_liveness_check(args, process, pid, use_systemd),
+            )
+        except KeyboardInterrupt:
+            # The tail runs in a session of its own (see `tail_log_file`), so
+            # the Ctrl-C does not reach it.
             if tail_proc is not None:
-                tail_proc.terminate()
+                stop_tailing(tail_proc)
+            raise
+        if not server_ready:
+            if tail_proc is not None:
+                stop_tailing(tail_proc)
             # A server that dies before it is ready has a problem with its
             # configuration or its index, which restarting does not solve. So
             # stop the unit right away, instead of letting it restart the
@@ -701,9 +717,9 @@ class StartCommand(QleverCommand):
                 stop_systemd_unit(systemd_unit_name(args.name))
             return False
 
-        # Kill the tail process. NOTE: `tail_proc.kill()` does not work.
+        # Stop following the log.
         if not args.run_in_foreground and tail_proc is not None:
-            tail_proc.terminate()
+            stop_tailing(tail_proc)
 
         # Execute the warmup command.
         if args.warmup_cmd and not args.no_warmup:
