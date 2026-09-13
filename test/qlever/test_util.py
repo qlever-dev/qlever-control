@@ -310,10 +310,14 @@ def test_systemd_helpers(monkeypatch):
         elif "show" in cmd:
             result.stdout = "loaded\n" if fake_run.loaded else "not-found\n"
         result.returncode = 0 if fake_run.ok else 3
+        if "stop" in cmd and fake_run.stop_fails:
+            result.returncode = 1
+            result.stderr = "Failed to stop\n"
         return result
 
     fake_run.loaded = True
     fake_run.ok = True
+    fake_run.stop_fails = False
     monkeypatch.setattr(subprocess, "run", fake_run)
     monkeypatch.setattr(
         "qlever.util.shutil.which", lambda _: "/usr/bin/systemctl"
@@ -330,6 +334,12 @@ def test_systemd_helpers(monkeypatch):
         "qlever.server.olympics",
     ]
     assert calls[-1][:3] == ["systemctl", "--user", "reset-failed"]
+
+    # A `stop` that fails is reported as such, and the unit is not forgotten.
+    fake_run.stop_fails = True
+    assert not stop_systemd_unit("qlever.server.olympics")
+    assert calls[-1][:3] == ["systemctl", "--user", "stop"]
+    fake_run.stop_fails = False
 
     fake_run.loaded = False
     fake_run.ok = False

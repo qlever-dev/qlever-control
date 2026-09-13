@@ -522,15 +522,22 @@ def systemd_unit_of_process(pid: int) -> str | None:
 def stop_systemd_unit(unit: str) -> bool:
     """
     Stop the systemd user service `unit` if it exists (this also ends the
-    automatic restarts) and forget it. Return `True` iff it existed.
+    automatic restarts) and forget it. Return `True` iff it existed and could
+    be stopped (a failure is logged).
     """
     if not systemd_unit_is_loaded(unit):
         return False
-    subprocess.run(
+    result = subprocess.run(
         ["systemctl", "--user", "stop", unit],
-        check=True,
+        capture_output=True,
+        text=True,
+        check=False,
         env=systemd_user_env(),
     )
+    if result.returncode != 0:
+        reason = result.stderr.strip() or f"exit code {result.returncode}"
+        log.error(f'Could not stop systemd unit "{unit}": {reason}')
+        return False
     subprocess.run(
         ["systemctl", "--user", "reset-failed", unit],
         capture_output=True,
