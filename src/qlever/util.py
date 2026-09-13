@@ -519,6 +519,24 @@ def systemd_unit_of_process(pid: int) -> str | None:
     return match.group(1) if match else None
 
 
+def systemd_unit_restarts(unit: str) -> int:
+    """
+    How often systemd has restarted the server of the systemd user service
+    `unit` since the unit was created. `0` if there is no `systemctl` or no
+    such unit.
+    """
+    if shutil.which("systemctl") is None:
+        return 0
+    result = subprocess.run(
+        ["systemctl", "--user", "show", unit, "-p", "NRestarts", "--value"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=systemd_user_env(),
+    )
+    return int(result.stdout.strip() or 0) if result.returncode == 0 else 0
+
+
 def stop_systemd_unit(unit: str) -> bool:
     """
     Stop the systemd user service `unit` if it exists (this also ends the

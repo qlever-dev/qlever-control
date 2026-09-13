@@ -31,6 +31,7 @@ from qlever.util import (
     systemd_linger_status,
     systemd_unit_is_active,
     systemd_unit_name,
+    systemd_unit_restarts,
     systemd_user_env,
     tail_log_file,
 )
@@ -329,8 +330,13 @@ def make_server_liveness_check(
             args.system, args.server_container
         )
     if use_systemd:
+        # A server that has died during the start is being restarted by
+        # systemd, possibly without delay, so the unit alone can look fine.
+        # The restart counter tells (the unit is new, see `execute`).
         unit = systemd_unit_name(args.name)
-        return lambda: systemd_unit_is_active(unit)
+        return lambda: (
+            systemd_unit_is_active(unit) and systemd_unit_restarts(unit) == 0
+        )
     if args.run_in_foreground:
         return lambda: process.poll() is None
     if pid is not None:

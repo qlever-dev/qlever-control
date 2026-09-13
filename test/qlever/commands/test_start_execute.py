@@ -203,8 +203,11 @@ def test_wrap_command_in_systemd_unit():
 
 # For a server run as a systemd unit, the command line has no shell redirect
 # (the unit writes the log), and the liveness check asks systemd.
+@patch("qlever.commands.start.systemd_unit_restarts")
 @patch("qlever.commands.start.systemd_unit_is_active")
-def test_construct_command_and_liveness_check_systemd(mock_is_active):
+def test_construct_command_and_liveness_check_systemd(
+    mock_is_active, mock_restarts
+):
     args = MagicMock()
     args.name = "TestName"
     args.system = "native"
@@ -230,11 +233,18 @@ def test_construct_command_and_liveness_check_systemd(mock_is_active):
     assert not result.endswith("2>&1")
 
     mock_is_active.return_value = True
+    mock_restarts.return_value = 0
     is_still_running = qlever.commands.start.make_server_liveness_check(
         args, None, None, use_systemd=True
     )
     assert is_still_running()
     mock_is_active.assert_called_once_with("qlever.server.TestName")
+    mock_restarts.assert_called_once_with("qlever.server.TestName")
+
+    # A server that died during the start and was restarted by systemd
+    # counts as exited before becoming ready, even if the unit is active.
+    mock_restarts.return_value = 1
+    assert not is_still_running()
 
 
 # Tests `check_systemd_for_restarts`: systemd on Linux with lingering is
@@ -803,6 +813,7 @@ class TestStartCommand(unittest.TestCase):
     @patch("time.sleep")
     @patch("qlever.commands.start.Path")
     @patch("qlever.commands.start.systemd_unit_is_active", return_value=True)
+    @patch("qlever.commands.start.systemd_unit_restarts", return_value=0)
     @patch("qlever.commands.start.stop_systemd_unit", return_value=True)
     @patch("qlever.commands.start.check_systemd_for_restarts")
     @patch("qlever.commands.start.stop_tailing")
@@ -811,6 +822,7 @@ class TestStartCommand(unittest.TestCase):
         mock_stop_tailing,
         mock_check,
         mock_stop_systemd_unit,
+        mock_unit_restarts,
         mock_unit_is_active,
         mock_path_cls,
         mock_sleep,

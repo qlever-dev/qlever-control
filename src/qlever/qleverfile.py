@@ -564,7 +564,7 @@ class Qleverfile:
         )
         runtime_args["restart_limit"] = arg(
             "--restart-limit",
-            type=int,
+            type=positive_int,
             default=10,
             help="How often the server may be started within "
             "`--restart-limit-interval` before it is given up on (against "
