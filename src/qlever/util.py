@@ -915,8 +915,14 @@ def stop_tailing(tail_proc: subprocess.Popen) -> None:
     """
     Stop a tail started by `tail_log_file`, including the filter behind it.
     """
+    # Only ever signal the process group of a real child. In particular,
+    # `killpg(1)` would be `kill(-1)`, a signal to every process of the user
+    # (which happened once with a mocked `Popen` in a test).
+    pid = tail_proc.pid
+    if not isinstance(pid, int) or pid <= 1:
+        return
     with contextlib.suppress(ProcessLookupError):
-        os.killpg(tail_proc.pid, signal.SIGTERM)
+        os.killpg(pid, signal.SIGTERM)
 
 
 def parse_git_hash(log_path: Path) -> str | None:
