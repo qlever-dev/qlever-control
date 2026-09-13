@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import errno
 import glob
+import os
 import re
 import secrets
 import shlex
 import shutil
+import signal
 import socket
 import string
 import subprocess
@@ -758,13 +761,18 @@ def tail_log_file(
     log_file: Path,
     max_wait_seconds: int = 30,
     from_beginning: bool = True,
+    stop_after: str | None = None,
 ) -> subprocess.Popen | None:
     """
     Wait for the log file to appear and start tailing it. With
     `from_beginning`, the whole file is shown (this assumes that the log
     file of a previous run was deleted or rotated away before calling
     this function); otherwise, only lines written after the tail starts
-    are shown (for a log file that is appended to).
+    are shown (for a log file that is appended to). With `stop_after` (a
+    regular expression), the tail stops by itself after the first line that
+    matches it (for example, the line that says that the server is ready);
+    if no such line comes, it runs until the caller stops it via
+    `stop_tailing`.
 
     Returns the tail process, or None if the log file was not created
     within `max_wait_seconds`.
@@ -780,8 +788,23 @@ def tail_log_file(
         time.sleep(0.1)
         waited += 0.1
     tail_from = "+1" if from_beginning else "0"
-    tail_cmd = f"exec tail -n {tail_from} -f {log_file}"
-    return subprocess.Popen(tail_cmd, shell=True)
+    tail_cmd = f"tail -n {tail_from} -f {shlex.quote(str(log_file))}"
+    if stop_after is not None:
+        # The `awk` prints each line right away and quits after the matching
+        # line; the `tail` then ends with the next line it cannot write. (Not
+        # `sed -u`, which is GNU-only.)
+        tail_cmd += f" | awk '{{print; fflush()}} /{stop_after}/{{exit}}'"
+    # In a session of its own, so that `stop_tailing` can end the whole
+    # pipeline, not just the shell that runs it.
+    return subprocess.Popen(tail_cmd, shell=True, start_new_session=True)
+
+
+def stop_tailing(tail_proc: subprocess.Popen) -> None:
+    """
+    Stop a tail started by `tail_log_file`, including the filter behind it.
+    """
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(tail_proc.pid, signal.SIGTERM)
 
 
 def parse_git_hash(log_path: Path) -> str | None:

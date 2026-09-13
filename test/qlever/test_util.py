@@ -8,6 +8,8 @@ from qlever.util import (
     get_random_string,
     parse_git_hash,
     positive_int,
+    stop_tailing,
+    tail_log_file,
     update_ini_values,
 )
 
@@ -271,3 +273,21 @@ def test_update_ini_values_keeps_unrelated_lines():
         "PORT = 9999",
         "HOST = localhost",
     ]
+
+
+# With `stop_after`, the tail of a log file ends by itself after the matching
+# line (the tail dies with the next line it cannot write to the finished
+# filter); without it, the tail runs until it is stopped.
+def test_tail_log_file_stop_after(tmp_path):
+    log_file = tmp_path / "server-log.txt"
+    log_file.write_text("Loading index\nThe server is ready, port 7\nquery\n")
+
+    tail_proc = tail_log_file(log_file, stop_after="The server is ready")
+    assert tail_proc is not None
+    assert tail_proc.wait(timeout=10) == 0
+
+    tail_proc = tail_log_file(log_file)
+    assert tail_proc is not None
+    assert tail_proc.poll() is None
+    stop_tailing(tail_proc)
+    assert tail_proc.wait(timeout=10) != 0
