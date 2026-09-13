@@ -37,8 +37,7 @@ jobs:
       - name: Download the latest qlever binaries + docker image
         run: |
           mkdir -p qlever-code/build && cd $_
-          curl -sSL -o binaries.zip https://github.com/ad-freiburg/qlever/releases/download/latest-master/qlever-binaries-linux-x86_64.zip
-          unzip -o binaries.zip && rm binaries.zip
+          curl -sSL https://github.com/ad-freiburg/qlever/releases/download/latest-master/qlever-binaries-linux-x86_64.tar.gz | tar xz
           docker pull adfreiburg/qlever
 
       - name: Check that qlever binaries, docker image, and qlever script are found and work
