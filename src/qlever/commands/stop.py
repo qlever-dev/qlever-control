@@ -84,9 +84,12 @@ class StopCommand(QleverCommand):
         # continues below.
         unit = systemd_unit_name(args.name)
         unit_was_active = systemd_unit_is_active(unit)
-        if stop_systemd_unit(unit) and unit_was_active:
-            log.info(f'Systemd unit "{unit}" stopped')
-            return True
+        if stop_systemd_unit(unit):
+            if unit_was_active:
+                log.info(f'Systemd unit "{unit}" stopped')
+                return True
+            log.info(f'Systemd unit "{unit}" was not active any more, removed')
+            log.info("")
 
         # First check if there is container running and if yes, stop and remove
         # it (unless the user has specified `--no-containers`).

@@ -42,6 +42,39 @@ class TestStopCommand(unittest.TestCase):
         mock_stop_and_remove_container.assert_not_called()
         mock_process_iter.assert_not_called()
 
+    # A unit that is not active any more (for example, after too many failed
+    # restarts) is only removed, and the search for the server continues.
+    @patch("qlever.commands.stop.StatusCommand.execute")
+    @patch("qlever.commands.stop.systemd_unit_is_active", return_value=False)
+    @patch("qlever.commands.stop.stop_systemd_unit", return_value=True)
+    @patch("psutil.process_iter", return_value=[])
+    @patch("qlever.containerize.Containerize.stop_and_remove_container")
+    @patch("qlever.commands.stop.StopCommand.show")
+    @patch("qlever.commands.stop.log")
+    def test_execute_removes_inactive_systemd_unit(
+        self,
+        mock_log,
+        mock_show,
+        mock_stop_and_remove_container,
+        mock_process_iter,
+        mock_stop_systemd_unit,
+        mock_unit_is_active,
+        mock_status_execute,
+    ):
+        args = MagicMock()
+        args.cmdline_regex = "qlever-server.* -i [^ ]*%%NAME%%"
+        args.name = "TestName"
+        args.no_containers = True
+        args.show = False
+
+        self.assertTrue(StopCommand().execute(args))
+
+        mock_log.info.assert_any_call(
+            'Systemd unit "qlever.server.TestName" was not active any more, '
+            "removed"
+        )
+        mock_process_iter.assert_called_once()
+
     @patch("qlever.commands.stop.StatusCommand.execute")
     @patch("psutil.process_iter")
     @patch("qlever.containerize.Containerize.stop_and_remove_container")
