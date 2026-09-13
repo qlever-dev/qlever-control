@@ -114,7 +114,7 @@ class StopCommand(QleverCommand):
             else "No matching process or container found"
         )
         log.error(message)
-        args.cmdline_regex = "^qlever-server.* -i [^ ]*"
+        args.cmdline_regex = r"^(\S*/)?qlever-server.* -i [^ ]*"
         log.info("")
         StatusCommand().execute(args)
         return True
