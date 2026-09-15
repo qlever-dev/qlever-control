@@ -50,6 +50,7 @@ class TestIndexCommand(unittest.TestCase):
         args.geo_cell_grid_level = None
         args.geo_cell_grid_scheme = None
         args.encode_as_id = None
+        args.encode_as_id_wide = None
         args.parser_buffer_size = None
         args.materialized_views = None
         args.resource_usage_log = "yes"
@@ -269,6 +270,7 @@ class TestIndexCommand(unittest.TestCase):
         args.geo_cell_grid_level = None
         args.geo_cell_grid_scheme = None
         args.encode_as_id = None
+        args.encode_as_id_wide = None
         args.parser_buffer_size = None
         args.materialized_views = None
         args.resource_usage_log = "yes"
@@ -387,6 +389,7 @@ class TestIndexCommand(unittest.TestCase):
         args.geo_cell_grid_level = None
         args.geo_cell_grid_scheme = None
         args.encode_as_id = None
+        args.encode_as_id_wide = None
         args.parser_buffer_size = None
         args.materialized_views = None
         args.resource_usage_log = "yes"

@@ -36,6 +36,7 @@ class TestIndexCommand(unittest.TestCase):
                     "geo_cell_grid_level",
                     "geo_cell_grid_scheme",
                     "encode_as_id",
+                    "encode_as_id_wide",
                     "multi_input_json",
                     "parallel_parsing",
                     "settings_json",

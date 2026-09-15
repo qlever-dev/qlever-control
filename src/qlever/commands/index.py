@@ -80,6 +80,7 @@ class IndexCommand(QleverCommand):
                 "geo_cell_grid_level",
                 "geo_cell_grid_scheme",
                 "encode_as_id",
+                "encode_as_id_wide",
                 "multi_input_json",
                 "parallel_parsing",
                 "settings_json",
@@ -298,6 +299,8 @@ class IndexCommand(QleverCommand):
             index_cmd += f" --geo-cell-grid-scheme {args.geo_cell_grid_scheme}"
         if args.encode_as_id:
             index_cmd += f" --encode-as-id {args.encode_as_id}"
+        if args.encode_as_id_wide:
+            index_cmd += f" --encode-as-id-wide {args.encode_as_id_wide}"
         if args.only_pso_and_pos_permutations:
             index_cmd += " --only-pso-and-pos-permutations"
         if args.use_patterns == "no":
