@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import glob
+import os
 import json
 import re
 import shlex
@@ -80,6 +81,8 @@ class IndexCommand(QleverCommand):
                 "geo_cell_grid_level",
                 "geo_cell_grid_scheme",
                 "encode_as_id",
+                "encode_as_id_wide",
+                "parse_parallelism",
                 "multi_input_json",
                 "parallel_parsing",
                 "settings_json",
@@ -191,7 +194,14 @@ class IndexCommand(QleverCommand):
                 input_cmds = [input_spec["cmd"]]
             else:
                 try:
-                    files = sorted(glob.glob(input_spec["for-each"]))
+                    # Sort the files by size, largest first: with parallel
+                    # parsing, the largest inputs then start first, which
+                    # minimizes the straggler tail at the end of the parsing
+                    # phase (the order is semantically irrelevant otherwise).
+                    files = sorted(
+                        glob.glob(input_spec["for-each"]),
+                        key=lambda f: (-os.path.getsize(f), f),
+                    )
                 except Exception as e:
                     raise self.InvalidInputJson(
                         f"Element {i} in `MULTI_INPUT_JSON` contains an "
@@ -298,6 +308,10 @@ class IndexCommand(QleverCommand):
             index_cmd += f" --geo-cell-grid-scheme {args.geo_cell_grid_scheme}"
         if args.encode_as_id:
             index_cmd += f" --encode-as-id {args.encode_as_id}"
+        if args.encode_as_id_wide:
+            index_cmd += f" --encode-as-id-wide {args.encode_as_id_wide}"
+        if args.parse_parallelism:
+            index_cmd += f" --parse-parallelism {args.parse_parallelism}"
         if args.only_pso_and_pos_permutations:
             index_cmd += " --only-pso-and-pos-permutations"
         if args.use_patterns == "no":
