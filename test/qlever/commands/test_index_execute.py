@@ -51,7 +51,7 @@ class TestIndexCommand(unittest.TestCase):
         args.geo_cell_grid_scheme = None
         args.encode_as_id = None
         args.parser_buffer_size = None
-        args.index_blocksize_per_column = None
+        args.index_rows_per_block = None
         args.materialized_views = None
         args.resource_usage_log = "yes"
         args.resource_usage_interval = 1
@@ -271,7 +271,7 @@ class TestIndexCommand(unittest.TestCase):
         args.geo_cell_grid_scheme = None
         args.encode_as_id = None
         args.parser_buffer_size = None
-        args.index_blocksize_per_column = None
+        args.index_rows_per_block = None
         args.materialized_views = None
         args.resource_usage_log = "yes"
         args.resource_usage_interval = 1
@@ -390,7 +390,7 @@ class TestIndexCommand(unittest.TestCase):
         args.geo_cell_grid_scheme = None
         args.encode_as_id = None
         args.parser_buffer_size = None
-        args.index_blocksize_per_column = "32K"
+        args.index_rows_per_block = 4000
         args.materialized_views = None
         args.resource_usage_log = "yes"
         args.resource_usage_interval = 1
@@ -412,8 +412,7 @@ class TestIndexCommand(unittest.TestCase):
             f" -d {args.name}.docsfile.tsv"
             f" --text-words-from-literals"
             f" --stxxl-memory {args.stxxl_memory}"
-            " --index-blocksize-per-column "
-            f"{args.index_blocksize_per_column}"
+            f" --index-rows-per-block {args.index_rows_per_block}"
             f" 2>&1 | tee {args.name}.index-log.txt"
         )
         settings_json_cmd = (

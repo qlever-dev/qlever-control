@@ -221,15 +221,15 @@ class Qleverfile:
             "large enough to contain the end of at least one statement "
             "(default: 10M)",
         )
-        index_args["index_blocksize_per_column"] = arg(
-            "--index-blocksize-per-column",
-            type=str,
-            help="The uncompressed size of one column of one block of the "
-            "permutations (and of the other sorted lists of the index, like "
-            "materialized views); smaller blocks make selective index scans read "
-            "fewer rows, at the price of more block metadata (which is held "
-            "in RAM) and a slightly larger index (default: 250K, which is "
-            "32000 triples per block)",
+        index_args["index_rows_per_block"] = arg(
+            "--index-rows-per-block",
+            type=int,
+            help="The number of rows of one block of the permutations (and "
+            "of the other sorted lists of the index, like materialized "
+            "views); smaller blocks make selective index scans read fewer "
+            "rows, at the price of more block metadata (which is held in "
+            "RAM) and a slightly larger index (default: 31250, which is "
+            "250 kB per column)",
         )
         index_args["geo_cell_grid_level"] = arg(
             "--geo-cell-grid-level",
