@@ -18,6 +18,10 @@ from qlever.monitor_queries.widgets.detail_switcher import (
     PLOT_ID,
     DetailSwitcher,
 )
+from qlever.monitor_queries.widgets.resource_plot_pane import (
+    TOP_PERCENTILES,
+    ResourcePlotPane,
+)
 from qlever.monitor_queries.widgets.sparql_pane import SparqlPane
 
 
@@ -35,13 +39,42 @@ class GutterControl(NamedTuple):
     target: str = "screen"
 
 
-# The gutter's controls, one list per pane, each top to bottom.
-PLOT_CONTROLS = [
+# The gutter's controls, one list per column, each top to bottom. The
+# scale pair is on the left, beside the left axis, which is the only
+# side a plot declares adjustable. The plot arrows are in the middle
+# row, level with the middle of the pane.
+PLOT_LEFT_CONTROLS = [
+    GutterControl(
+        name="raise-top",
+        glyph="⇡",
+        hint="Raise the left axis top",
+        action="step_top",
+    ),
+    GutterControl(
+        name="prev-plot",
+        glyph="◄",
+        hint="Previous plot",
+        action="show_plot(-1)",
+    ),
+    GutterControl(
+        name="lower-top",
+        glyph="⇣",
+        hint="Lower the left axis top",
+        action="step_top(-1)",
+    ),
+]
+PLOT_RIGHT_CONTROLS = [
     GutterControl(
         name="to-sparql",
         glyph="≡",
         hint="Show the selected query",
         action="show_sparql",
+    ),
+    GutterControl(
+        name="next-plot",
+        glyph="►",
+        hint="Next plot",
+        action="show_plot",
     ),
     GutterControl(
         name="zoom",
@@ -84,6 +117,7 @@ def gutter_control(control: GutterControl, pane: str) -> Vertical:
         control.glyph,
         variant="primary",
         compact=True,
+        id=f"{control.name}-glyph",
         action=f"{control.target}.{control.action}",
         tooltip=control.hint,
         classes="gutter-glyph",
@@ -98,7 +132,7 @@ def gutter_control(control: GutterControl, pane: str) -> Vertical:
 
 
 class DetailRow(Horizontal):
-    """The detail pane with a gutter of controls down its right."""
+    """The detail pane with a gutter of controls down either side."""
 
     can_focus = False
 
@@ -108,14 +142,24 @@ class DetailRow(Horizontal):
         self.window = window
 
     def compose(self) -> ComposeResult:
+        yield Vertical(
+            *(
+                gutter_control(control, "-plot")
+                for control in PLOT_LEFT_CONTROLS
+            ),
+            classes="pane-gutter -left -plot",
+        )
         yield DetailSwitcher(self.window)
         yield Vertical(
-            *(gutter_control(control, "-plot") for control in PLOT_CONTROLS),
+            *(
+                gutter_control(control, "-plot")
+                for control in PLOT_RIGHT_CONTROLS
+            ),
             *(
                 gutter_control(control, "-sparql")
                 for control in SPARQL_CONTROLS
             ),
-            classes="pane-gutter",
+            classes="pane-gutter -right",
         )
 
     def on_mount(self) -> None:
@@ -126,6 +170,10 @@ class DetailRow(Horizontal):
         """
         self.watch(self.query_one(DetailSwitcher), "current", self.sync_pane)
         self.sync_pane()
+        pane = self.query_one(ResourcePlotPane)
+        self.watch(pane, "plot", self.sync_scale_arrows)
+        self.watch(pane, "top_step", self.sync_scale_arrows)
+        self.sync_scale_arrows()
 
     def sync_pane(self) -> None:
         """Mark which pane is showing, so CSS draws only its controls."""
@@ -133,9 +181,20 @@ class DetailRow(Horizontal):
         self.set_class(showing_plot, "-plot")
         self.set_class(not showing_plot, "-sparql")
 
+    def sync_scale_arrows(self) -> None:
+        """Grey out a scale arrow with nowhere left to go."""
+        pane = self.query_one(ResourcePlotPane)
+        adjustable = pane.plot.adjustable
+        can_raise = adjustable and pane.top_step > 0
+        can_lower = adjustable and pane.top_step < len(TOP_PERCENTILES) - 1
+        self.query_one("#raise-top-glyph", Button).disabled = not can_raise
+        self.query_one("#lower-top-glyph", Button).disabled = not can_lower
+
     def set_help_keys(self, key_for_action: Callable[[str], str]) -> None:
         """Name the key that runs each control, and the pane's own keys."""
-        for control in PLOT_CONTROLS + SPARQL_CONTROLS:
+        for control in (
+            PLOT_LEFT_CONTROLS + PLOT_RIGHT_CONTROLS + SPARQL_CONTROLS
+        ):
             label = self.query_one(f"#{control.name}-key", Static)
             label.update(key_for_action(control.action))
         self.query_one(SparqlPane).set_help_keys(

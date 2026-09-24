@@ -43,6 +43,7 @@ from qlever.monitor_queries.resource_data import (
     read_resource_window,
     window_for_samples,
 )
+from qlever.monitor_queries.resource_reader import log_has_new_columns
 from qlever.monitor_queries.util import (
     action_key,
     help_text,
@@ -68,6 +69,7 @@ from qlever.monitor_queries.widgets.query_table import HistoricQueryTable
 from qlever.monitor_queries.widgets.resource_plot_pane import (
     MIN_BUCKETS,
     ResourcePlotPane,
+    available_plots,
     buckets_for_width,
 )
 from qlever.monitor_queries.widgets.selected_window import SelectedWindow
@@ -204,8 +206,11 @@ class HistoricScreen(Screen, inherit_bindings=False):
         Binding("i", "invert_sort", "Invert sort", show=False),
         Binding("f", "edit_filter", "Filter", show=False),
         Binding("F", "clear_filters", "Clear filters", show=False),
-        Binding("r", "show_plot", "Resource plot", show=False),
-        Binding("z", "maximize_plot", "Zoom the plot", show=False),
+        Binding("r", "show_plot", "Resource plots", show=False),
+        Binding("R", "show_plot(-1)", "Resource plots", show=False),
+        Binding("minus", "step_top(-1)", "Plot scale", show=False),
+        Binding("plus", "step_top", "Plot scale", show=False),
+        Binding("z", "maximize_plot", "Full screen", show=False),
         Binding("s", "show_sparql", "SPARQL", show=False),
         Binding("ctrl+c,super+c", "screen.copy_text", "Copy selection"),
     ]
@@ -428,11 +433,14 @@ class HistoricScreen(Screen, inherit_bindings=False):
             self.refresh_data(rescan=False)
 
     def schedule_rescan(self) -> None:
-        """Collapse a fast window scrub into one scan of where the user lands."""
+        """Collapse a fast window scrub into one scan of where the user lands.
+
+        The pane is measured when the timer fires, not when it is set:
+        on the first scan the screen is not laid out yet and the pane
+        still has no width.
+        """
         if self.rescan_timer is not None:
             self.rescan_timer.stop()
-        # The width is read when the timer fires, not now: on the first
-        # resume the pane is not laid out yet and would report width 0.
         self.rescan_timer = self.set_timer(
             RESCAN_DEBOUNCE_S,
             lambda: self.refresh_data(
@@ -556,22 +564,34 @@ class HistoricScreen(Screen, inherit_bindings=False):
         self.resource_window = resource_window
         self.app.push_resource_window(resource_window)
 
-    def action_show_plot(self) -> None:
-        """Switch the detail pane to the resource plot.
+    def action_show_plot(self, step: int = 1) -> None:
+        """Show the resource plot, or step to the next or previous one.
 
         Showing the hidden pane resizes it from zero, so its on_resize
-        redraws with the current window's plot; no explicit replot here.
+        redraws it; no explicit replot here.
         """
-        self.query_one(DetailSwitcher).show_plot()
+        offered = available_plots(log_has_new_columns(self.app.resource_log))
+        self.query_one(DetailSwitcher).show_plot(offered, step)
+
+    def action_step_top(self, direction: int = 1) -> None:
+        """Raise or lower the top of the plot's adjustable axis."""
+        self.query_one(DetailSwitcher).step_top(direction)
 
     def action_maximize_plot(self) -> None:
         """Open the resource plot as a full-screen modal.
 
-        The modal opens on the readings the inline plot is showing. Its
-        wider pane then fits more buckets and says so, which brings back
-        a window read at that size, so maximizing shows more detail.
+        Shows every plot this log can carry, on the readings the inline
+        plot is showing. A wider pane then fits more buckets and says
+        so, which brings back a window read at that size, so maximizing
+        shows more detail as well as more plots.
         """
-        self.app.push_screen(ResourcePlotModal(self.resource_window))
+        self.app.push_screen(
+            ResourcePlotModal(
+                self.resource_window,
+                available_plots(log_has_new_columns(self.app.resource_log)),
+                self.query_one(ResourcePlotPane).top_step,
+            )
+        )
 
     def action_show_sparql(self) -> None:
         """Switch the detail pane to the SPARQL query."""

@@ -147,12 +147,11 @@ def is_sample_fresh(
 def bucket_value(column: Column, running: float, count: int) -> float:
     """Collapse one bucket's readings into a single display value.
 
-    A count of zero means the column had nothing to report in this
-    bucket, which happens when a server starts reporting a column part
-    way through a window.
+    A bucket with no reading gets a NaN rather than a zero, because the
+    column was silent there and not idle. The plot draws a gap.
     """
     if count == 0:
-        return 0.0
+        return float("nan")
     if column.reduce == "peak":
         return running / column.scale
     if column.reduce == "mean":

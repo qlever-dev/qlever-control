@@ -32,7 +32,11 @@ from qlever.monitor_queries.resource_data import (
     is_sample_fresh,
     window_for_samples,
 )
-from qlever.monitor_queries.resource_reader import Sample, SampleTail
+from qlever.monitor_queries.resource_reader import (
+    Sample,
+    SampleTail,
+    log_has_new_columns,
+)
 from qlever.monitor_queries.util import action_key
 from qlever.monitor_queries.views.resource_plot_modal import (
     ResourcePlotModal,
@@ -47,6 +51,10 @@ from qlever.monitor_queries.widgets.header_row import HeaderRow
 from qlever.monitor_queries.widgets.metrics_row import MetricsRow
 from qlever.monitor_queries.widgets.nav_pill import NavPill
 from qlever.monitor_queries.widgets.query_table import LiveQueryTable
+from qlever.monitor_queries.widgets.resource_plot_pane import (
+    ResourcePlotPane,
+    available_plots,
+)
 from qlever.monitor_queries.widgets.resource_row import ResourceRow
 from qlever.monitor_queries.widgets.resource_sparkline import ResourceSparkline
 from qlever.monitor_queries.widgets.sparql_pane import SELECT_ROW_HINT
@@ -61,8 +69,11 @@ class LiveScreen(Screen, inherit_bindings=False):
     BINDINGS = [
         Binding("tab", "app.swap_screen", "Historic>", priority=True),
         Binding("f", "toggle_freeze", "Freeze/Unfreeze", show=False),
-        Binding("r", "show_plot", "Resource plot", show=False),
-        Binding("z", "maximize_plot", "Zoom the plot", show=False),
+        Binding("r", "show_plot", "Resource plots", show=False),
+        Binding("R", "show_plot(-1)", "Resource plots", show=False),
+        Binding("minus", "step_top(-1)", "Plot scale", show=False),
+        Binding("plus", "step_top", "Plot scale", show=False),
+        Binding("z", "maximize_plot", "Full screen", show=False),
         Binding("s", "show_sparql", "SPARQL", show=False),
         Binding("ctrl+c,super+c", "screen.copy_text", "Copy selection"),
     ]
@@ -375,18 +386,34 @@ class LiveScreen(Screen, inherit_bindings=False):
             self.resource_samples.size,
         )
 
-    def action_show_plot(self) -> None:
-        """Switch the detail pane to the resource plot."""
-        self.query_one(DetailSwitcher).show_plot()
+    def action_show_plot(self, step: int = 1) -> None:
+        """Show the resource plot, or step to the next or previous one.
+
+        The log's format is read now rather than at startup, since the
+        server may have begun writing it after this screen opened.
+        """
+        offered = available_plots(log_has_new_columns(self.app.resource_log))
+        self.query_one(DetailSwitcher).show_plot(offered, step)
         self.refresh_table_status()
+
+    def action_step_top(self, direction: int = 1) -> None:
+        """Raise or lower the top of the plot's adjustable axis."""
+        self.query_one(DetailSwitcher).step_top(direction)
 
     def action_maximize_plot(self) -> None:
         """Open the resource plot as a full-screen modal.
 
-        Opens on the window the inline pane is showing. The resource
-        timer reaches the modal's pane as well, so it keeps rolling.
+        Shows every plot this log can carry, on the window the inline
+        pane is showing. The resource timer reaches the modal's panes as
+        well, so they keep rolling.
         """
-        self.app.push_screen(ResourcePlotModal(self.live_resource_window()))
+        self.app.push_screen(
+            ResourcePlotModal(
+                self.live_resource_window(),
+                available_plots(log_has_new_columns(self.app.resource_log)),
+                self.query_one(ResourcePlotPane).top_step,
+            )
+        )
 
     def action_show_sparql(self) -> None:
         """Switch the detail pane to the SPARQL query."""

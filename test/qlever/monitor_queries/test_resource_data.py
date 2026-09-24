@@ -2,10 +2,12 @@
 
 import io
 from dataclasses import replace
+from math import isnan
 
 import pytest
 
 from qlever.monitor_queries.resource_data import (
+    COLUMNS,
     Capacity,
     Column,
     EventTracker,
@@ -560,16 +562,16 @@ def test_window_keeps_the_required_columns_with_no_samples():
     assert window.series["cpu_percent"].label == "CPU"
 
 
-def test_window_zero_where_a_column_reported_nothing():
+def test_window_gap_where_a_column_reported_nothing():
     # The server began reporting disk I/O part way through the window.
     samples = [
         sample(ts_ms=1100),
         sample(ts_ms=3200, read_bytes_per_s=2e6),
     ]
     window = window_for_samples(samples, CAPACITY, 1000, 5000, 4)
-    assert window.series["read_bytes_per_s"].values == pytest.approx(
-        (0.0, 2.0)
-    )
+    quiet, reported = window.series["read_bytes_per_s"].values
+    assert isnan(quiet)
+    assert reported == pytest.approx(2.0)
 
 
 def test_window_rate_columns_have_no_capacity():
@@ -597,6 +599,10 @@ def test_window_never_exceeds_the_bucket_count():
     samples = [sample(ts_ms=1000 + index) for index in range(1000)]
     window = window_for_samples(samples, CAPACITY, 1000, 2000, 50)
     assert len(window.times_s) <= 50
+
+
+def test_bucket_value_of_an_empty_bucket_is_a_gap():
+    assert isnan(bucket_value(COLUMNS[0], 0.0, 0))
 
 
 def test_bucket_value_rejects_an_unknown_reducer():

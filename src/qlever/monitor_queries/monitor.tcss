@@ -312,8 +312,15 @@ QueryTable.stale > .datatable--header {
 .pane-gutter {
     width: 3;
     height: 1fr;
-    margin-left: 1;
     align-vertical: middle;
+}
+
+.pane-gutter.-left {
+    margin-right: 1;
+}
+
+.pane-gutter.-right {
+    margin-left: 1;
 }
 
 /* A control owns its glyph's row and its key label's row, with a blank
@@ -334,6 +341,13 @@ QueryTable.stale > .datatable--header {
 
 .gutter-glyph:hover {
     background: $primary-lighten-2;
+}
+
+/* A control with nowhere to go loses its fill as well as its glyph */
+
+.gutter-glyph:disabled {
+    background: $panel;
+    color: $text-disabled;
 }
 
 /* The label's row is always reserved, so a glyph never moves. */
@@ -523,9 +537,9 @@ ResourcePlotModal {
 }
 
 #resource-plot-modal {
-    width: 90%;
-    height: 90%;
-    padding: 1 2;
+    width: 100%;
+    height: 100%;
+    padding: 0 1;
     background: $surface;
 }
 
