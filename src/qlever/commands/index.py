@@ -93,6 +93,7 @@ class IndexCommand(QleverCommand):
                 "text_index",
                 "stxxl_memory",
                 "parser_buffer_size",
+                "index_blocksize_per_column",
                 "resource_usage_log",
                 "resource_usage_interval",
                 "resource_usage_plot_max_points",
@@ -320,6 +321,11 @@ class IndexCommand(QleverCommand):
             index_cmd += f" --stxxl-memory {args.stxxl_memory}"
         if args.parser_buffer_size:
             index_cmd += f" --parser-buffer-size {args.parser_buffer_size}"
+        if args.index_blocksize_per_column:
+            index_cmd += (
+                " --index-blocksize-per-column "
+                f"{args.index_blocksize_per_column}"
+            )
         if args.materialized_views:
             index_cmd += (
                 f" --materialized-views {shlex.quote(args.materialized_views)}"
