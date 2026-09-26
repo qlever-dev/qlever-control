@@ -259,7 +259,7 @@ class Qleverfile:
             choices=["z-order", "lat-major"],
             default=None,
             help="How geo points are encoded in the IDs of the index; "
-            "`lat-major` is how they were encoded before 2026-09-19, it is "
+            "`lat-major` is how they were encoded before 2026-09-26, it is "
             "deprecated and only meant for software that decodes the IDs of "
             "an index (default: `z-order`)",
         )
