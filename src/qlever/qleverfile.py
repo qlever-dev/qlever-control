@@ -253,6 +253,16 @@ class Qleverfile:
             help="Cell assignment scheme of the geo cell grid "
             "(default: flat); only relevant with GEO_CELL_GRID_LEVEL > 0",
         )
+        index_args["geo_point_encoding"] = arg(
+            "--geo-point-encoding",
+            type=str,
+            choices=["z-order", "lat-major"],
+            default=None,
+            help="How geo points are encoded in the IDs of the index; "
+            "`lat-major` is how they were encoded before 2026-09-26, it is "
+            "deprecated and only meant for software that decodes the IDs of "
+            "an index (default: `z-order`)",
+        )
         index_args["encode_as_id"] = arg(
             "--encode-as-id",
             type=str,

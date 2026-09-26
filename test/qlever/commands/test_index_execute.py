@@ -49,6 +49,7 @@ class TestIndexCommand(unittest.TestCase):
         args.ulimit = None
         args.geo_cell_grid_level = None
         args.geo_cell_grid_scheme = None
+        args.geo_point_encoding = None
         args.encode_as_id = None
         args.parser_buffer_size = None
         args.index_rows_per_block = None
@@ -269,6 +270,7 @@ class TestIndexCommand(unittest.TestCase):
         args.ulimit = None
         args.geo_cell_grid_level = None
         args.geo_cell_grid_scheme = None
+        args.geo_point_encoding = None
         args.encode_as_id = None
         args.parser_buffer_size = None
         args.index_rows_per_block = None
@@ -388,6 +390,7 @@ class TestIndexCommand(unittest.TestCase):
         args.ulimit = None
         args.geo_cell_grid_level = None
         args.geo_cell_grid_scheme = None
+        args.geo_point_encoding = "lat-major"
         args.encode_as_id = None
         args.parser_buffer_size = None
         args.index_rows_per_block = 4000
@@ -407,6 +410,7 @@ class TestIndexCommand(unittest.TestCase):
             f" -i {args.name} -s {args.name}.settings.json"
             f" --vocabulary-type {args.vocabulary_type}"
             f" {mock_input_json.return_value}"
+            f" --geo-point-encoding {args.geo_point_encoding}"
             f" --only-pso-and-pos-permutations"
             f" --no-patterns -w {args.name}.wordsfile.tsv"
             f" -d {args.name}.docsfile.tsv"
