@@ -80,6 +80,7 @@ class IndexCommand(QleverCommand):
                 "geo_cell_grid_level",
                 "geo_cell_grid_scheme",
                 "geo_point_encoding",
+                "parsed_geometries_min_length",
                 "encode_as_id",
                 "multi_input_json",
                 "parallel_parsing",
@@ -300,6 +301,11 @@ class IndexCommand(QleverCommand):
             index_cmd += f" --geo-cell-grid-scheme {args.geo_cell_grid_scheme}"
         if args.geo_point_encoding:
             index_cmd += f" --geo-point-encoding {args.geo_point_encoding}"
+        if args.parsed_geometries_min_length:
+            index_cmd += (
+                " --parsed-geometries-min-length"
+                f" {args.parsed_geometries_min_length}"
+            )
         if args.encode_as_id:
             index_cmd += f" --encode-as-id {args.encode_as_id}"
         if args.only_pso_and_pos_permutations:

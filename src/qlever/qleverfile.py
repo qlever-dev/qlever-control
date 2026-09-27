@@ -263,6 +263,17 @@ class Qleverfile:
             "deprecated and only meant for software that decodes the IDs of "
             "an index (default: `z-order`)",
         )
+        index_args["parsed_geometries_min_length"] = arg(
+            "--parsed-geometries-min-length",
+            type=int,
+            default=None,
+            help="Store the WKT literals with at least this many bytes in "
+            "the form that libspatialjoin needs, so that spatial joins do "
+            "not have to parse them at query time (which takes seconds "
+            "for a huge geometry like a country boundary); requires "
+            "VOCABULARY_TYPE on-disk-compressed-geo-split, a value like "
+            "100000 covers the geometries that matter (default: none)",
+        )
         index_args["encode_as_id"] = arg(
             "--encode-as-id",
             type=str,
