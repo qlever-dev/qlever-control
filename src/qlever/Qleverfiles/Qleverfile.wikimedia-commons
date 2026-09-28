@@ -1,0 +1,43 @@
+# Qleverfile for Wikimedia Commons, use with the `qlever` CLI
+#
+# qlever get-data  # downloads ~94 GB (compressed), ~13 billion triples
+# qlever index     # ~2.5 hours, ~40 GB RAM, ~260 GB index size on disk
+# qlever start     # a few seconds, adjust MEMORY_FOR_QUERIES as needed
+#
+# Measured on an AMD Ryzen 9 9950X with 192 GB RAM, and NVMe SSD (29.03.2026)
+
+[data]
+NAME              = wikimedia-commons
+MAIN_RDF_FILE     = latest-mediainfo.ttl.gz
+DATA_URL_BASE     = https://dumps.wikimedia.org/other/wikibase/commonswiki
+GET_TTL_CMD       = unbuffer wget ${DATA_URL_BASE}/${MAIN_RDF_FILE}
+GET_PROPS_CMD     = curl -s https://qlever.dev/api/wikidata -H "Accept: text/turtle" -H "Content-type: application/sparql-query" --data "PREFIX wikibase: <http://wikiba.se/ontology#> CONSTRUCT { ?s ?p ?o } WHERE { VALUES ?p { wikibase:claim wikibase:directClaim wikibase:novalue wikibase:propertyType wikibase:qualifier wikibase:qualifierValue wikibase:reference wikibase:referenceValue wikibase:statementProperty wikibase:statementValue } ?s ?p ?o }" > properties.nt
+GET_LABELS_CMD    = curl -s https://qlever.dev/api/wikidata -H "Accept: text/turtle" -H "Content-type: application/sparql-query" --data "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#> CONSTRUCT { ?subject rdfs:label ?label } WHERE { ?subject @en@rdfs:label ?label }" > labels.nt
+GET_DATA_CMD      = ${GET_TTL_CMD} && ${GET_PROPS_CMD} && ${GET_LABELS_CMD}
+DATE_COMMONS      = $$(date -r ${data:MAIN_RDF_FILE} +%d.%m.%Y || echo "NO_DATE")
+DATE_WIKIDATA     = $$(date -r labels.nt +%d.%m.%Y || echo "NO_DATE")
+DESCRIPTION       = RDF data from ${DATA_URL_BASE} (version ${DATE_COMMONS}) + labels and properties from Wikidata (version ${DATE_WIKIDATA})
+
+[index]
+INPUT_FILES       = ${data:MAIN_RDF_FILE} labels.nt properties.nt
+MULTI_INPUT_JSON  = [{ "cmd": "zcat ${data:MAIN_RDF_FILE}", "graph": "http://commons.wikimedia.org", "parallel": "true" },
+                     { "cmd": "cat labels.nt", "graph": "http://www.wikidata.org", "parallel": "true" },
+                     { "cmd": "cat properties.nt", "graph": "http://www.wikidata.org", "parallel": "true" }]
+STXXL_MEMORY      = 10G
+SETTINGS_JSON     = { "num-triples-per-batch": 5000000 }
+ENCODE_AS_ID      = http://www.wikidata.org/entity/Q https://www.openstreetmap.org/node/ http://www.openstreetmap.org/node/ https://www.openstreetmap.org/way/ https://www.openstreetmap.org/relation/ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmnode_tagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmnode_untagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmway_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmrel_ https://www.openstreetmap.org/changeset/
+
+[server]
+PORT                        = 7033
+ACCESS_TOKEN                = ${data:NAME}
+MEMORY_FOR_QUERIES          = 20G
+CACHE_MAX_SIZE              = 10G
+CACHE_MAX_SIZE_SINGLE_ENTRY = 5G
+
+[runtime]
+SYSTEM = docker
+IMAGE  = docker.io/adfreiburg/qlever
+
+[ui]
+PORT   = 7000
+CONFIG = wikimedia-commons

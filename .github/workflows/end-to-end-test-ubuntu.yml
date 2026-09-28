@@ -31,42 +31,32 @@ jobs:
           pip3 install -e .
           sudo apt update && sudo apt install unzip expect
 
-      - name: Cache for qlever code and binaries
-        uses: actions/cache@v3
-        env:
-          cache-name: qlever-code
-        with:
-          path: ${{github.workspace}}/qlever-code
-          key: ${{matrix.os}}-${{env.cache-name}}
-
-      - name: Build qlever binaries from source + download docker image
+      # The pre-release `latest-master` of QLever always holds the portable
+      # binaries of the last successfully built `master` commit (see the
+      # workflow `portable-binaries.yml` there), so there is nothing to build.
+      - name: Download the latest qlever binaries + docker image
         run: |
-          sudo apt update && sudo apt install -y wget
-          wget https://apt.kitware.com/kitware-archive.sh && chmod +x kitware-archive.sh && sudo ./kitware-archive.sh
-          sudo apt install -y build-essential cmake libicu-dev tzdata pkg-config uuid-runtime uuid-dev git libjemalloc-dev ninja-build libzstd-dev libssl-dev libboost1.83-dev libboost-program-options1.83-dev libboost-iostreams1.83-dev libboost-url1.83-dev libboost-container1.83-dev
-          if [ ! -d qlever-code ]; then
-            git clone https://github.com/ad-freiburg/qlever.git qlever-code; fi
-          cd qlever-code
-          git pull
-          mkdir -p build && cd $_
-          cmake -DCMAKE_BUILD_TYPE=Release -DLOGLEVEL=INFO -DUSE_PARALLEL=true -GNinja ..
-          ninja ServerMain IndexBuilderMain
+          mkdir -p qlever-binaries && cd $_
+          curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors \
+            https://github.com/ad-freiburg/qlever/releases/download/latest-master/qlever-binaries-linux-x86_64.tar.gz | tar xz
           docker pull adfreiburg/qlever
 
       - name: Check that qlever binaries, docker image, and qlever script are found and work
         run: |
           mkdir qlever-indices
-          export PATH="$PATH:$(pwd)/qlever-control:$(pwd)/qlever-code/build"
-          docker run --entrypoint bash adfreiburg/qlever -c "ServerMain --help" | head -3
-          docker run --entrypoint bash adfreiburg/qlever -c "IndexBuilderMain --help" | head -3
-          ServerMain --help | head -3; echo "..."
-          IndexBuilderMain --help | head -3; echo "..."
+          export PATH="$PATH:$(pwd)/qlever-control:$(pwd)/qlever-binaries"
+          docker run --entrypoint bash adfreiburg/qlever -c "qlever-server --help" | head -3
+          docker run --entrypoint bash adfreiburg/qlever -c "qlever-index --help" | head -3
+          qlever-server --help | head -3; echo "..."
+          qlever-index --help | head -3; echo "..."
           qlever --help
+          qeval --help
+          qeval qlever --help
 
       - name: Test qlever script for olympics dataset, with docker
         timeout-minutes: 1
         run: |
-          export PATH="$PATH:$(pwd)/qlever-code/build"
+          export PATH="$PATH:$(pwd)/qlever-binaries"
           export QLEVER_ARGCOMPLETE_ENABLED=1
           mkdir -p ${{github.workspace}}/qlever-indices/olympics.1 && cd $_
           qlever setup-config olympics
@@ -80,7 +70,7 @@ jobs:
       - name: Test qlever script for olympics dataset, without docker
         timeout-minutes: 1
         run: |
-          export PATH="$PATH:$(pwd)/qlever-code/build"
+          export PATH="$PATH:$(pwd)/qlever-binaries"
           export QLEVER_ARGCOMPLETE_ENABLED=1
           mkdir -p ${{github.workspace}}/qlever-indices/olympics.2 && cd $_
           qlever setup-config olympics
@@ -94,7 +84,7 @@ jobs:
       - name: Test qlever script for olympics dataset, with and without docker
         timeout-minutes: 1
         run: |
-          export PATH="$PATH:$(pwd)/qlever-code/build"
+          export PATH="$PATH:$(pwd)/qlever-binaries"
           export QLEVER_ARGCOMPLETE_ENABLED=1
           mkdir -p ${{github.workspace}}/qlever-indices/olympics.3 && cd $_
           qlever setup-config olympics
@@ -103,4 +93,31 @@ jobs:
           qlever start --system native
           qlever status
           qlever stop
+          ls -lh
+
+      - name: Test that qlever and qeval qlever are interchangeable
+        timeout-minutes: 1
+        run: |
+          export PATH="$PATH:$(pwd)/qlever-binaries"
+          export QEVAL_ARGCOMPLETE_ENABLED=1
+          mkdir -p ${{github.workspace}}/qlever-indices/olympics.4 && cd $_
+          qeval qlever setup-config olympics --system native
+          qeval qlever get-data
+          qeval qlever index
+
+          # A server started via `qeval` must be visible to `qlever` ...
+          qeval qlever start
+          qlever status
+          qlever stop
+
+          # ... and the other way round, which is the direction that matters
+          # for anyone with servers already started by `qlever`.
+          qlever start
+          qeval qlever status
+          qeval qlever stop
+
+          # Container names are keyed on the engine, not on the script name,
+          # so both must build the same command. `--show` only prints it.
+          diff <(qlever start --show --system docker) \
+               <(qeval qlever start --show --system docker)
           ls -lh

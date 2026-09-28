@@ -48,7 +48,7 @@ class SystemInfoCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return True
 
-    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {"runtime": ["system", "image", "server_container"]}
 
     def additional_arguments(self, subparser) -> None:
@@ -69,8 +69,10 @@ class SystemInfoCommand(QleverCommand):
         is_mac = system == "Darwin"
         is_windows = system == "Windows"
         if is_windows:
-            log.warn("Only limited information is gathered on Windows.")
-        log.info(f"Version: {version('qlever')} (qlever --version)")
+            log.warning("Only limited information is gathered on Windows.")
+        log.info(
+            f"Version: {version('qlever')} ({args.script_name} --version)"
+        )
         if is_linux:
             info = platform.freedesktop_os_release()
             log.info(f"OS: {platform.system()} ({info['PRETTY_NAME']})")

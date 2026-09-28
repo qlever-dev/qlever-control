@@ -37,7 +37,7 @@ class QueryCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return False
 
-    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {"server": ["host_name", "port", "access_token"]}
 
     def additional_arguments(self, subparser) -> None:
@@ -130,8 +130,7 @@ class QueryCommand(QleverCommand):
             if not args.no_time and args.log_level != "NO_LOG":
                 log.info("")
                 log.info(
-                    f"Query processing time (end-to-end):"
-                    f" {time_msecs:,d} ms"
+                    f"Query processing time (end-to-end): {time_msecs:,d} ms"
                 )
         except Exception as e:
             if args.log_level == "DEBUG":

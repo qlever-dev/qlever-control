@@ -7,7 +7,7 @@ from qlever.commands.cache_stats import CacheStatsCommand
 class TestStartCommand(unittest.TestCase):
     def test_description(self):
         self.assertEqual(
-            "Show how much of the cache is currently being " "used",
+            "Show how much of the cache is currently being used",
             CacheStatsCommand().description(),
         )
 
@@ -34,12 +34,12 @@ class TestStartCommand(unittest.TestCase):
 
         # Test that the default value for server-url is set correctly
         """Why is there no default="localhost:{port}"? """
-        self.assertEqual(args.server_url, None)
+        self.assertEqual(args.sparql_endpoint, None)
 
         # Test that the help text for server-url is correctly set
         argument_help = subparser._group_actions[-2].help
         self.assertEqual(
-            "URL of the QLever server, default is {host_name}:{port}",
+            "URL of the SPARQL endpoint, default is {host_name}:{port}",
             argument_help,
         )
 

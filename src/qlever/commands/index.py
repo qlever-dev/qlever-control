@@ -4,6 +4,7 @@ import glob
 import json
 import re
 import shlex
+from pathlib import Path
 
 from qlever.command import QleverCommand
 from qlever.containerize import Containerize
@@ -12,8 +13,48 @@ from qlever.util import (
     binary_exists,
     get_existing_index_files,
     get_total_file_size,
+    input_files_exist,
     run_command,
 )
+
+
+def render_usage_plot(
+    dataset: str,
+    stxxl_memory: str,
+    settings_json: str,
+    plot_max_points: int,
+    plot_only: bool,
+    main_command_name: str,
+    engine_display_name: str,
+) -> Path | None:
+    """Render the resource-usage plot.
+
+    When the plotting libraries are missing, this is an error if the
+    user asked for the plot directly via `plot_only`, otherwise it notes
+    how to get the plot at info level since the index build succeeded.
+    """
+    try:
+        from qlever.resource_usage import usage_plot
+    except ImportError:
+        if plot_only:
+            log.error(
+                "Resource-usage plot needs matplotlib and numpy "
+                "(`pip install qlever[plot]`). Install them and rerun."
+            )
+        else:
+            log.info(
+                "To plot the resource-usage log, install matplotlib and "
+                "numpy (`pip install qlever[plot]`), then run "
+                f"`{main_command_name} index --resource-usage-plot-only`."
+            )
+        return None
+    return usage_plot.render_usage_plot(
+        dataset,
+        stxxl_memory=stxxl_memory,
+        settings_json=settings_json,
+        plot_max_points=plot_max_points,
+        engine_display_name=engine_display_name,
+    )
 
 
 class IndexCommand(QleverCommand):
@@ -30,24 +71,32 @@ class IndexCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return True
 
-    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {
             "data": ["name", "format"],
             "index": [
                 "input_files",
                 "cat_input_files",
+                "geo_cell_grid_level",
+                "geo_cell_grid_scheme",
                 "encode_as_id",
                 "multi_input_json",
                 "parallel_parsing",
                 "settings_json",
+                "materialized_views",
                 "vocabulary_type",
                 "index_binary",
                 "only_pso_and_pos_permutations",
                 "ulimit",
                 "use_patterns",
+                "add_has_word_triples",
                 "text_index",
                 "stxxl_memory",
                 "parser_buffer_size",
+                "index_rows_per_block",
+                "resource_usage_log",
+                "resource_usage_interval",
+                "resource_usage_plot_max_points",
             ],
             "runtime": ["system", "image", "index_container"],
         }
@@ -58,6 +107,15 @@ class IndexCommand(QleverCommand):
             action="store_true",
             default=False,
             help="Overwrite an existing index, think twice before using this",
+        )
+        subparser.add_argument(
+            "--resource-usage-plot-only",
+            action="store_true",
+            default=False,
+            help="Only render the resource-usage plot from the existing "
+            "`<name>.index.resource-usage-log.tsv`; do not build the index. Use "
+            "after installing the plotting libraries, or to re-render with "
+            "a different `--resource-usage-plot-max-points`",
         )
 
     # Exception for invalid JSON.
@@ -100,8 +158,7 @@ class IndexCommand(QleverCommand):
             # Check that `input_spec` is a dictionary.
             if not isinstance(input_spec, dict):
                 raise self.InvalidInputJson(
-                    f"Element {i} in `MULTI_INPUT_JSON` must be a JSON "
-                    "object",
+                    f"Element {i} in `MULTI_INPUT_JSON` must be a JSON object",
                     input_spec,
                 )
             # For each `input_spec`, we must have a command.
@@ -179,6 +236,23 @@ class IndexCommand(QleverCommand):
         return " ".join(input_options)
 
     def execute(self, args) -> bool:
+        # Render the resource-usage plot from the existing log without
+        # rebuilding the index.
+        if args.resource_usage_plot_only:
+            plot_path = render_usage_plot(
+                args.name,
+                stxxl_memory=args.stxxl_memory or "",
+                settings_json=args.settings_json,
+                plot_max_points=args.resource_usage_plot_max_points,
+                plot_only=True,
+                main_command_name=args.main_command_name,
+                engine_display_name=args.engine_display_name,
+            )
+            if plot_path is None:
+                return False
+            log.info(f"Resource-usage plot saved to `{plot_path.name}`")
+            return True
+
         # The mandatory part of the command line (specifying the input, the
         # basename of the index, and the settings file). There are two ways
         # to specify the input: via a single stream or via multiple streams.
@@ -212,23 +286,31 @@ class IndexCommand(QleverCommand):
                 "multiple input streams)"
             )
             log.info("")
-            log.info("See `qlever index --help` for more information")
+            log.info(
+                f"See `{args.main_command_name} index --help` for more "
+                "information"
+            )
             return False
 
         # Add remaining options.
+        if args.geo_cell_grid_level:
+            index_cmd += f" --geo-cell-grid-level {args.geo_cell_grid_level}"
+        if args.geo_cell_grid_scheme:
+            index_cmd += f" --geo-cell-grid-scheme {args.geo_cell_grid_scheme}"
         if args.encode_as_id:
             index_cmd += f" --encode-as-id {args.encode_as_id}"
         if args.only_pso_and_pos_permutations:
             index_cmd += " --only-pso-and-pos-permutations"
         if args.use_patterns == "no":
             index_cmd += " --no-patterns"
+        if args.add_has_word_triples:
+            index_cmd += " --add-has-word-triples"
         if args.text_index in [
             "from_text_records",
             "from_text_records_and_literals",
         ]:
             index_cmd += (
-                f" -w {args.name}.wordsfile.tsv"
-                f" -d {args.name}.docsfile.tsv"
+                f" -w {args.name}.wordsfile.tsv -d {args.name}.docsfile.tsv"
             )
         if args.text_index in [
             "from_literals",
@@ -239,7 +321,22 @@ class IndexCommand(QleverCommand):
             index_cmd += f" --stxxl-memory {args.stxxl_memory}"
         if args.parser_buffer_size:
             index_cmd += f" --parser-buffer-size {args.parser_buffer_size}"
-        index_cmd += f" | tee {args.name}.index-log.txt"
+        if args.index_rows_per_block:
+            index_cmd += f" --index-rows-per-block {args.index_rows_per_block}"
+        if args.materialized_views:
+            index_cmd += (
+                f" --materialized-views {shlex.quote(args.materialized_views)}"
+            )
+        # The binary samples its own RSS and CPU usage by default. Only
+        # pass the flags for non-default settings, so that older binaries
+        # without these options keep working.
+        if args.resource_usage_log == "no":
+            index_cmd += " --no-resource-usage-log"
+        elif args.resource_usage_interval != 1:
+            index_cmd += (
+                f" --resource-usage-interval-s {args.resource_usage_interval}"
+            )
+        index_cmd += f" 2>&1 | tee {args.name}.index-log.txt"
 
         # If the total file size is larger than 10 GB, set ulimit (such that a
         # large number of open files is allowed).
@@ -272,21 +369,12 @@ class IndexCommand(QleverCommand):
         if args.show:
             return True
 
-        # When running natively, check if the binary exists and works.
-        if args.system == "native":
-            if not binary_exists(args.index_binary, "index-binary"):
-                return False
+        if not binary_exists(args.index_binary, "index-binary", args):
+            return False
 
         # Check if all of the input files exist.
-        for pattern in shlex.split(args.input_files):
-            if len(glob.glob(pattern)) == 0:
-                log.error(f'No file matching "{pattern}" found')
-                log.info("")
-                log.info(
-                    "Did you call `qlever get-data`? If you did, check "
-                    "GET_DATA_CMD and INPUT_FILES in the QLeverfile"
-                )
-                return False
+        if not input_files_exist(args.input_files, args.main_command_name):
+            return False
 
         # Check if index files (name.index.*) already exist.
         existing_index_files = get_existing_index_files(args.name)
@@ -306,8 +394,7 @@ class IndexCommand(QleverCommand):
         ):
             if Containerize.is_running(args.system, args.index_container):
                 log.info(
-                    "Another index process is running, trying to stop "
-                    "it ..."
+                    "Another index process is running, trying to stop it ..."
                 )
                 log.info("")
                 try:
@@ -326,8 +413,27 @@ class IndexCommand(QleverCommand):
         # Run the index command.
         try:
             run_command(index_cmd, show_output=True)
+            log.info("")
         except Exception as e:
             log.error(f"Building the index failed: {e}")
             return False
+
+        # The index binary writes the resource-usage log itself; older
+        # binaries without that feature write none, then skip the plot.
+        if (
+            Path(f"{args.name}.index.resource-usage-log.tsv").exists()
+            or Path(f"{args.name}.resource-usage-log.tsv").exists()
+        ):
+            plot_path = render_usage_plot(
+                args.name,
+                stxxl_memory=args.stxxl_memory or "",
+                settings_json=args.settings_json,
+                plot_max_points=args.resource_usage_plot_max_points,
+                plot_only=False,
+                main_command_name=args.main_command_name,
+                engine_display_name=args.engine_display_name,
+            )
+            if plot_path is not None:
+                log.info(f"Resource-usage plot saved to `{plot_path.name}`")
 
         return True

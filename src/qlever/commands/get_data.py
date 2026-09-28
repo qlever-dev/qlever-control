@@ -21,7 +21,7 @@ class GetDataCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return True
 
-    def relevant_qleverfile_arguments(self) -> dict[str: list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {"data": ["name", "get_data_cmd"], "index": ["input_files"]}
 
     def additional_arguments(self, subparser) -> None:
@@ -33,16 +33,19 @@ class GetDataCommand(QleverCommand):
         if args.show:
             return True
 
-        # Execute the command line.
+        # Execute the command line. We show both stdout and stderr, so that the
+        # progress/log output of the GET_DATA_CMD (which many tools write to
+        # stderr, e.g. `csv2rdf`) is visible live during `get-data`.
         try:
-            run_command(args.get_data_cmd, show_output=True)
+            run_command(args.get_data_cmd, show_output=True, show_stderr=True)
         except Exception as e:
-            log.error(f"Problem executing \"{args.get_data_cmd}\": {e}")
+            log.error(f'Problem executing "{args.get_data_cmd}": {e}')
             return False
 
         # Show the total file size in GB and return.
         patterns = shlex.split(args.input_files)
         total_file_size = get_total_file_size(patterns)
-        print(f"Download successful, total file size: "
-              f"{total_file_size:,} bytes")
+        print(
+            f"Download successful, total file size: {total_file_size:,} bytes"
+        )
         return True

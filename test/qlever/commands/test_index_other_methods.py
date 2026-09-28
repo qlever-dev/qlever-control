@@ -14,7 +14,7 @@ class TestIndexCommand(unittest.TestCase):
         # Call the method
         result = self.index_command.description()
 
-        self.assertEqual(result, "Build the index for a given " "RDF dataset")
+        self.assertEqual(result, "Build the index for a given RDF dataset")
 
     def test_should_have_qleverfile(self):
         # Call the method
@@ -33,18 +33,26 @@ class TestIndexCommand(unittest.TestCase):
                 "index": [
                     "input_files",
                     "cat_input_files",
+                    "geo_cell_grid_level",
+                    "geo_cell_grid_scheme",
                     "encode_as_id",
                     "multi_input_json",
                     "parallel_parsing",
                     "settings_json",
+                    "materialized_views",
                     "vocabulary_type",
                     "index_binary",
                     "only_pso_and_pos_permutations",
                     "ulimit",
                     "use_patterns",
+                    "add_has_word_triples",
                     "text_index",
                     "stxxl_memory",
                     "parser_buffer_size",
+                    "index_rows_per_block",
+                    "resource_usage_log",
+                    "resource_usage_interval",
+                    "resource_usage_plot_max_points",
                 ],
                 "runtime": ["system", "image", "index_container"],
             },
@@ -64,18 +72,21 @@ class TestIndexCommand(unittest.TestCase):
         self.assertEqual(args.overwrite_existing, False)
 
         # Test that the help text for cmdline_regex is correctly set
-        argument_help = subparser._group_actions[-1].help
+        argument_help = next(
+            action
+            for action in subparser._group_actions
+            if action.dest == "overwrite_existing"
+        ).help
         self.assertEqual(
             argument_help,
-            "Overwrite an existing index, " "think twice before using this",
+            "Overwrite an existing index, think twice before using this",
         )
 
     def test_get_input_options_for_json_valid_input(self):
         # Mock args with a valid multi_input_json and format
         args = MagicMock()
         args.multi_input_json = (
-            '[{"cmd": "test_data1", "format": "json"}, '
-            '{"cmd": "test_data2"}]'
+            '[{"cmd": "test_data1", "format": "json"}, {"cmd": "test_data2"}]'
         )
         args.format = "jsonld"  # Default format if not specified in JSON
 
@@ -151,7 +162,8 @@ class TestIndexCommand(unittest.TestCase):
         # required "cmd" key
         args = MagicMock()
         args.multi_input_json = (
-            '[{"cmd": "test_data1", "format": "json"}, ' '{"format": "json2"}]'
+            '[{"cmd": "test_data1", "format": "json"}, '
+            '{"format": "json2"}]'
         )  # Missing "cmd"
 
         with self.assertRaises(IndexCommand.InvalidInputJson) as context:
@@ -159,7 +171,7 @@ class TestIndexCommand(unittest.TestCase):
 
         # Verify error mentions the missing `cmd` key
         self.assertEqual(
-            "Element 1 in `MULTI_INPUT_JSON` must contain " "a key `cmd`",
+            "Element 1 in `MULTI_INPUT_JSON` must contain a key `cmd`",
             context.exception.error_message,
         )
 
@@ -171,15 +183,15 @@ class TestIndexCommand(unittest.TestCase):
         # Mock args where one of the JSON objects is not a dictionary
         args = MagicMock()
         args.multi_input_json = (
-            '[{"cmd": "test_data1", "format": "json"}, ' "5]"
-        )  # Missing "cmd"
+            '[{"cmd": "test_data1", "format": "json"}, 5]'  # Missing "cmd"
+        )
 
         with self.assertRaises(IndexCommand.InvalidInputJson) as context:
             self.index_command.get_input_options_for_json(args)
 
         # Verify error mentions the missing `cmd` key
         self.assertEqual(
-            "Element 1 in `MULTI_INPUT_JSON` must be a JSON " "object",
+            "Element 1 in `MULTI_INPUT_JSON` must be a JSON object",
             context.exception.error_message,
         )
 

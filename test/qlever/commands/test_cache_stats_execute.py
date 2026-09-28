@@ -20,7 +20,7 @@ class TestCacheStatsCommand(unittest.TestCase):
     ):
         # Mock arguments for basic cache stats
         args = MagicMock()
-        args.server_url = None
+        args.sparql_endpoint = None
         args.host_name = "localhorst"
         args.port = 1234
         args.show = False
@@ -77,7 +77,7 @@ class TestCacheStatsCommand(unittest.TestCase):
     ):
         # Mock arguments for detailed cache stats
         args = MagicMock()
-        args.server_url = "http://testlocalhost:1234"
+        args.sparql_endpoint = "http://testlocalhost:1234"
         args.show = False
         args.detailed = True
 
@@ -101,10 +101,11 @@ class TestCacheStatsCommand(unittest.TestCase):
 
         # Assertions
         expected_stats_call = (
-            f"curl -s {args.server_url} " f'--data-urlencode "cmd=cache-stats"'
+            f"curl -s {args.sparql_endpoint} "
+            f'--data-urlencode "cmd=cache-stats"'
         )
         expected_settings_call = (
-            f"curl -s {args.server_url} "
+            f"curl -s {args.sparql_endpoint} "
             f'--data-urlencode "cmd=get-settings"'
         )
 
@@ -127,7 +128,7 @@ class TestCacheStatsCommand(unittest.TestCase):
     def test_execute_failed_cache_stats(self, mock_log, mock_check_output):
         # Mock arguments for basic cache stats
         args = MagicMock()
-        args.server_url = "http://testlocalhost:1234"
+        args.sparql_endpoint = "http://testlocalhost:1234"
         args.show = False
         args.detailed = False
 
@@ -153,7 +154,7 @@ class TestCacheStatsCommand(unittest.TestCase):
     ):
         # Mock arguments for basic cache stats
         args = MagicMock()
-        args.server_url = None
+        args.sparql_endpoint = None
         args.port = 1234
         args.show = False
         args.detailed = False
@@ -161,12 +162,12 @@ class TestCacheStatsCommand(unittest.TestCase):
         # Mock the responses with invalid cache size format
         mock_check_output.side_effect = [
             b'{"pinned-size": 2e9, "non-pinned-size": 1e9}',
-            # Mock cache stats with invalid cache settings
-            b'{"cache-max-size": "1000 MB"}',
+            # Mock cache stats with unparseable cache settings
+            b'{"cache-max-size": "1000 XB"}',
         ]
         mock_json_loads.side_effect = [
             {"pinned-size": 2e9, "non-pinned-size": 1e9},
-            {"cache-max-size": "1000 MB"},
+            {"cache-max-size": "1000 XB"},
         ]
 
         # Execute the command
@@ -174,8 +175,7 @@ class TestCacheStatsCommand(unittest.TestCase):
 
         # Assertions to verify that error was logged
         mock_log.error.assert_called_once_with(
-            "Cache size 1000 MB is not in GB, QLever should return "
-            "bytes instead"
+            'Cannot parse cache size: "1000 XB"'
         )
 
         self.assertFalse(result)
@@ -189,7 +189,7 @@ class TestCacheStatsCommand(unittest.TestCase):
     ):
         # Mock arguments for basic cache stats
         args = MagicMock()
-        args.server_url = None
+        args.sparql_endpoint = None
         args.port = 1234
         args.show = False
         args.detailed = False

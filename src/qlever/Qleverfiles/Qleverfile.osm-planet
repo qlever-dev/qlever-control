@@ -11,7 +11,7 @@ NAME         = osm-planet
 GET_DATA_URL = https://osm2rdf.cs.uni-freiburg.de/ttl/planet.osm.ttl.bz2
 GET_DATA_CMD = unbuffer wget -O ${NAME}.ttl.bz2 ${GET_DATA_URL} | tee ${NAME}.download-log.txt
 VERSION      = $$(date -r ${NAME}.ttl.bz2 +"%d.%m.%Y" || echo "NO_DATE")
-DESCRIPTION  = OSM from ${GET_DATA_URL} (converted to RDF using osm2rdf, enhanced by GeoSPARQL triples ogc:sfContains, ogc:sfCovers, ogc:sfIntersects, ogc:sfEquals, ogc:sfTouches, ogc:sfCrosses, ogc:sfOverlaps)
+DESCRIPTION  = OpenStreetMap, RDF TTL from ${GET_DATA_URL} including DE-9IM triples, version ${VERSION}
 
 [index]
 INPUT_FILES        = ${data:NAME}.ttl.bz2

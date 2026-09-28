@@ -4,9 +4,9 @@
 
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess
-from typing import Optional
 
 from qlever.log import log
 from qlever.util import get_random_string, run_command
@@ -39,8 +39,9 @@ class Containerize:
         container_name: str,
         volumes: list[tuple[str, str]] = [],
         ports: list[tuple[int, int]] = [],
-        working_directory: Optional[str] = None,
+        working_directory: str | None = None,
         use_bash: bool = True,
+        seccomp_profile: str | None = None,
     ) -> str:
         """
         Get the command to run `cmd` with the given `container_system` and the
@@ -66,10 +67,23 @@ class Containerize:
 
         # Options for mounting volumes, setting ports, and setting the working
         # dir.
-        volume_options = "".join([f" -v {v1}:{v2}" for v1, v2 in volumes])
+        volume_options = "".join(
+            [
+                f' --mount type=bind,src="{v1}",target={v2}'
+                for v1, v2 in volumes
+            ]
+        )
         port_options = "".join([f" -p {p1}:{p2}" for p1, p2 in ports])
         working_directory_option = (
             f" -w {working_directory}" if working_directory is not None else ""
+        )
+        # Optional seccomp profile (absolute path, so that the command works
+        # independently of the directory it is executed from).
+        seccomp_option = (
+            " --security-opt seccomp="
+            + shlex.quote(os.path.abspath(os.path.expanduser(seccomp_profile)))
+            if seccomp_profile
+            else ""
         )
 
         # Construct the command that runs `cmd` with the given container
@@ -83,6 +97,7 @@ class Containerize:
             f"{working_directory_option}"
             f" --name {container_name}"
             f" --init"
+            f"{seccomp_option}"
         )
         if use_bash:
             containerized_cmd += (
@@ -97,7 +112,8 @@ class Containerize:
         # Note: the `{{{{` and `}}}}` result in `{{` and `}}`, respectively.
         containers = (
             run_command(
-                f'{container_system} ps --format="{{{{.Names}}}}"', return_output=True
+                f'{container_system} ps --format="{{{{.Names}}}}"',
+                return_output=True,
             )
             .strip()
             .splitlines()
@@ -105,7 +121,9 @@ class Containerize:
         return container_name in containers
 
     @staticmethod
-    def stop_and_remove_container(container_system: str, container_name: str) -> bool:
+    def stop_and_remove_container(
+        container_system: str, container_name: str
+    ) -> bool:
         """
         Stop the container with the given name using the given system. Return
         `True` if a container with that name was found and stopped, `False`
@@ -140,7 +158,7 @@ class Containerize:
             return False
 
     @staticmethod
-    def run_in_container(cmd: str, args) -> Optional[str]:
+    def run_in_container(cmd: str, args) -> str | None:
         """
         Run an arbitrary command in the qlever container and return its output.
         """

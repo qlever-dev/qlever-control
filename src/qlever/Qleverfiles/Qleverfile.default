@@ -36,7 +36,7 @@ ACCESS_TOKEN =
 
 # Use SYSTEM = docker to run QLever inside a docker container; the Docker image
 # will be downloaded automatically. Use SYSTEM = native to use self-compiled
-# binaries `IndexBuilderMain` and `ServerMain` (which should be in you PATH).
+# binaries `qlever-index` and `qlever-server` (which should be in you PATH).
 [runtime]
 SYSTEM = docker
 IMAGE  = docker.io/adfreiburg/qlever:latest

@@ -8,11 +8,11 @@
 NAME         = freebase
 DATA_URL     = http://commondatastorage.googleapis.com/freebase-public/rdf/freebase-rdf-latest.gz
 GET_DATA_CMD = wget -nc ${DATA_URL}
-DESCRIPTION  = RDF data from ${DATA_URL}, latest (and final) version from 09.08.2015
+DESCRIPTION  = Freebase, RDF NT from ${DATA_URL}, latest (and final) version from 09.08.2015
 
 [index]
 INPUT_FILES     = freebase-rdf-latest.gz
-CAT_INPUT_FILES = zcat ${INPUT_FILES}
+CAT_INPUT_FILES = gunzip -c ${INPUT_FILES}
 SETTINGS_JSON   = { "languages-internal": [ "en" ], "prefixes-external": ["<"], "locale": { "language": "en", "country": "US", "ignore-punctuation": true }, "ascii-prefixes-only": false, "num-triples-per-batch": 10000000 }
 
 [server]

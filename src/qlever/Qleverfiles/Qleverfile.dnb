@@ -23,7 +23,7 @@ DESCRIPTION       = DNB data from ${BASE_URL} (authoritities-gnd_lds, dnb_all_ld
 
 [index]
 INPUT_FILES     = *.nt.gz
-CAT_INPUT_FILES = zcat ${INPUT_FILES} | sed '/"\$$R0"/d;/"0\.03013\$$D"/d'
+CAT_INPUT_FILES = gunzip -c ${INPUT_FILES} | sed '/"\$$R0"/d;/"0\.03013\$$D"/d'
 SETTINGS_JSON   = { "ascii-prefixes-only": false, "num-triples-per-batch": 1000000 }
 
 [server]

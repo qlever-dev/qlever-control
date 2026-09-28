@@ -20,7 +20,7 @@ class ExtractQueriesCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return True
 
-    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {"data": ["name"]}
 
     def additional_arguments(self, subparser) -> None:
@@ -42,6 +42,12 @@ class ExtractQueriesCommand(QleverCommand):
             type=str,
             default="log-queries.txt",
             help="Output file for the extracted queries (default: `log-queries.txt`)",
+        )
+        subparser.add_argument(
+            "--use-alive-check-tag-as-description-base",
+            action="store_true",
+            help="Use the tag from 'Alive check' messages"
+            " as the base for query descriptions (default: False)",
         )
 
     def execute(self, args) -> bool:
@@ -74,11 +80,12 @@ class ExtractQueriesCommand(QleverCommand):
         for line in log_file:
             # An "Alive check" message contains a tag, which we use as the base
             # name of the query description.
-            alive_check_regex = r"Alive check with message \"(.*)\""
-            match = re.search(alive_check_regex, line)
-            if match:
-                description_base = match.group(1)
-                continue
+            if args.use_alive_check_tag_as_description_base:
+                alive_check_regex = r"Alive check with message \"(.*)\""
+                match = re.search(alive_check_regex, line)
+                if match:
+                    description_base = match.group(1)
+                    continue
 
             # A new query in the log.
             if "Processing the following SPARQL query" in line:

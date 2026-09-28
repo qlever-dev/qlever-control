@@ -15,12 +15,12 @@ class WarmupCommand(QleverCommand):
         pass
 
     def description(self) -> str:
-        return ("Execute WARMUP_CMD")
+        return "Execute WARMUP_CMD"
 
     def should_have_qleverfile(self) -> bool:
         return True
 
-    def relevant_qleverfile_arguments(self) -> dict[str: list[str]]:
+    def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {"server": ["port", "warmup_cmd"]}
 
     def additional_arguments(self, subparser) -> None:
