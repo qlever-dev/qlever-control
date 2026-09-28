@@ -3,17 +3,18 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
-import shlex
-from sys import platform
 import time
+from sys import platform
 from typing import Optional
 
 from qlever.command import QleverCommand
-from qlever.log import log
-from qlever.util import run_command, is_qlever_server_alive, binary_exists, \
-    get_total_file_size
-
 from qlever.containerize import Containerize
+from qlever.log import log
+from qlever.util import (
+    binary_exists,
+    is_qlever_server_alive,
+    run_command,
+)
 
 
 # Exception to be raised when the user interrupts the command with Ctrl+C or
@@ -28,8 +29,9 @@ class UpdateOsmCommand(QleverCommand):
     """
 
     def __init__(self):
-        self.planet_replication_server_url = \
+        self.planet_replication_server_url = (
             "https://planet.osm.org/replication/"
+        )
         # Remember if Ctrl+C was pressed and if an update is currently running,
         # so we can handle it gracefully.
         self.is_running_update = False
@@ -43,10 +45,12 @@ class UpdateOsmCommand(QleverCommand):
     def should_have_qleverfile(self) -> bool:
         return True
 
-    def relevant_qleverfile_arguments(self) -> dict[str: list[str]]:
-        return {"data": ["name"],
-                "server": ["host_name", "port", "access_token"],
-                "runtime": ["system"]}
+    def relevant_qleverfile_arguments(self) -> dict[str : list[str]]:
+        return {
+            "data": ["name"],
+            "server": ["host_name", "port", "access_token"],
+            "runtime": ["system"],
+        }
 
     def additional_arguments(self, subparser) -> None:
         subparser.add_argument(
@@ -56,32 +60,32 @@ class UpdateOsmCommand(QleverCommand):
             type=str,
             default=["day"],
             help="The granularity with which the OSM data should be updated. "
-                 "Choose from 'minute', 'hour', or 'day'.",
+            "Choose from 'minute', 'hour', or 'day'.",
         )
         subparser.add_argument(
             "--once",
-            action='store_true',
+            action="store_true",
             default=False,
             help="If set, the OSM data will be updated only once. "
-                 "Otherwise, it will be updated continuously at the specified "
-                 "granularity.",
+            "Otherwise, it will be updated continuously at the specified "
+            "granularity.",
         )
         subparser.add_argument(
             "--bbox",
-            nargs='?',
+            nargs="?",
             type=str,
             help="The bounding box (LEFT,BOTTOM,RIGHT,TOP) that defines the "
-                 "boundaries of your OSM dataset. Not necessary if you want to"
-                 " use the complete OSM planet data or if you have already run"
-                 " the 'qlever get-polygon' command.",
+            "boundaries of your OSM dataset. Not necessary if you want to"
+            " use the complete OSM planet data or if you have already run"
+            " the 'qlever get-polygon' command.",
         )
         subparser.add_argument(
             "--replication-server",
-            nargs='?',
+            nargs="?",
             type=str,
             help="The URL of the OSM replication server to use. By default, "
-                 "the OSM planet replication server "
-                 "('https://planet.osm.org/replication/) is used."
+            "the OSM planet replication server "
+            "('https://planet.osm.org/replication/) is used.",
         )
         subparser.add_argument(
             "--olu-image",
@@ -94,14 +98,14 @@ class UpdateOsmCommand(QleverCommand):
             type=str,
             default="osm-live-updates",
             help="The name or path of the compiled `osm-live-updates` binary"
-                 " to use when running natively.",
+            " to use when running natively.",
         )
         subparser.add_argument(
             "--polygon",
             type=str,
             default=None,
             help="The name of the file containing the polygon for an OSM "
-                 "extract",
+            "extract",
         )
         subparser.add_argument(
             "--tmp",
@@ -111,10 +115,10 @@ class UpdateOsmCommand(QleverCommand):
         )
         subparser.add_argument(
             "--olu-statistics",
-            action='store_true',
+            action="store_true",
             default=False,
             help="If set, olu will print extensive statistics about the update"
-                 " process",
+            " process",
         )
 
     # Handle Ctrl+C gracefully by finishing the current update and then
@@ -126,17 +130,21 @@ class UpdateOsmCommand(QleverCommand):
         else:
             self.ctrl_c_pressed = True
             if self.is_running_update:
-                log.warn("\rCtrl+C pressed, will finish the current update "
-                         "and then exit [press Ctrl+C again to continue]")
+                log.warn(
+                    "\rCtrl+C pressed, will finish the current update "
+                    "and then exit [press Ctrl+C again to continue]"
+                )
             else:
                 raise UserInterruptException()
 
     # Handle forceful termination (Ctrl+Z)
     def handle_ctrl_z(self, args, signal_received, frame):
         if self.is_running_update:
-            log.error("Ctrl+Z pressed, will kill the current update and exit."
-                      "\nThe data may be corrupted if triples where currently "
-                      "inserted or deleted.")
+            log.error(
+                "Ctrl+Z pressed, will kill the current update and exit."
+                "\nThe data may be corrupted if triples where currently "
+                "inserted or deleted."
+            )
         else:
             raise UserInterruptException()
 
@@ -144,8 +152,9 @@ class UpdateOsmCommand(QleverCommand):
             self.olu_process.kill()
 
         if self.is_running_update:
-            Containerize().stop_and_remove_container(args.system,
-                                                     f"olu-{args.name}")
+            Containerize().stop_and_remove_container(
+                args.system, f"olu-{args.name}"
+            )
 
         raise UserInterruptException()
 
@@ -154,12 +163,13 @@ class UpdateOsmCommand(QleverCommand):
         # otherwise we use the planet replication server with the specified
         # granularity.
         granularity = args.granularity[0]
-        replications_server: str
+        replication_server: str
         if args.replication_server:
             replication_server = args.replication_server
         else:
-            replication_server = (f"{self.planet_replication_server_url}"
-                                  f"{granularity}/")
+            replication_server = (
+                f"{self.planet_replication_server_url}{granularity}/"
+            )
 
         granularity_in_seconds: int
         if granularity == "minute":
@@ -172,14 +182,16 @@ class UpdateOsmCommand(QleverCommand):
         cmd_description = [
             f"Update OSM data for dataset '{args.name}' with "
             f"granularity '{granularity}' from the OSM replication"
-            f" server '{replication_server}'."]
+            f" server '{replication_server}'."
+        ]
         self.show("\n".join(cmd_description), only_show=args.show)
 
         # Handle user interruptions (Ctrl+C) gracefully by waiting for the
         # current update to finish and then exiting.
         signal.signal(signal.SIGINT, self.handle_ctrl_c)
-        signal.signal(signal.SIGTSTP,
-                      lambda s, f: self.handle_ctrl_z(args, s, f))
+        signal.signal(
+            signal.SIGTSTP, lambda s, f: self.handle_ctrl_z(args, s, f)
+        )
         if not args.once and not args.show:
             log.warn(
                 "Press Ctrl+C to finish any currently running updates and end "
@@ -191,11 +203,14 @@ class UpdateOsmCommand(QleverCommand):
         # Create command to pull the latest image for osm-live-updates if
         # remote image is used.
         pull_cmd = ""
-        if ("/" in args.olu_image and
-                args.system in Containerize.supported_systems()):
+        if (
+            "/" in args.olu_image
+            and args.system in Containerize.supported_systems()
+        ):
             pull_cmd = f"{args.system} pull -q {args.olu_image}"
-            log.debug(f"Pulling image `{args.olu_image}` for"
-                      f" osm-live-updates.")
+            log.debug(
+                f"Pulling image `{args.olu_image}` for osm-live-updates."
+            )
             self.show(f"{pull_cmd}")
 
         # Construct the command to run the osm-live-updates tool.
@@ -213,9 +228,7 @@ class UpdateOsmCommand(QleverCommand):
 
         endpoint_url = f"http://{args.host_name}:{args.port}"
         if not is_qlever_server_alive(endpoint_url):
-            log.error(
-                f"QLever endpoint at {endpoint_url} is not running."
-            )
+            log.error(f"QLever endpoint at {endpoint_url} is not running.")
             return False
 
         # Create the temporary directory for olu if it does not exist yet.
@@ -228,7 +241,7 @@ class UpdateOsmCommand(QleverCommand):
 
         try:
             while True:
-                log.info(f"Starting OSM data update...\n")
+                log.info("Starting OSM data update...\n")
 
                 start_time = time.time()
 
@@ -236,17 +249,22 @@ class UpdateOsmCommand(QleverCommand):
                 # use new_session to avoid that the subprocess receives the
                 # Ctrl+C signal.
                 self.is_running_update = True
-                self.olu_process = run_command(olu_cmd, show_stderr=True,
-                                               show_output=True,
-                                               use_popen=True,
-                                               new_session=True)
+                self.olu_process = run_command(
+                    olu_cmd,
+                    show_stderr=True,
+                    show_output=True,
+                    use_popen=True,
+                    new_session=True,
+                )
 
                 # Wait for the subprocess to finish.
                 olu_return_code = self.olu_process.wait()
                 self.is_running_update = False
                 if olu_return_code != 0:
-                    log.error(f"\nOSM data update failed with return code "
-                              f"{olu_return_code}.")
+                    log.error(
+                        f"\nOSM data update failed with return code "
+                        f"{olu_return_code}."
+                    )
                     return False
                 else:
                     log.info("\nOSM data update completed successfully.")
@@ -265,10 +283,13 @@ class UpdateOsmCommand(QleverCommand):
                 elapsed = time.time() - start_time
                 sleep_time = max(0, granularity_in_seconds - elapsed)
                 if sleep_time > 0:
-                    formatted_time = time.strftime('%Hh:%Mm:%Ss',
-                                                   time.gmtime(sleep_time))
-                    log.info(f"\nWaiting for {formatted_time} until the next "
-                             f"update...")
+                    formatted_time = time.strftime(
+                        "%Hh:%Mm:%Ss", time.gmtime(sleep_time)
+                    )
+                    log.info(
+                        f"\nWaiting for {formatted_time} until the next "
+                        f"update..."
+                    )
                 time.sleep(sleep_time)
 
         except UserInterruptException:
@@ -292,23 +313,26 @@ class UpdateOsmCommand(QleverCommand):
         olu_cmd = f"{sparql_endpoint}"
         olu_cmd += f" --access-token {args.access_token}"
         olu_cmd += f" --replication-server {replication_server_url}"
-        olu_cmd += f" --qlever"
+        olu_cmd += " --qlever"
         olu_cmd += f" --tmp {args.tmp}"
 
         if args.olu_statistics:
-            olu_cmd += f" --statistics"
+            olu_cmd += " --statistics"
 
         # If the user has specified a boundary, we add it to the command.
         if args.bbox and args.polygon:
-            raise ValueError("You cannot specify both --bbox and --polygon. "
-                             "Please choose one of them.")
+            raise ValueError(
+                "You cannot specify both --bbox and --polygon. "
+                "Please choose one of them."
+            )
         if args.bbox:
             olu_cmd += f" --bbox {args.bbox}"
         elif args.polygon:
             # Check if the polygon file exists
             if not os.path.exists(args.polygon):
-                raise FileNotFoundError(f'No file matching "{args.polygon}"'
-                                        f' found.')
+                raise FileNotFoundError(
+                    f'No file matching "{args.polygon}" found.'
+                )
 
             olu_cmd += f" --polygon {args.polygon}"
         # If the user has not specified a bounding box or polygon, we assume
@@ -320,7 +344,7 @@ class UpdateOsmCommand(QleverCommand):
                 # FileNotFoundError without an additional message.
                 raise FileNotFoundError()
             else:
-                return f'{args.olu_binary} {olu_cmd}'
+                return f"{args.olu_binary} {olu_cmd}"
         else:
             return Containerize().containerize_command(
                 olu_cmd,
@@ -330,5 +354,5 @@ class UpdateOsmCommand(QleverCommand):
                 container_name,
                 volumes=[("$(pwd)", "/update")],
                 working_directory="/update",
-                use_bash=False
+                use_bash=False,
             )
