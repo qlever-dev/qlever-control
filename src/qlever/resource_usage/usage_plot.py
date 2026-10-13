@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 import warnings
 from datetime import datetime
 from pathlib import Path
@@ -14,10 +15,16 @@ matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 
 from qlever.log import log
+from qlever.resource_usage.plot_util import (
+    SUBTITLE_SEPARATOR,
+    BandType,
+    OverlayType,
+    SubtitleType,
+)
 from qlever.util import (
     iter_permutation_phases,
-    parse_git_hash,
     parse_phase_markers,
+    resource_usage_prefix,
 )
 
 GB = 1024**3
@@ -159,6 +166,16 @@ def compute_phase_boundaries(
     return phases
 
 
+def parse_git_hash(log_path: Path) -> str | None:
+    """Return the git hash printed on the first line of a QLever index log."""
+    try:
+        first_line = log_path.read_text().splitlines()[0]
+    except (OSError, IndexError):
+        return None
+    match = re.search(r"git hash ([0-9a-f]+)", first_line)
+    return match.group(1) if match else None
+
+
 def build_plot_subtitle(
     log_path: Path, stxxl_memory: str, settings_json: str
 ) -> str | None:
@@ -183,24 +200,38 @@ def build_plot_subtitle(
         parts.append(f"git = {git_hash}")
     if stxxl_memory:
         parts.append(f"STXXL = {stxxl_memory}")
-    return "   |   ".join(parts) if parts else None
+    return SUBTITLE_SEPARATOR.join(parts) if parts else None
+
+
+def overlay(args, log_path: Path) -> list[BandType]:
+    """Shade one band per phase of a QLever index build."""
+    phases = compute_phase_boundaries(log_path)
+    return [
+        (name, start_s, end_s) for name, (start_s, end_s) in phases.items()
+    ]
+
+
+def subtitle(args, log_path: Path) -> str | None:
+    """Subtitle for a QLever index build."""
+    return build_plot_subtitle(
+        log_path, args.stxxl_memory or "", args.settings_json
+    )
 
 
 def write_usage_plot(
     tsv_path: Path,
-    log_path: Path,
-    stxxl_memory: str,
-    settings_json: str,
     out_path: Path,
     title: str,
+    bands: list[BandType],
+    subtitle_text: str | None,
     plot_max_points: int = 500,
 ) -> bool:
     """
-    Read the usage TSV and index log, render a dual-axis plot of
-    memory and CPU over time with phase bands from the index log,
-    and save it to `out_path`. Returns True if a plot was saved,
-    False if the TSV has no usable samples. `plot_max_points` caps
-    the number of points drawn per series.
+    Read the usage TSV, render a dual-axis plot of memory and CPU over
+    time with the `bands` regions shaded, and save it to `out_path`.
+    Returns True if a plot was saved, False if the TSV has no usable
+    samples. `plot_max_points` caps the number of points drawn per
+    series.
     """
     data = read_usage_tsv(tsv_path)
     if not data or len(data.get("elapsed_s", [])) == 0:
@@ -213,8 +244,6 @@ def write_usage_plot(
         return False
     data = {name: values[valid[0] :] for name, values in data.items()}
     data["elapsed_s"] = data["elapsed_s"] - data["elapsed_s"][0]
-
-    phases = compute_phase_boundaries(log_path)
 
     data = downsample_for_plot(data, plot_max_points)
     elapsed_s = data["elapsed_s"]
@@ -232,10 +261,10 @@ def write_usage_plot(
 
     band_colors = plt.colormaps["Pastel1"].colors
     total_s = float(elapsed_s[-1]) if len(elapsed_s) else 0.0
-    # skip drawing the phase name when the band is too narrow to fit it
+    # skip drawing the region name when the band is too narrow to fit it
     # legibly; arbitrary 2% of total duration.
     min_label_s = total_s * 0.02
-    for band_idx, (name, (start_s, end_s)) in enumerate(phases.items()):
+    for band_idx, (name, start_s, end_s) in enumerate(bands):
         band_s = end_s - start_s
         if band_s <= 0:
             continue
@@ -298,47 +327,51 @@ def write_usage_plot(
         bbox_to_anchor=(1.08, 0.5),
     )
 
-    subtitle = build_plot_subtitle(log_path, stxxl_memory, settings_json)
-    ax_mem.set_title(f"{title}\n{subtitle}" if subtitle else title)
+    ax_mem.set_title(f"{title}\n{subtitle_text}" if subtitle_text else title)
     fig.savefig(out_path, dpi=120)
     plt.close(fig)
     return True
 
 
 def render_usage_plot(
-    dataset: str,
-    engine_display_name: str,
-    stxxl_memory: str = "",
-    settings_json: str = "{}",
+    args,
+    *,
+    engine_overlay: OverlayType | None = None,
+    engine_subtitle: SubtitleType | None = None,
     output_dir: Path | None = None,
-    plot_max_points: int = 500,
 ) -> Path | None:
     """
-    Render `<dataset>.resource-usage-plot.png` from
-    `<dataset>.index.resource-usage-log.tsv` in `output_dir`, falling
-    back to `<dataset>.resource-usage-log.tsv` as written by older
-    qlever versions. Returns the plot path on success, None if the log
-    is missing or the plot could not be rendered.
+    Render `<prefix>.resource-usage-plot.png` from
+    `<prefix>.index.resource-usage-log.tsv` in `output_dir`, where
+    `prefix` comes from `resource_usage_prefix`, falling back to
+    `<prefix>.resource-usage-log.tsv` as written by older qlever
+    versions. `engine_overlay` and `engine_subtitle` are called with
+    `(args, log_path)` and provide the engine-specific parts of the plot.
+    Without them, the plot describes a QLever index build. Returns the
+    plot path on success, None if the plot was not rendered.
     """
+    engine_overlay = engine_overlay or overlay
+    engine_subtitle = engine_subtitle or subtitle
+    dataset = args.name
+    prefix = resource_usage_prefix(args.engine_short_name, dataset)
     output_dir = output_dir or Path.cwd()
-    tsv_path = output_dir / f"{dataset}.index.resource-usage-log.tsv"
+    tsv_path = output_dir / f"{prefix}.index.resource-usage-log.tsv"
     # Backwards compatibility with older resource-usage log filename
     if not tsv_path.exists():
-        tsv_path = output_dir / f"{dataset}.resource-usage-log.tsv"
+        tsv_path = output_dir / f"{prefix}.resource-usage-log.tsv"
     log_path = output_dir / f"{dataset}.index-log.txt"
-    plot_path = output_dir / f"{dataset}.resource-usage-plot.png"
+    plot_path = output_dir / f"{prefix}.resource-usage-plot.png"
     if not tsv_path.exists():
         log.warning(f"Resource-usage log not found: `{tsv_path.name}`")
         return None
     try:
         rendered = write_usage_plot(
             tsv_path=tsv_path,
-            log_path=log_path,
-            stxxl_memory=stxxl_memory,
-            settings_json=settings_json,
             out_path=plot_path,
-            title=f"{engine_display_name} index build: {dataset}",
-            plot_max_points=plot_max_points,
+            title=f"{args.engine_display_name} index build: {dataset}",
+            bands=engine_overlay(args, log_path),
+            subtitle_text=engine_subtitle(args, log_path),
+            plot_max_points=args.resource_usage_plot_max_points,
         )
     except Exception as error:
         log.warning(f"Could not render resource-usage plot: {error}")
@@ -349,4 +382,5 @@ def render_usage_plot(
             f"resource-usage log `{tsv_path.name}`"
         )
         return None
+    log.info(f"Resource-usage plot saved to `{plot_path.name}`")
     return plot_path
