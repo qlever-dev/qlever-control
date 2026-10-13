@@ -291,9 +291,8 @@ class IndexStatsCommand(QleverCommand):
         if not args.only_space:
             log_file_name = f"{args.name}.index-log.txt"
             self.show(
-                f"Breakdown of the time used for "
-                f"building the index, based on the timestamps for key "
-                f'lines in "{log_file_name}"',
+                "Breakdown of the time used for building the index, "
+                f'based on key lines in "{log_file_name}"',
                 only_show=args.show,
             )
             if not args.show:

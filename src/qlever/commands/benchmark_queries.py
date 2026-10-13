@@ -722,6 +722,23 @@ class BenchmarkQueriesCommand(QleverCommand):
             ),
         )
 
+    def index_stats_command(self) -> IndexStatsCommand:
+        """The command that reads the index time and size of the engine."""
+        return IndexStatsCommand()
+
+    def can_clear_cache(self, args, engine: str | None) -> bool:
+        """
+        Whether the cache can be cleared before each query. Only QLever can
+        do that, so guess from the endpoint and the result file name.
+        """
+        is_qlever = (
+            not args.sparql_endpoint
+            or args.sparql_endpoint.startswith("https://qlever")
+        )
+        if engine is not None:
+            is_qlever = is_qlever or "qlever" in engine.lower()
+        return is_qlever
+
     def execute(self, args) -> bool:
         # We can't have both `--remove-offset-and-limit` and `--limit`.
         if args.remove_offset_and_limit and args.limit:
@@ -806,14 +823,8 @@ class BenchmarkQueriesCommand(QleverCommand):
             return False
 
         # Clear cache only works for QLever.
-        is_qlever = (
-            not args.sparql_endpoint
-            or args.sparql_endpoint.startswith("https://qlever")
-        )
-        if engine is not None:
-            is_qlever = is_qlever or "qlever" in engine.lower()
         if args.clear_cache == "yes":
-            if is_qlever:
+            if self.can_clear_cache(args, engine):
                 log.warning(
                     "Clearing the cache before each query"
                     " (only works for QLever)"
@@ -830,7 +841,8 @@ class BenchmarkQueriesCommand(QleverCommand):
             f"curl -sv https://qlever.dev/api/examples/{args.ui_config}"
         )
         sparql_endpoint = (
-            args.sparql_endpoint or f"{args.host_name}:{args.port}"
+            args.sparql_endpoint
+            or f"{args.host_name}:{args.port}{args.endpoint_path}"
         )
 
         self.show(
@@ -898,7 +910,9 @@ class BenchmarkQueriesCommand(QleverCommand):
             if timeout:
                 result_yml_query_records["timeout"] = timeout
 
-            index_time, index_size = compute_index_stats(IndexStatsCommand())
+            index_time, index_size = compute_index_stats(
+                self.index_stats_command()
+            )
             result_yml_query_records["index_time"] = index_time
             result_yml_query_records["index_size"] = index_size
 
