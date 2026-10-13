@@ -25,6 +25,7 @@ from qlever.util import (
     pretty_printed_query,
     run_command,
     run_curl_command,
+    timeout_seconds,
 )
 
 
@@ -870,10 +871,7 @@ class BenchmarkQueriesCommand(QleverCommand):
         width_query_name_half = args.width_query_name // 2
         width_query_name = 2 * width_query_name_half + 1
 
-        try:
-            timeout = int(args.timeout[:-1])
-        except ValueError:
-            timeout = None
+        timeout = timeout_seconds(args.timeout)
 
         benchmark_name, benchmark_description = resolve_benchmark_metadata(
             args.benchmark_name,
@@ -895,8 +893,7 @@ class BenchmarkQueriesCommand(QleverCommand):
             "queries": [],
         }
         if args.result_file:
-            if timeout:
-                result_yml_query_records["timeout"] = timeout
+            result_yml_query_records["timeout"] = timeout
 
             index_time, index_size = compute_index_stats(IndexStatsCommand())
             result_yml_query_records["index_time"] = index_time
@@ -1015,7 +1012,7 @@ class BenchmarkQueriesCommand(QleverCommand):
             server_restarted = False
             try:
                 max_time = None
-                if args.restart_on_hang and timeout:
+                if args.restart_on_hang:
                     max_time = timeout + 30
                 http_code = run_curl_command(
                     sparql_endpoint,
