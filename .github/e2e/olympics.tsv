@@ -1,0 +1,2 @@
+count triples	SELECT (COUNT(*) AS ?count) WHERE { ?s ?p ?o }
+ten triples	SELECT * WHERE { ?s ?p ?o } LIMIT 10

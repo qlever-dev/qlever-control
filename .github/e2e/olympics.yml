@@ -1,0 +1,9 @@
+name: Olympics CI queries
+description: Small queries for the end-to-end test in CI
+queries:
+  - name: count triples
+    description: Count all triples, which gives one row
+    query: SELECT (COUNT(*) AS ?count) WHERE { ?s ?p ?o }
+  - name: ten triples
+    description: Get ten triples
+    query: SELECT * WHERE { ?s ?p ?o } LIMIT 10

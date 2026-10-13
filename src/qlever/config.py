@@ -278,14 +278,15 @@ def parse_command_line() -> argparse.Namespace:
 
     # The name of the script (the console script from `pyproject.toml`), the
     # short name of the engine (used for the container names), the name of the
-    # engine as shown to the user, and the name of the main command (what the
-    # user types before a command, which for a script that supports several
-    # engines may consist of more than one word). These are provided to all
-    # commands via `args`.
+    # engine as shown to the user, the path of its SPARQL endpoint on the
+    # server, and the name of the main command (what the user types before a
+    # command, which for a script that supports several engines may consist
+    # of more than one word). These are provided to all commands via `args`.
     parser.set_defaults(
         script_name="qlever",
         engine_short_name="qlever",
         engine_display_name="QLever",
+        endpoint_path="/",
         main_command_name="qlever",
     )
 

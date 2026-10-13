@@ -1,0 +1,92 @@
+name: End-to-end test for oxigraph
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  oxigraph-end-to-end-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        system: [ native, docker, podman ]
+
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install the qeval script + dependencies needed for testing
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[plot]"
+          sudo apt-get update && sudo apt-get install -y unzip
+
+      - name: Check that every command loads and shows its help
+        run: |
+          export QEVAL_ARGCOMPLETE_ENABLED=1
+          commands=$(python -c "from qlever import load_commands; print(*load_commands('qeval.oxigraph'))")
+          for command in $commands; do
+            echo "Checking qeval oxigraph $command --help"
+            qeval oxigraph $command --help > /dev/null
+          done
+
+      - name: Install the latest oxigraph release binary on PATH
+        if: matrix.system == 'native'
+        run: |
+          url=$(curl -sL https://api.github.com/repos/oxigraph/oxigraph/releases/latest \
+            | grep -oE 'https://[^"]+x86_64_linux_gnu' | head -1)
+          echo "Downloading oxigraph binary from $url"
+          curl -sL "$url" -o oxigraph
+          chmod +x oxigraph
+          sudo mv oxigraph /usr/local/bin/oxigraph
+          oxigraph --version
+
+      - name: Make sure the container runtime is available and pull the image
+        if: matrix.system != 'native'
+        run: |
+          command -v ${{matrix.system}} || (sudo apt-get update && sudo apt-get install -y ${{matrix.system}})
+          ${{matrix.system}} --version
+          ${{matrix.system}} pull ghcr.io/oxigraph/oxigraph
+
+      - name: End-to-end test on the olympics dataset (${{matrix.system}})
+        run: |
+          export QEVAL_ARGCOMPLETE_ENABLED=1
+          mkdir -p oxigraph-e2e && cd oxigraph-e2e
+          qeval oxigraph setup-config olympics --system ${{matrix.system}}
+          qeval oxigraph get-data
+          qeval oxigraph index
+
+          echo "Checking that the resource-usage log and plot were produced"
+          test -s olympics.oxigraph.index.resource-usage-log.tsv
+          test -f olympics.oxigraph.resource-usage-plot.png
+
+          qeval oxigraph index-stats
+          qeval oxigraph start
+          qeval oxigraph status
+          qeval oxigraph query
+
+          E2E=$GITHUB_WORKSPACE/.github/e2e
+          qeval oxigraph benchmark-queries --queries-tsv $E2E/olympics.tsv \
+            --result-file olympics.oxigraph --results-dir tsv-results
+          qeval oxigraph benchmark-queries --queries-yml $E2E/olympics.yml \
+            --result-file olympics.oxigraph --results-dir yml-results
+          python $E2E/check_benchmark_result.py \
+            tsv-results/olympics.oxigraph.results.yaml "Olympics"
+          python $E2E/check_benchmark_result.py \
+            yml-results/olympics.oxigraph.results.yaml "Olympics CI queries"
+
+          qeval oxigraph stop
+          ls -lh

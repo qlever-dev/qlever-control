@@ -262,6 +262,17 @@ def get_existing_index_files(
     return [path.name for path in existing_index_files]
 
 
+def resource_usage_prefix(engine: str, dataset: str) -> str:
+    """
+    Name that the resource-usage log and plot start with, that is
+    `<dataset>.<engine>`. The engine goes after the dataset, so that it
+    is clear which engine a log or plot belongs to. QLever's own binaries
+    write the log and do not know the engine name, so QLever gets plain
+    `<dataset>`.
+    """
+    return dataset if engine == "qlever" else f"{dataset}.{engine}"
+
+
 def show_process_info(psutil_process, cmdline_regex, show_heading=True):
     """
     Helper function that shows information about a process if information
@@ -297,28 +308,6 @@ def show_process_info(psutil_process, cmdline_regex, show_heading=True):
     except Exception as e:
         log.error(f"Could not get process info: {e}")
         return False
-
-
-def find_process_by_binary(
-    parent_pid: int | None, binary: str
-) -> psutil.Process | None:
-    """Find a descendant of parent_pid whose argv[0] basename matches binary."""
-    try:
-        root = psutil.Process(parent_pid)
-        candidates = [root] + root.children(recursive=True)
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
-        return None
-    # Both sides use Path(...).name so any path form (relative, absolute,
-    # bare, symlink) matches as long as argv[0] preserves the binary's name.
-    target = Path(binary).name
-    for proc in candidates:
-        try:
-            cmdline = proc.cmdline()
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-        if cmdline and Path(cmdline[0]).name == target:
-            return proc
-    return None
 
 
 def get_random_string(length: int) -> str:
@@ -845,31 +834,34 @@ def parse_memory(value: str) -> str:
     return value.upper()
 
 
-def container_memory_to_bytes(memory_string: str) -> int:
+# The timeout units in seconds. Smaller units are left out because the
+# server only keeps whole seconds.
+TIMEOUT_UNIT_SECONDS = {"s": 1, "min": 60, "h": 3600}
+
+
+def parse_timeout(value: str) -> str:
     """
-    Parse a memory usage string from `docker stats` or `podman stats`
-    into bytes.  Docker reports binary units (GiB, MiB) while Podman
-    reports decimal units (GB, MB).
+    Validate a timeout string like `180s` or `5min`.
     """
-    memory_string = memory_string.strip()
-    # Order matters: the first endswith match wins, and "B" is a suffix
-    # of every other unit, so it must stay last.
-    units = {
-        "TIB": 1024**4,
-        "TB": 1000**4,
-        "GIB": 1024**3,
-        "GB": 1000**3,
-        "MIB": 1024**2,
-        "MB": 1000**2,
-        "KIB": 1024,
-        "KB": 1000,
-        "B": 1,
-    }
-    for suffix, multiplier in units.items():
-        if memory_string.upper().endswith(suffix):
-            number = float(memory_string[: len(memory_string) - len(suffix)])
-            return int(number * multiplier)
-    return 0
+    units = "|".join(TIMEOUT_UNIT_SECONDS)
+    if not re.fullmatch(rf"[1-9]\d*({units})", value):
+        unit_names = ", ".join(f"`{unit}`" for unit in TIMEOUT_UNIT_SECONDS)
+        raise argparse.ArgumentTypeError(
+            f"Invalid timeout `{value}`. "
+            f"Use a whole number followed by one of {unit_names}, "
+            "for example `30s` or `5min`. "
+            "The server only supports whole seconds."
+        )
+    return value
+
+
+def timeout_seconds(value: str) -> int:
+    """
+    A timeout like `5min` as a number of seconds. Expects a value that
+    `parse_timeout` has accepted.
+    """
+    number, unit = re.fullmatch(r"(\d+)(\D+)", value).groups()
+    return int(number) * TIMEOUT_UNIT_SECONDS[unit]
 
 
 def positive_int(value: str) -> int:
@@ -974,16 +966,6 @@ def stop_tailing(tail_proc: subprocess.Popen) -> None:
         return
     with contextlib.suppress(ProcessLookupError):
         os.killpg(pid, signal.SIGTERM)
-
-
-def parse_git_hash(log_path: Path) -> str | None:
-    """Return the git hash printed on the first line of a QLever index log."""
-    try:
-        first_line = log_path.read_text().splitlines()[0]
-    except (OSError, IndexError):
-        return None
-    match = re.search(r"git hash ([0-9a-f]+)", first_line)
-    return match.group(1) if match else None
 
 
 class PhaseMarkers(NamedTuple):
