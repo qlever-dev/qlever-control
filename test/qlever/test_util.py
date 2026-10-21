@@ -8,6 +8,17 @@ from qlever.util import (
     get_random_string,
     parse_git_hash,
     positive_int,
+    stop_systemd_unit,
+    stop_tailing,
+    systemd_linger_status,
+    systemd_unit_is_active,
+    systemd_unit_is_loaded,
+    systemd_unit_name,
+    systemd_unit_of_process,
+    systemd_unit_property,
+    systemd_unit_restarts,
+    systemd_user_env,
+    tail_log_file,
     update_ini_values,
 )
 
@@ -271,3 +282,134 @@ def test_update_ini_values_keeps_unrelated_lines():
         "PORT = 9999",
         "HOST = localhost",
     ]
+
+
+# The systemd helpers ask `systemctl --user` and `loginctl` (with the
+# environment that points to the user's systemd instance, see
+# `systemd_user_env`).
+def test_systemd_helpers(monkeypatch):
+    import subprocess
+    from unittest.mock import MagicMock
+
+    assert systemd_unit_name("olympics") == "qlever.server.olympics"
+
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
+    env = systemd_user_env()
+    assert env["XDG_RUNTIME_DIR"].startswith("/run/user/")
+    assert env["DBUS_SESSION_BUS_ADDRESS"] == (
+        f"unix:path={env['XDG_RUNTIME_DIR']}/bus"
+    )
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        assert "XDG_RUNTIME_DIR" in kwargs["env"]
+        result = MagicMock()
+        if cmd[0] == "loginctl":
+            result.stdout = "yes\n"
+        elif "NRestarts" in cmd:
+            result.stdout = "2\n"
+        elif "show" in cmd:
+            result.stdout = "loaded\n" if fake_run.loaded else "not-found\n"
+        result.returncode = 0 if fake_run.ok else 3
+        if "stop" in cmd and fake_run.stop_fails:
+            result.returncode = 1
+            result.stderr = "Failed to stop\n"
+        return result
+
+    fake_run.loaded = True
+    fake_run.ok = True
+    fake_run.stop_fails = False
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        "qlever.util.shutil.which", lambda _: "/usr/bin/systemctl"
+    )
+
+    assert systemd_linger_status() == "yes"
+    assert systemd_unit_property("qlever.server.olympics", "LoadState") == (
+        "loaded"
+    )
+    assert systemd_unit_is_loaded("qlever.server.olympics")
+    assert systemd_unit_is_active("qlever.server.olympics")
+    assert systemd_unit_restarts("qlever.server.olympics") == 2
+    assert stop_systemd_unit("qlever.server.olympics")
+    assert calls[-2][:4] == [
+        "systemctl",
+        "--user",
+        "stop",
+        "qlever.server.olympics",
+    ]
+    assert calls[-1][:3] == ["systemctl", "--user", "reset-failed"]
+
+    # A `stop` that fails is reported as such, and the unit is not forgotten.
+    fake_run.stop_fails = True
+    assert not stop_systemd_unit("qlever.server.olympics")
+    assert calls[-1][:3] == ["systemctl", "--user", "stop"]
+    fake_run.stop_fails = False
+
+    fake_run.loaded = False
+    fake_run.ok = False
+    assert systemd_linger_status() is None
+    assert systemd_unit_property("qlever.server.olympics", "LoadState") is None
+    assert not systemd_unit_is_active("qlever.server.olympics")
+    assert systemd_unit_restarts("qlever.server.olympics") == 0
+    assert not stop_systemd_unit("qlever.server.olympics")
+
+    # Without `systemctl` and `loginctl`, systemd is not usable at all.
+    fake_run.loaded = True
+    fake_run.ok = True
+    monkeypatch.setattr("qlever.util.shutil.which", lambda _: None)
+    assert not systemd_unit_is_loaded("qlever.server.olympics")
+    assert not systemd_unit_is_active("qlever.server.olympics")
+    assert systemd_unit_restarts("qlever.server.olympics") == 0
+    assert systemd_linger_status() is None
+
+
+# The unit of a process is read from its control group; a process outside of
+# such a unit (like the test itself) or a nonexistent process has none.
+def test_systemd_unit_of_process(monkeypatch):
+    import os
+
+    assert systemd_unit_of_process(os.getpid()) is None
+    assert systemd_unit_of_process(2**31 - 1) is None
+
+    class FakeCgroupFile:
+        def __init__(self, path):
+            assert path == "/proc/4711/cgroup"
+
+        def read_text(self):
+            return (
+                "0::/user.slice/user-8288.slice/user@8288.service/app.slice"
+                "/qlever.server.olympics.service\n"
+            )
+
+    monkeypatch.setattr("qlever.util.Path", FakeCgroupFile)
+    assert systemd_unit_of_process(4711) == "qlever.server.olympics"
+
+
+# With `stop_after`, the tail of a log file ends by itself after the matching
+# line, at the latest with the next line (which the tail cannot write to the
+# finished filter any more); without it, the tail runs until it is stopped.
+# The pattern is a regular expression and may contain a slash.
+def test_tail_log_file_stop_after(tmp_path):
+    import time
+
+    log_file = tmp_path / "server-log.txt"
+    log_file.write_text("Loading index\n")
+    tail_proc = tail_log_file(log_file, stop_after="ready.*port [0-9]+/x")
+    assert tail_proc is not None
+    time.sleep(0.5)
+    with log_file.open("a") as f:
+        f.write("The server is ready, port 7/x\n")
+    time.sleep(0.5)
+    with log_file.open("a") as f:
+        f.write("query\n")
+    assert tail_proc.wait(timeout=10) == 0
+
+    tail_proc = tail_log_file(log_file)
+    assert tail_proc is not None
+    assert tail_proc.poll() is None
+    stop_tailing(tail_proc)
+    assert tail_proc.wait(timeout=10) != 0

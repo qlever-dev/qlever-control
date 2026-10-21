@@ -113,13 +113,15 @@ class ActiveQuery:
 
     end_ms is None while the query runs; seen is set once a repaint has
     rendered the query, so one too fast to catch while running still
-    shows for a single paint before being dropped.
+    shows for a single paint before being dropped. op_type is held from
+    the start event, which is the only place the log records it.
     """
 
     start_ms: int
     end_ms: int | None
     client_ip: str
     sparql: str
+    op_type: str | None = None
     seen: bool = False
 
 
@@ -168,13 +170,14 @@ def find_active_queries(
         events = scan_range(buf, lo_offset, file_size)
         _, still_open = pair_start_end_events(events)
 
-        for qid, (start_ms, start_line_offset) in still_open.items():
+        for qid, (start_ms, start_line_offset, op_type) in still_open.items():
             _, client_ip, sparql = load_sparql_at(buf, start_line_offset)
             state.active[qid] = ActiveQuery(
                 start_ms=start_ms,
                 end_ms=None,
                 client_ip=client_ip,
                 sparql=sparql,
+                op_type=op_type,
             )
 
     return (state, file_size, eof_ts)
@@ -293,12 +296,16 @@ class LiveLogReader:
             if not isinstance(sparql, str):
                 sparql = ""
             client_ip = obj.get("client-ip", "")
+            op_type = obj.get("type")
+            if not isinstance(op_type, str):
+                op_type = None
             with self.state.lock:
                 self.state.active[qid] = ActiveQuery(
                     start_ms=ts_ms,
                     end_ms=None,
                     client_ip=client_ip,
                     sparql=sparql,
+                    op_type=op_type,
                 )
                 self.state.latest_event_ms = max(
                     self.state.latest_event_ms or 0, ts_ms
@@ -324,6 +331,7 @@ class LiveLogReader:
                         duration_ms=ts_ms - entry.start_ms,
                         status=normalize_status(status),
                         start_line_offset=None,
+                        op_type=entry.op_type,
                     )
                 )
 
@@ -359,6 +367,26 @@ def get_live_query_rows(state: LiveState, now_ms: int) -> list[LiveQueryRow]:
                 )
             )
     return rows
+
+
+def get_recent_operations(
+    state: LiveState, since_ms: int
+) -> list[CompletedQuery]:
+    """The completions that finished at or after `since_ms`, oldest first.
+
+    The history is sorted by end time, so the walk starts at the newest
+    entry and stops at the first one that is too old. Copied under the
+    lock, since the tailer appends to the deque from its own thread
+    while the caller walks the result.
+    """
+    recent = []
+    with state.lock:
+        for entry in reversed(state.completed.entries):
+            if entry.end_ms < since_ms:
+                break
+            recent.append(entry)
+    recent.reverse()
+    return recent
 
 
 def discard_finished_backlog(state: LiveState) -> None:

@@ -11,6 +11,7 @@ from typing import NamedTuple
 TS_PREFIX = b'{"ts-ms":'
 EVENT_KEY = b'"event":"'
 QID_KEY = b'"qid":"'
+OP_TYPE_KEY = b'"type":"'
 CLIENT_IP_KEY = b'"client-ip":"'
 STATUS_KEY = b'"status":"'
 QUERY_KEY = b'"query":"'
@@ -47,6 +48,20 @@ def open_log_buffer(path: Path) -> Iterator[mmap.mmap | None]:
             yield buf
 
 
+class LogEvent(NamedTuple):
+    """One parsed log line.
+
+    A start line has no status and an end line has no operation type,
+    so each field is None on the other kind of line.
+    """
+
+    ts_ms: int
+    event: str
+    qid: str
+    status: str | None
+    op_type: str | None = None
+
+
 class CompletedQuery(NamedTuple):
     """One start event paired with its matching end event.
 
@@ -54,7 +69,8 @@ class CompletedQuery(NamedTuple):
     kept so load_sparql_at can fetch the SPARQL text later. None when
     the pair was built without scanning the file (the live tailer),
     since those completions feed metrics only and never need their
-    SPARQL text re-read.
+    SPARQL text re-read. `op_type` is carried over from the start
+    event.
     """
 
     start_ms: int
@@ -62,6 +78,7 @@ class CompletedQuery(NamedTuple):
     duration_ms: int
     status: str
     start_line_offset: int | None
+    op_type: str | None = None
 
 
 def slice_string_value(line_bytes: bytes, key: bytes) -> str | None:
@@ -104,14 +121,13 @@ def normalize_status(status: str) -> str:
     return status if status in STATUS_SET else UNKNOWN_STATUS
 
 
-def parse_line(
-    line_bytes: bytes,
-) -> tuple[int, str, str, str | None] | None:
-    """Byte-slice one log line into (ts_ms, event, qid, status).
+def parse_line(line_bytes: bytes) -> LogEvent | None:
+    """Byte-slice one log line into a `LogEvent`.
 
     Avoids json.loads and never scans the query blob, so the common
-    line stays cheap to parse. `status` is None on start lines. Returns
-    None on anything unexpected so the caller can fall back to
+    line stays cheap to parse. A start line the server wrote before it
+    recorded the operation type simply has none. Returns None on
+    anything unexpected so the caller can fall back to
     parse_line_fallback. Never raises.
     """
     ts_ms = peek_ts_ms(line_bytes)
@@ -127,22 +143,27 @@ def parse_line(
         return None
 
     if event == "start":
-        return ts_ms, event, qid, None
+        return LogEvent(
+            ts_ms=ts_ms,
+            event=event,
+            qid=qid,
+            status=None,
+            op_type=slice_string_value(line_bytes, OP_TYPE_KEY),
+        )
 
     status = slice_string_value(line_bytes, STATUS_KEY)
     if status is None:
         return None
-    return ts_ms, event, qid, normalize_status(status)
+    return LogEvent(
+        ts_ms=ts_ms, event=event, qid=qid, status=normalize_status(status)
+    )
 
 
-def parse_line_fallback(
-    line_bytes: bytes,
-) -> tuple[int, str, str, str | None] | None:
+def parse_line_fallback(line_bytes: bytes) -> LogEvent | None:
     """Full json.loads for a line parse_line rejected.
 
-    Same 4-tuple shape as parse_line so callers treat both alike.
-    Returns None on a malformed line or a missing/wrong field; never
-    raises.
+    Same shape as parse_line so callers treat both alike. Returns None
+    on a malformed line or a missing/wrong field; never raises.
     """
     try:
         obj = json.loads(line_bytes)
@@ -162,12 +183,21 @@ def parse_line_fallback(
         return None
 
     if event == "start":
-        return ts_ms, event, qid, None
+        op_type = obj.get("type")
+        return LogEvent(
+            ts_ms=ts_ms,
+            event=event,
+            qid=qid,
+            status=None,
+            op_type=op_type if isinstance(op_type, str) else None,
+        )
 
     status = obj.get("status")
     if not isinstance(status, str):
         return None
-    return ts_ms, event, qid, normalize_status(status)
+    return LogEvent(
+        ts_ms=ts_ms, event=event, qid=qid, status=normalize_status(status)
+    )
 
 
 def next_whole_line(buf: LogBuffer, probe: int) -> tuple[int, int] | None:
@@ -204,6 +234,40 @@ def read_first_timestamp(buf: LogBuffer) -> int | None:
     if end == -1:
         return None
     return peek_ts_ms(buf[:HEAD_BYTES])
+
+
+# Bytes of the log's tail searched for a start line. Big enough to hold
+# many lines, small enough that the search costs nothing.
+TYPE_PROBE_BYTES = 1024 * 1024
+
+START_EVENT = b'"event":"start"'
+
+
+def log_has_operation_types(path: Path) -> bool:
+    """Whether the server records the operation type on its start lines.
+
+    Answered from the last start line rather than the first, because a
+    log spanning a server upgrade holds both kinds and only the recent
+    lines say what it writes now. A missing or empty log, or a tail
+    holding no start line, reports no.
+    """
+    try:
+        with open_log_buffer(path) as buf:
+            if buf is None:
+                return False
+            tail = max(0, len(buf) - TYPE_PROBE_BYTES)
+            start_event_at = buf.rfind(START_EVENT, tail)
+            if start_event_at == -1:
+                return False
+            line_end = buf.find(b"\n", start_event_at)
+            if line_end == -1:
+                line_end = len(buf)
+            # The type sits a few fields after the event and well
+            # before the query, so the search never enters the blob.
+            limit = min(line_end, start_event_at + HEAD_BYTES)
+            return buf.find(OP_TYPE_KEY, start_event_at, limit) != -1
+    except OSError:
+        return False
 
 
 def read_last_timestamp(buf: LogBuffer) -> int | None:
@@ -305,10 +369,10 @@ def scan_range(
 ) -> Iterator:
     """Yield (parsed, line_offset) for whole lines in [lo_offset, hi_bound].
 
-    parsed is the (ts_ms, event, qid, status) tuple. lo_offset must be
-    line-aligned; it always comes from offset_for_ts. The line straddling
-    hi_bound is included; a trailing line without a newline is left for a
-    later read. Malformed lines are skipped.
+    parsed is a LogEvent. lo_offset must be line-aligned; it always
+    comes from offset_for_ts. The line straddling hi_bound is included;
+    a trailing line without a newline is left for a later read.
+    Malformed lines are skipped.
 
     Only the line's head is parsed, so the large query text is never
     read. The rare line that needs more falls back to a full parse.
@@ -339,37 +403,42 @@ def scan_range(
 
 def pair_start_end_events(
     events: Iterator,
-) -> tuple[list[CompletedQuery], dict[str, tuple[int, int]]]:
+) -> tuple[list[CompletedQuery], dict[str, tuple[int, int, str | None]]]:
     """Pair start and end events from a scan into completed queries.
 
     Walks the events once. Each end pops its matching start by qid into
     completed_queries; whatever remains unmatched is still_open. Unmatched
     ends are dropped (their start was outside the scanned range).
 
-    events: yields ((ts_ms, event, qid, status), line_offset) from
-    scan_range.
+    events: yields (LogEvent, line_offset) from scan_range.
 
     Returns (completed_queries, still_open). still_open maps qid to
-    (start_ms, start_line_offset) for queries with no end event seen yet.
+    (start_ms, start_line_offset, op_type) for queries with no end
+    event seen yet.
     """
     completed_queries = []
     still_open = {}
-    for (ts_ms, event, qid, status), line_offset in events:
-        if event == "start":
-            still_open[qid] = (ts_ms, line_offset)
+    for entry, line_offset in events:
+        if entry.event == "start":
+            still_open[entry.qid] = (
+                entry.ts_ms,
+                line_offset,
+                entry.op_type,
+            )
             continue
         # event == "end"
-        matched_start = still_open.pop(qid, None)
+        matched_start = still_open.pop(entry.qid, None)
         if matched_start is None:
             continue
-        start_ms, start_line_offset = matched_start
+        start_ms, start_line_offset, op_type = matched_start
         completed_queries.append(
             CompletedQuery(
                 start_ms=start_ms,
-                end_ms=ts_ms,
-                duration_ms=ts_ms - start_ms,
-                status=status,
+                end_ms=entry.ts_ms,
+                duration_ms=entry.ts_ms - start_ms,
+                status=entry.status,
                 start_line_offset=start_line_offset,
+                op_type=op_type,
             )
         )
     return completed_queries, still_open

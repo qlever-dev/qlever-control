@@ -4,7 +4,7 @@ from rich.style import Style
 from rich.syntax import Syntax
 from textual import work
 from textual.app import ComposeResult
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.reactive import reactive
 from textual.widgets import Static
 
@@ -94,12 +94,23 @@ class SparqlPane(Vertical):
     client_name = reactive(None, init=False)
 
     def compose(self) -> ComposeResult:
-        yield Static(id="sparql-header")
+        yield Horizontal(
+            Static(id="sparql-identity"),
+            Static("", id="sparql-scroll-key", classes="scroll-key"),
+            id="sparql-header",
+        )
         with SparqlScroll(id="sparql-scroll"):
             yield SparqlBody(id="sparql-body")
 
     def on_mount(self) -> None:
-        """Paint the initial (empty) state once children are mounted."""
+        """Paint the initial (empty) state once children are mounted.
+
+        The scroll hint follows the body's measured extent, not the
+        content change, which is a frame too early to measure.
+        """
+        self.watch(
+            self.query_one(SparqlScroll), "virtual_size", self.sync_scroll_hint
+        )
         self.refresh_content(self.content)
 
     def watch_content(self, content: SparqlContent | None) -> None:
@@ -149,11 +160,8 @@ class SparqlPane(Vertical):
 
     def refresh_content(self, content: SparqlContent | None) -> None:
         """Push the current content into the header and body widgets."""
-        header = self.query_one("#sparql-header", Static)
+        header = self.query_one("#sparql-identity", Static)
         body = self.query_one("#sparql-body", SparqlBody)
-        # Body height changes here; re-evaluate the conditional scroll
-        # bindings once layout has settled.
-        self.call_after_refresh(self.refresh_bindings)
         if content is None:
             header.update(f"[dim]{SELECT_ROW_HINT}[/dim]")
             body.code = None
@@ -161,3 +169,22 @@ class SparqlPane(Vertical):
         client_name = self.client_name or content.client_ip
         header.update(format_header(content, client_name))
         body.code = self.displayed_text
+
+    def on_resize(self) -> None:
+        """A narrower pane wraps the query over more lines."""
+        self.call_after_refresh(self.sync_scroll_hint)
+
+    def sync_scroll_hint(self) -> None:
+        """Make the hint a key pill only while there is room to scroll.
+
+        Without that class it stays hidden, so help mode never names
+        keys that would do nothing.
+        """
+        scroll = self.query_one(SparqlScroll)
+        self.query_one("#sparql-scroll-key", Static).set_class(
+            scroll.max_scroll_y > 0, "key-pill"
+        )
+
+    def set_help_keys(self, key: str) -> None:
+        """Name the keys that scroll the query."""
+        self.query_one("#sparql-scroll-key", Static).update(key)

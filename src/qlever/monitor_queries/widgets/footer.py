@@ -19,6 +19,16 @@ from textual.widgets import Footer as TextualFooter
 # key, so the action does not matter here).
 ShownKey = tuple[str, str, str, bool, str]
 
+# The order the footer shows its keys in; anything unlisted goes last.
+FOOTER_ORDER = [
+    "app.swap_screen",
+    "screen.copy_text",
+    "open_theme_picker",
+    "command_palette",
+    "quit",
+    "toggle_help",
+]
+
 
 def shown_keys(screen: Screen) -> tuple[ShownKey, ...]:
     """What the footer of the given screen shows, one tuple per binding.
@@ -39,6 +49,13 @@ def shown_keys(screen: Screen) -> tuple[ShownKey, ...]:
     )
 
 
+def order_index(action: str) -> int:
+    """Where `action` sits in the footer, unlisted actions last."""
+    if action in FOOTER_ORDER:
+        return FOOTER_ORDER.index(action)
+    return len(FOOTER_ORDER)
+
+
 class Footer(TextualFooter):
     """Key hint bar that skips rebuilds that would change nothing."""
 
@@ -55,7 +72,9 @@ class Footer(TextualFooter):
         # refocus.
         if self._bindings_ready:
             self.drawn_keys = shown_keys(self.screen)
-        yield from super().compose()
+        keys = list(super().compose())
+        keys.sort(key=lambda key: order_index(key.action))
+        yield from keys
 
     def bindings_changed(self, screen: Screen) -> None:
         """Rebuild only when the keys the footer shows have changed."""

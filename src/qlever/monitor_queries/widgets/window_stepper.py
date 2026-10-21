@@ -30,10 +30,11 @@ def available_presets(span_ms: int) -> tuple[str, ...]:
 
 
 class WindowStepper(Horizontal):
-    """Window-size stepper: WINDOW ◄ 15m ►.
+    """Window-size stepper: a caption, then ◄ 15m ►.
 
-    The arrows are separate Statics so each can be made independently
-    clickable without restructuring the widget.
+    The caption is given, because each screen steps the window of
+    something different. The arrows are separate Statics so each can be
+    made independently clickable without restructuring the widget.
     """
 
     can_focus = False
@@ -50,25 +51,33 @@ class WindowStepper(Horizontal):
             super().__init__()
             self.direction = direction
 
-    def __init__(self, window_size: str) -> None:
-        """Hold the current window size to paint once mounted."""
+    def __init__(self, window_size: str, caption: str, tooltip: str) -> None:
+        """Hold the window size and its wording to paint once mounted."""
         super().__init__()
+        self.caption = caption
+        self.tooltip = tooltip
         self.set_reactive(WindowStepper.window_size, window_size)
 
     def compose(self) -> ComposeResult:
-        caption = Static("WINDOW", classes="stepper-caption")
-        caption.tooltip = (
-            "Width of the log time window whose queries are shown. "
-            "Press w or click the arrows to resize."
-        )
-        yield caption
-        yield Static("◄", id="window-prev", classes="stepper-arrow")
+        yield Static(self.caption, classes="stepper-caption")
+        yield Static("", id="window-prev-key", classes="key-pill")
+        prev_arrow = Static("◄", id="window-prev", classes="stepper-arrow")
+        prev_arrow.tooltip = "Step to the previous window size."
+        yield prev_arrow
         yield Static(self.window_size, id="window-size")
-        yield Static("►", id="window-next", classes="stepper-arrow")
+        next_arrow = Static("►", id="window-next", classes="stepper-arrow")
+        next_arrow.tooltip = "Step to the next window size."
+        yield next_arrow
+        yield Static("", id="window-next-key", classes="key-pill")
 
     def watch_window_size(self, value: str) -> None:
         """Repaint the size label when the window size changes."""
         self.query_one("#window-size", Static).update(value)
+
+    def set_help_keys(self, prev_key: str, next_key: str) -> None:
+        """Name the key on each arrow, so position tells the direction."""
+        self.query_one("#window-prev-key", Static).update(prev_key)
+        self.query_one("#window-next-key", Static).update(next_key)
 
     def on_click(self, event: events.Click) -> None:
         """Translate an arrow click into a Stepped message."""

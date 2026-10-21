@@ -13,6 +13,7 @@ from qlever.monitor_queries.live_data import (
     find_active_queries,
     get_live_metrics,
     get_live_query_rows,
+    get_recent_operations,
     load_completed_history,
 )
 from qlever.monitor_queries.log_reader import CompletedQuery
@@ -150,10 +151,12 @@ def test_data_start_equal_to_cutoff_returns_snapshot():
     assert snap.seen == 1
 
 
-def start_line(ts_ms, qid, query="SELECT 1"):
+def start_line(ts_ms, qid, query="SELECT 1", op_type=None):
+    # A server old enough to not record the type writes no field at all.
+    type_field = f'"type":"{op_type}",' if op_type else ""
     return (
         f'{{"ts-ms":{ts_ms},"event":"start","qid":"{qid}",'
-        f'"client-ip":"x","query":"{query}"}}\n'
+        f'{type_field}"client-ip":"x","query":"{query}"}}\n'
     ).encode()
 
 
@@ -162,6 +165,37 @@ def end_line(ts_ms, qid, status="ok"):
         f'{{"ts-ms":{ts_ms},"event":"end","qid":"{qid}",'
         f'"status":"{status}"}}\n'
     ).encode()
+
+
+def state_with_completions(*end_times_ms):
+    """A LiveState whose history holds one completion per end time."""
+    state = LiveState()
+    for end_ms in end_times_ms:
+        state.completed.add(make_completed(end_ms))
+    return state
+
+
+def test_get_recent_operations_drops_completions_before_the_cutoff():
+    state = state_with_completions(1000, 2000, 3000)
+    recent = get_recent_operations(state, since_ms=2000)
+    assert [entry.end_ms for entry in recent] == [2000, 3000]
+
+
+def test_get_recent_operations_stops_at_the_first_older_entry():
+    # The history is sorted in practice. One entry out of order shows the
+    # walk stops there instead of checking the whole hour.
+    state = state_with_completions(1000, 5000, 2000, 6000)
+    recent = get_recent_operations(state, since_ms=3000)
+    assert [entry.end_ms for entry in recent] == [6000]
+
+
+def test_get_recent_operations_returns_a_snapshot():
+    # The caller walks the result while the tailer keeps appending, so
+    # what it gets back must not be the live deque.
+    state = state_with_completions(1000)
+    recent = get_recent_operations(state, since_ms=0)
+    state.completed.add(make_completed(2000))
+    assert [entry.end_ms for entry in recent] == [1000]
 
 
 def test_find_active_queries_picks_up_unmatched_starts(write_log):
@@ -191,6 +225,14 @@ def test_find_active_queries_loads_sparql_for_each_survivor(write_log):
     assert state.active["b"] == ActiveQuery(
         start_ms=2000, end_ms=None, client_ip="x", sparql="SELECT beta"
     )
+
+
+def test_find_active_queries_keeps_the_operation_type(write_log):
+    # A query already running at boot finishes later, so its type has
+    # to survive the scan that found it.
+    path = write_log(start_line(1000, "q1", op_type="update"))
+    state, _, _ = find_active_queries(path, window_pad_ms=10_000)
+    assert state.active["q1"].op_type == "update"
 
 
 def test_find_active_queries_empty_log_returns_empty_state(write_log):
@@ -243,6 +285,31 @@ def test_poll_pairs_a_clean_start_and_end(write_log):
     assert done.duration_ms == 1000
     assert done.status == "ok"
     assert done.start_line_offset is None
+
+
+def test_poll_carries_the_operation_type_to_the_completion(write_log):
+    # The type is on the start line only, so the active entry holds it
+    # until the end line arrives.
+    path = write_log(
+        start_line(1000, "q1", op_type="update") + end_line(2000, "q1")
+    )
+    state = LiveState()
+    reader = make_reader(path, state)
+    with path.open("rb") as log_stream:
+        reader.poll(log_stream)
+    assert state.active["q1"].op_type == "update"
+    [done] = state.completed.entries
+    assert done.op_type == "update"
+
+
+def test_poll_start_without_a_type_leaves_it_none(write_log):
+    path = write_log(start_line(1000, "q1") + end_line(2000, "q1"))
+    state = LiveState()
+    reader = make_reader(path, state)
+    with path.open("rb") as log_stream:
+        reader.poll(log_stream)
+    [done] = state.completed.entries
+    assert done.op_type is None
 
 
 def test_poll_keeps_start_in_active_until_end_arrives(write_log):

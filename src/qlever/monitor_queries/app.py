@@ -3,10 +3,11 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+import psutil
 from textual import work
 from textual.app import App
 from textual.binding import Binding
-from textual.css.query import NoMatches
+from textual.reactive import reactive
 from textual.widgets import Select
 from textual.worker import get_current_worker
 
@@ -19,15 +20,23 @@ from qlever.monitor_queries.live_data import (
     load_completed_history,
 )
 from qlever.monitor_queries.log_reader import (
+    log_has_operation_types,
     open_log_buffer,
     read_first_timestamp,
 )
-from qlever.monitor_queries.resource_data import system_totals
+from qlever.monitor_queries.models import ResourceWindow
+from qlever.monitor_queries.resource_data import Capacity
+from qlever.monitor_queries.resource_reader import log_has_new_columns
 from qlever.monitor_queries.util import clipboard_install_hint, copy_text
 from qlever.monitor_queries.views.historic import HistoricScreen
 from qlever.monitor_queries.views.live import LiveScreen
 from qlever.monitor_queries.widgets.header_row import ThemeSelect
 from qlever.monitor_queries.widgets.query_table import QueryTable
+from qlever.monitor_queries.widgets.resource_plot_pane import (
+    Plot,
+    ResourcePlotPane,
+    available_plots,
+)
 from qlever.monitor_queries.widgets.sparql_pane import SparqlPane, SparqlScroll
 from qlever.util import pretty_printed_query
 
@@ -51,21 +60,26 @@ class MonitorQueriesApp(App):
     SCREENS = {"live": LiveScreen, "historic": HistoricScreen}
 
     BINDINGS = [
-        ("q", "quit", "Quit/Exit"),
+        ("q", "quit", "Quit"),
+        ("question_mark", "toggle_help", "Help"),
         ("t", "open_theme_picker", "Theme"),
-        ("y", "copy_query", "Copy SPARQL"),
-        ("p", "pretty_print", "Pretty print"),
-        ("c", "clear_query", "Clear SPARQL"),
+        Binding("c", "copy_query", "Copy SPARQL", show=False),
+        Binding("p", "pretty_print", "Pretty print", show=False),
+        # One label for the pair: the pill beside the pane reads it.
         Binding(
             "shift+up",
             "scroll_sparql_up",
             "Scroll SPARQL",
             key_display="⇧ ↑↓",
+            show=False,
         ),
         Binding(
             "shift+down", "scroll_sparql_down", "Scroll SPARQL", show=False
         ),
     ]
+
+    # Lives on the app, not the screens, so help stays on across a swap.
+    help_mode = reactive(False, init=False)
 
     def __init__(
         self,
@@ -89,9 +103,12 @@ class MonitorQueriesApp(App):
         # Seconds between the log's samples, as the server was started.
         # Sizes the live buffer and how long a sample counts as fresh.
         self.sample_interval_s = sample_interval_s
-        # Host-wide RAM/core capacities for the resource plot axes; fixed
-        # for the machine's lifetime and shared by Live and Historic.
-        self.resource_totals = system_totals()
+        # What the machine has, read once because it cannot change while
+        # we run. Shared by Live and Historic.
+        self.capacity = Capacity(
+            ram_gb=psutil.virtual_memory().total / 1e9,
+            cores=psutil.cpu_count(),
+        )
         self.system = system
         self.live_state = LiveState()
         self.log_start_ms = None
@@ -165,6 +182,38 @@ class MonitorQueriesApp(App):
             log_start_or_boot, self.boot_time_ms - LIVE_HORIZON_MS
         )
 
+    def offered_plots(self) -> list[Plot]:
+        """The plots the two logs can fill right now.
+
+        Read on each press rather than once at startup, because either
+        log can appear or change format while the app runs: the server
+        may not have started yet, or may be restarted on a newer build.
+        """
+        return available_plots(
+            log_has_new_columns(self.resource_log),
+            log_has_operation_types(self.log_file),
+        )
+
+    def push_resource_window(self, window: ResourceWindow) -> None:
+        """Hand fresh readings to every resource plot on screen.
+
+        The maximized plot is a screen of its own, so the screen that
+        read the window cannot reach it. The app owns the screen stack,
+        so it hands the window over: while the plot is maximized, it and
+        the pane underneath show the same readings. Fresh readings also
+        lift the dimming `mark_plots_stale` put on.
+        """
+        for screen in self.screen_stack:
+            for pane in screen.query(ResourcePlotPane):
+                pane.window = window
+                pane.remove_class("stale")
+
+    def mark_plots_stale(self) -> None:
+        """Dim every resource plot until the window being read arrives."""
+        for screen in self.screen_stack:
+            for pane in screen.query(ResourcePlotPane):
+                pane.add_class("stale")
+
     def action_swap_screen(self) -> None:
         """Toggle between Live and Historic (bound to Tab on each screen)."""
         target = "historic" if isinstance(self.screen, LiveScreen) else "live"
@@ -178,6 +227,18 @@ class MonitorQueriesApp(App):
                 return
         self.switch_screen(target)
 
+    def action_toggle_help(self) -> None:
+        """Show or hide the on-screen help annotations."""
+        self.help_mode = not self.help_mode
+
+    def watch_help_mode(self, help_mode: bool) -> None:
+        """Flip the class the help annotations hang off.
+
+        It sits on the app so it covers both screens and never has to
+        be re-applied.
+        """
+        self.set_class(help_mode, "-help")
+
     def copy_to_clipboard(self, text: str) -> None:
         """Copy text to the clipboard, native tool first, OSC 52 fallback.
 
@@ -186,7 +247,7 @@ class MonitorQueriesApp(App):
         itself the signal to fall back to the terminal's own OSC 52.
         """
         result = copy_text(text)
-        if result is True:
+        if result:
             self.notify("Copied to clipboard")
             return
 
@@ -194,8 +255,8 @@ class MonitorQueriesApp(App):
         if result is None:
             detail = (
                 f"No clipboard tool found; copied via the terminal (OSC 52). "
-                f"{clipboard_install_hint()} for a reliable copy, or check "
-                "your terminal supports OSC 52."
+                f"{clipboard_install_hint().capitalize()} for a reliable copy, "
+                "or check if your terminal supports OSC 52."
             )
         else:
             detail = (
@@ -251,11 +312,6 @@ class MonitorQueriesApp(App):
             return
         pane.pretty_text = result
 
-    def action_clear_query(self) -> None:
-        """Drop the displayed query, restoring the empty-state hint."""
-        pane = self.screen.query_one(SparqlPane)
-        pane.content = None
-
     def action_scroll_sparql_up(self) -> None:
         """Scroll the overflowing SPARQL pane up one line."""
         self.screen.query_one(SparqlScroll).scroll_up()
@@ -263,22 +319,6 @@ class MonitorQueriesApp(App):
     def action_scroll_sparql_down(self) -> None:
         """Scroll the overflowing SPARQL pane down one line."""
         self.screen.query_one(SparqlScroll).scroll_down()
-
-    def check_action(
-        self, action: str, parameters: tuple[object, ...]
-    ) -> bool | None:
-        """Show the scroll bindings only when the query overflows the pane.
-
-        Returns False (hidden) rather than None (grayed) so the footer
-        entry disappears entirely until there is something to scroll.
-        """
-        if action in ("scroll_sparql_up", "scroll_sparql_down"):
-            try:
-                scroll = self.screen.query_one(SparqlScroll)
-            except NoMatches:
-                return False
-            return scroll.max_scroll_y > 0
-        return True
 
     def action_open_theme_picker(self) -> None:
         """Open the header theme dropdown on the active screen."""

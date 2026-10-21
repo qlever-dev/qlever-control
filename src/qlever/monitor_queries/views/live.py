@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import time
+from functools import partial
 
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
+from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.screen import Screen
-from textual.widgets import Static
+from textual.widgets import Button, Static
 from textual.worker import get_current_worker
 
 from qlever.monitor_queries.live_data import (
@@ -17,25 +19,32 @@ from qlever.monitor_queries.live_data import (
     discard_finished_backlog,
     get_live_metrics,
     get_live_query_rows,
+    get_recent_operations,
     is_log_fresh,
 )
 from qlever.monitor_queries.models import (
     LiveSubtitle,
-    ResourcePlot,
-    ResourceSample,
+    ResourceWindow,
     SparqlContent,
 )
 from qlever.monitor_queries.resource_data import (
-    LIVE_WINDOW_S,
-    ResourceHistory,
-    ResourceLogReader,
-    get_resource_plot,
-    get_resource_usage,
-    is_resource_sample_fresh,
+    LIVE_WINDOW_PRESETS,
+    SampleBuffer,
+    coverage_note,
+    is_sample_fresh,
+    live_buffer_span_ms,
+    live_window_bounds,
+    window_for_samples,
 )
+from qlever.monitor_queries.resource_reader import (
+    Sample,
+    SampleTail,
+)
+from qlever.monitor_queries.util import action_key
 from qlever.monitor_queries.views.resource_plot_modal import (
     ResourcePlotModal,
 )
+from qlever.monitor_queries.widgets.detail_row import DetailRow
 from qlever.monitor_queries.widgets.detail_switcher import (
     PLOT_ID,
     DetailSwitcher,
@@ -45,9 +54,16 @@ from qlever.monitor_queries.widgets.header_row import HeaderRow
 from qlever.monitor_queries.widgets.metrics_row import MetricsRow
 from qlever.monitor_queries.widgets.nav_pill import NavPill
 from qlever.monitor_queries.widgets.query_table import LiveQueryTable
+from qlever.monitor_queries.widgets.resource_plot_pane import (
+    ResourcePlotPane,
+)
 from qlever.monitor_queries.widgets.resource_row import ResourceRow
 from qlever.monitor_queries.widgets.resource_sparkline import ResourceSparkline
 from qlever.monitor_queries.widgets.sparql_pane import SELECT_ROW_HINT
+from qlever.monitor_queries.widgets.window_stepper import (
+    WindowStepper,
+    preset_ms,
+)
 from qlever.util import is_qlever_server_alive
 
 TITLE = "QLever monitor-queries: Live"
@@ -58,11 +74,15 @@ class LiveScreen(Screen, inherit_bindings=False):
 
     BINDINGS = [
         Binding("tab", "app.swap_screen", "Historic>", priority=True),
-        Binding("f", "toggle_freeze", "Freeze/Unfreeze"),
-        # One footer entry for both: r shows the pane, R the modal.
-        Binding("r", "show_plot", "Resource plot", key_display="r/R"),
-        Binding("R", "maximize_plot", "Maximize plot", show=False),
-        Binding("s", "show_sparql", "SPARQL"),
+        Binding("f", "toggle_freeze", "Freeze/Unfreeze", show=False),
+        Binding("w", "cycle_window", "Window size", show=False),
+        Binding("W", "cycle_window_back", "Window size", show=False),
+        Binding("r", "show_plot", "Resource plots", show=False),
+        Binding("R", "show_plot(-1)", "Resource plots", show=False),
+        Binding("minus", "step_top(-1)", "Plot scale", show=False),
+        Binding("plus", "step_top", "Plot scale", show=False),
+        Binding("z", "maximize_plot", "Full screen", show=False),
+        Binding("s", "show_sparql", "SPARQL", show=False),
         Binding("ctrl+c,super+c", "screen.copy_text", "Copy selection"),
     ]
 
@@ -71,13 +91,15 @@ class LiveScreen(Screen, inherit_bindings=False):
     def __init__(self) -> None:
         """Set the screen's blank default state.
 
-        The app-derived fields (liveness, resource totals, the sample
-        buffer and its reader) are read in compose, where the app is
+        The app-derived fields (liveness, capacity, the resource samples
+        and the log tail) are read in compose, where the app is
         available.
         """
         super().__init__()
         self.consecutive_ping_fails = 0
         self.ping_timer = None
+        # How much of the buffer the sparklines and the plot draw.
+        self.window_size = LIVE_WINDOW_PRESETS[0]
 
     def compose(self) -> ComposeResult:
         yield HeaderRow(
@@ -95,28 +117,43 @@ class LiveScreen(Screen, inherit_bindings=False):
         self.liveness = (
             "reachable" if is_log_fresh(state, current_ms()) else "checking"
         )
-        self.resource_totals = self.app.resource_totals
-        self.resource_history = ResourceHistory(self.app.sample_interval_s)
-        self.resource_reader = ResourceLogReader(self.resource_history.size)
+        self.capacity = self.app.capacity
+        self.resource_samples = SampleBuffer(self.app.sample_interval_s)
+        self.resource_log_tail = SampleTail(self.resource_samples.size)
 
+        resource_window = self.live_resource_window()
         yield ResourceRow(
             LiveSubtitle(
                 endpoint=self.app.sparql_endpoint,
                 state=self.liveness,
                 n_active=len(rows),
             ),
-            get_resource_usage(self.resource_history, self.resource_totals),
+            resource_window,
+            self.window_size,
+            coverage_note(resource_window, self.app.sample_interval_s),
         )
-        yield MetricsRow(
-            get_live_metrics(state, slow_ms, current_ms()),
-            self.app.slow_threshold,
+        freeze_button = Button(
+            "Freeze",
+            variant="primary",
+            id="freeze",
+            compact=True,
+            action="screen.toggle_freeze",
+            tooltip="Stop the table and metrics from updating.",
+        )
+        # Clicking it must not take focus off the table.
+        freeze_button.can_focus = False
+        yield Horizontal(
+            MetricsRow(
+                get_live_metrics(state, slow_ms, current_ms()),
+                self.app.slow_threshold,
+            ),
+            Static("", id="freeze-key", classes="key-pill"),
+            freeze_button,
+            id="metrics-freeze-row",
         )
         yield LiveQueryTable(rows)
         yield Static("", id="table-status")
-        yield DetailSwitcher(
-            source=self.live_resource_plot,
-            refresh_interval=self.app.sample_interval_s,
-        )
+        yield DetailRow(resource_window)
         yield Footer()
 
     def on_mount(self) -> None:
@@ -125,9 +162,22 @@ class LiveScreen(Screen, inherit_bindings=False):
             self.app.refresh_interval, self.refresh_table
         )
         self.metrics_timer = self.set_interval(2.0, self.refresh_metrics)
+        self.resource_timer = self.set_interval(
+            self.app.sample_interval_s, self.refresh_resource_window
+        )
         # A worker, not a paused-on-suspend timer: it keeps reading the
         # log regardless of the active tab so the history never gaps.
         self.tail_resource_log()
+        # Label the gutter controls with the keys that run them; CSS
+        # decides when the labels show.
+        self.query_one(DetailRow).set_help_keys(partial(action_key, self))
+        self.query_one(WindowStepper).set_help_keys(
+            action_key(self, "cycle_window_back"),
+            action_key(self, "cycle_window"),
+        )
+        self.query_one("#freeze-key", Static).update(
+            action_key(self, "toggle_freeze")
+        )
         if self.liveness == "checking":
             self.start_pinging(initial=True)
         # Focus the table so the header theme dropdown can't take it.
@@ -140,12 +190,18 @@ class LiveScreen(Screen, inherit_bindings=False):
         self.metrics_timer.pause()
         if self.ping_timer is not None:
             self.ping_timer.pause()
+        # Maximizing the plot also suspends Live, but leaves it on the
+        # stack, and that plot is on screen and still ours to roll.
+        if self in self.app.screen_stack:
+            return
+        self.resource_timer.pause()
 
     def on_screen_resume(self) -> None:
         """Resume periodic UI work; recheck server unless already reachable."""
         # Drop the backlog of queries that finished while suspended.
         discard_finished_backlog(self.app.live_state)
         self.table_timer.resume()
+        self.resource_timer.resume()
         self.update_liveness_visuals()
         if self.ping_timer is not None:
             self.ping_timer.resume()
@@ -232,8 +288,8 @@ class LiveScreen(Screen, inherit_bindings=False):
         marks the resource row stale.
         """
         now = current_ms()
-        samples_fresh = is_resource_sample_fresh(
-            self.resource_reader.last_ts_ms, now, self.app.sample_interval_s
+        samples_fresh = is_sample_fresh(
+            self.resource_log_tail.last_ts_ms, now, self.app.sample_interval_s
         )
         self.query_one(ResourceRow).stale = not samples_fresh
         alive = samples_fresh or is_log_fresh(self.app.live_state, now)
@@ -280,6 +336,19 @@ class LiveScreen(Screen, inherit_bindings=False):
             state, slow_ms, current_ms()
         )
 
+    def refresh_resource_window(self) -> None:
+        """Roll the window forward into the sparklines and the plot.
+
+        Built once and handed to both, so the sparklines and the plot
+        always show the same readings. Freezing the table leaves this
+        running, since the window is about the server and not the rows.
+        """
+        window = self.live_resource_window()
+        row = self.query_one(ResourceRow)
+        row.note = coverage_note(window, self.app.sample_interval_s)
+        row.window = window
+        self.app.push_resource_window(window)
+
     @work(thread=True, exclusive=True, group="tail_resource_log")
     def tail_resource_log(self) -> None:
         """Read the resource log off the UI thread, seeding then tailing.
@@ -298,60 +367,105 @@ class LiveScreen(Screen, inherit_bindings=False):
         if worker.is_cancelled:
             return
         with self.app.resource_log.open("rb") as stream:
-            seeded = self.resource_reader.seed(stream, current_ms())
+            seeded = self.resource_log_tail.seed(
+                stream,
+                current_ms() - live_buffer_span_ms(self.app.sample_interval_s),
+            )
             self.app.call_from_thread(self.apply_resource_samples, seeded)
             while not worker.is_cancelled:
-                fresh = self.resource_reader.read_new(stream)
+                fresh = self.resource_log_tail.read_new(stream)
                 if fresh:
                     self.app.call_from_thread(
                         self.apply_resource_samples, fresh
                     )
                 time.sleep(interval_s)
 
-    def apply_resource_samples(self, samples: list[ResourceSample]) -> None:
-        """Add new samples to the buffer and repaint; runs on the UI thread."""
-        for sample in samples:
-            self.resource_history.add(sample)
-        self.query_one(ResourceRow).usage = get_resource_usage(
-            self.resource_history, self.resource_totals
-        )
+    def apply_resource_samples(self, samples: list[Sample]) -> None:
+        """Add new samples to the buffer, on the UI thread.
 
-    def live_resource_plot(self) -> ResourcePlot:
-        """Snapshot the buffer as the rolling 5-minute plot window.
-
-        Recomputes the window end on each call, so the plot's timer rolls
-        the view forward the same way the sparklines roll.
+        Runs there so the buffer is never written while the resource
+        timer is reading it. Repainting is that timer's job.
         """
-        now = current_ms()
-        return get_resource_plot(
-            list(self.resource_history.samples),
-            self.resource_totals,
-            now - LIVE_WINDOW_S * 1000,
-            now,
+        for sample in samples:
+            self.resource_samples.add(sample)
+
+    def live_resource_window(self) -> ResourceWindow:
+        """Snapshot the buffer as the rolling window the screen shows.
+
+        The buckets sit on the clock, so between bucket edges only the
+        newest one changes, and the window then moves on by one bucket.
+        """
+        start_ms, end_ms, buckets = live_window_bounds(
+            current_ms(),
+            preset_ms(self.window_size),
+            self.app.sample_interval_s,
+        )
+        return window_for_samples(
+            samples=self.resource_samples.samples,
+            operations=get_recent_operations(self.app.live_state, start_ms),
+            capacity=self.capacity,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            buckets=buckets,
         )
 
-    def action_show_plot(self) -> None:
-        """Switch the detail pane to the resource plot."""
-        self.query_one(DetailSwitcher).show_plot()
+    def step_window(self, direction: int) -> None:
+        """Move the window size one preset in `direction` (wraps)."""
+        index = LIVE_WINDOW_PRESETS.index(self.window_size)
+        self.window_size = LIVE_WINDOW_PRESETS[
+            (index + direction) % len(LIVE_WINDOW_PRESETS)
+        ]
+        self.query_one(WindowStepper).window_size = self.window_size
+        self.refresh_resource_window()
+
+    def action_cycle_window(self) -> None:
+        """Step to the next window-size preset (wraps)."""
+        self.step_window(1)
+
+    def action_cycle_window_back(self) -> None:
+        """Step to the previous window-size preset (wraps)."""
+        self.step_window(-1)
+
+    def action_show_plot(self, step: int = 1) -> None:
+        """Show the resource plot, or step to the next or previous one."""
+        self.query_one(DetailSwitcher).show_plot(
+            self.app.offered_plots(), step
+        )
         self.refresh_table_status()
+
+    def action_step_top(self, direction: int = 1) -> None:
+        """Raise or lower the top of the plot's adjustable axis."""
+        self.query_one(DetailSwitcher).step_top(direction)
 
     def action_maximize_plot(self) -> None:
         """Open the resource plot as a full-screen modal.
 
-        The modal draws from the same rolling source as the inline pane,
-        with the same refresh interval, so it rolls while open.
+        Shows every plot this log can carry, on the window the inline
+        pane is showing. The resource timer reaches the modal's panes as
+        well, so they keep rolling.
         """
+        pane = self.query_one(ResourcePlotPane)
         self.app.push_screen(
             ResourcePlotModal(
-                source=self.live_resource_plot,
-                refresh_interval=self.app.sample_interval_s,
-            )
+                owner=self,
+                window=self.live_resource_window(),
+                plots=self.app.offered_plots(),
+                top_steps=pane.top_steps,
+                shown_plot=pane.plot.name,
+            ),
+            self.query_one(DetailSwitcher).set_top_steps,
         )
 
     def action_show_sparql(self) -> None:
         """Switch the detail pane to the SPARQL query."""
         self.query_one(DetailSwitcher).show_sparql()
         self.refresh_table_status()
+
+    def on_window_stepper_stepped(
+        self, message: WindowStepper.Stepped
+    ) -> None:
+        """Resize the window when a stepper arrow is clicked."""
+        self.step_window(message.direction)
 
     def on_resource_sparkline_clicked(
         self, message: ResourceSparkline.Clicked
@@ -376,16 +490,15 @@ class LiveScreen(Screen, inherit_bindings=False):
         self.query_one("#table-status", Static).update(" · ".join(hints))
 
     def watch_frozen(self, frozen: bool) -> None:
-        """Refresh the status line to reflect the frozen state."""
+        """Update the status line and name the way out on the button."""
         self.refresh_table_status()
+        self.query_one("#freeze", Button).label = (
+            "Resume" if frozen else "Freeze"
+        )
 
     def action_toggle_freeze(self) -> None:
         """Toggle the frozen state of the live view."""
         self.frozen = not self.frozen
-
-    def on_resize(self) -> None:
-        """Re-evaluate the conditional scroll bindings after a resize."""
-        self.call_after_refresh(self.refresh_bindings)
 
     def on_nav_pill_clicked(self, message: NavPill.Clicked) -> None:
         """Switch to the screen named by the clicked pill.

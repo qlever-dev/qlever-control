@@ -41,6 +41,7 @@ class ModePicker(Horizontal):
             "ACTIVE ran during it, ENDS finished in it."
         )
         yield caption
+        yield Static("", id="mode-prev-key", classes="key-pill")
         yield Static("[", classes="picker-bracket")
         for index, mode in enumerate(MODES):
             if index > 0:
@@ -50,12 +51,18 @@ class ModePicker(Horizontal):
                 classes += " -selected"
             yield Static(mode, id=f"mode-{mode.lower()}", classes=classes)
         yield Static("]", classes="picker-bracket")
+        yield Static("", id="mode-next-key", classes="key-pill")
 
     def watch_selected(self, value: str) -> None:
         """Move the -selected state class onto the chosen segment."""
         for mode in MODES:
             segment = self.query_one(f"#mode-{mode.lower()}", Static)
             segment.set_class(mode == value, "-selected")
+
+    def set_help_keys(self, prev_key: str, next_key: str) -> None:
+        """Name the key at each end, so position tells the direction."""
+        self.query_one("#mode-prev-key", Static).update(prev_key)
+        self.query_one("#mode-next-key", Static).update(next_key)
 
     def on_click(self, event: events.Click) -> None:
         """Translate a segment click into a Selected message."""

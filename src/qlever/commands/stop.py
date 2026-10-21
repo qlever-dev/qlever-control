@@ -4,7 +4,12 @@ from qlever.command import QleverCommand
 from qlever.commands.status import StatusCommand
 from qlever.containerize import Containerize
 from qlever.log import log
-from qlever.util import stop_process_with_regex
+from qlever.util import (
+    stop_process_with_regex,
+    stop_systemd_unit,
+    systemd_unit_is_active,
+    systemd_unit_name,
+)
 
 
 def stop_container(server_container: str) -> bool:
@@ -72,6 +77,20 @@ class StopCommand(QleverCommand):
         if args.show:
             return True
 
+        # A server that runs as a systemd user service (see `start`) has to
+        # be stopped via its unit (otherwise it would just be restarted). A
+        # unit that is not active any more (for example, one that has hit its
+        # start limit) is only cleaned up, and the search for the server
+        # continues below.
+        unit = systemd_unit_name(args.name)
+        unit_was_active = systemd_unit_is_active(unit)
+        if stop_systemd_unit(unit):
+            if unit_was_active:
+                log.info(f'Systemd unit "{unit}" stopped')
+                return True
+            log.info(f'Systemd unit "{unit}" was not active any more, removed')
+            log.info("")
+
         # First check if there is container running and if yes, stop and remove
         # it (unless the user has specified `--no-containers`).
         if not args.no_containers:
@@ -95,7 +114,7 @@ class StopCommand(QleverCommand):
             else "No matching process or container found"
         )
         log.error(message)
-        args.cmdline_regex = "^qlever-server.* -i [^ ]*"
+        args.cmdline_regex = r"^(\S*/)?qlever-server.* -i [^ ]*"
         log.info("")
         StatusCommand().execute(args)
         return True

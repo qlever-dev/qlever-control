@@ -35,6 +35,7 @@ class Qleverfile:
 
     # Runtime parameters (for `settings` and `start` commands).
     SERVER_RUNTIME_PARAMETERS = [
+        "cache-load-results",
         "cache-max-num-entries",
         "cache-max-size",
         "cache-max-size-lazy-result",
@@ -47,16 +48,20 @@ class Qleverfile:
         "enable-distributive-union",
         "enable-materialized-view-query-rewrite",
         "enable-prefilter-on-index-scans",
+        "geo-prefilter-planning-max-cost",
+        "geo-prefilter-planning-max-rows",
         "group-by-disable-index-scan-optimizations",
         "group-by-hash-map-enabled",
         "lazy-index-scan-max-size-materialization",
-        "lazy-index-scan-num-threads",
-        "lazy-index-scan-queue-size",
+        "lazy-index-scan-num-blocks-in-flight",
         "log-level",
+        "materialized-view-pattern-match-num-assignments",
+        "materialized-view-pattern-match-num-replacement-plans",
         "materialized-view-writer-memory",
-        "parallel-sort-num-threads",
-        "pattern-trick-num-threads",
-        "permutation-writer-num-threads",
+        "max-num-threads-per-query",
+        "memory-for-queries",
+        "pattern-trick-num-tasks-in-flight",
+        "permutation-writer-num-blocks-in-flight",
         "prefiltered-optional-join",
         "query-planning-budget",
         "rebuild-index-scan-num-threads",
@@ -69,15 +74,19 @@ class Qleverfile:
         "small-index-scan-size-estimate-divisor",
         "sort-estimate-cancellation-factor",
         "sort-in-memory-threshold",
+        "sort-num-tasks-in-flight",
         "sparql-results-json-with-time",
-        "spatial-join-prefilter-max-size",
         "spatial-join-max-num-threads",
+        "spatial-join-prefilter-max-size",
+        "spatial-join-tmp-dir",
         "strip-columns",
         "syntax-test-mode",
+        "throw-on-invalid-wkt",
         "throw-on-unbound-variables",
         "treat-default-graph-as-named-graph",
         "use-binsearch-transitive-path",
         "vacuum-minimum-block-size",
+        "websocket-update-interval",
         "websocket-updates-enabled",
         "zero-cost-estimate-for-cached-subtree",
     ]
@@ -221,6 +230,16 @@ class Qleverfile:
             "large enough to contain the end of at least one statement "
             "(default: 10M)",
         )
+        index_args["index_rows_per_block"] = arg(
+            "--index-rows-per-block",
+            type=int,
+            help="The number of rows of one block of the permutations (and "
+            "of the other sorted lists of the index, like materialized "
+            "views); smaller blocks make selective index scans read fewer "
+            "rows, at the price of more block metadata (which is held in "
+            "RAM) and a slightly larger index (default: 31250, which is "
+            "250 kB per column)",
+        )
         index_args["geo_cell_grid_level"] = arg(
             "--geo-cell-grid-level",
             type=int,
@@ -242,6 +261,27 @@ class Qleverfile:
             default=None,
             help="Cell assignment scheme of the geo cell grid "
             "(default: flat); only relevant with GEO_CELL_GRID_LEVEL > 0",
+        )
+        index_args["geo_point_encoding"] = arg(
+            "--geo-point-encoding",
+            type=str,
+            choices=["z-order", "lat-major"],
+            default=None,
+            help="How geo points are encoded in the IDs of the index; "
+            "`lat-major` is how they were encoded before 2026-09-26, it is "
+            "deprecated and only meant for software that decodes the IDs of "
+            "an index (default: `z-order`)",
+        )
+        index_args["parsed_geometries_min_length"] = arg(
+            "--parsed-geometries-min-length",
+            type=int,
+            default=None,
+            help="Store the WKT literals with at least this many bytes in "
+            "the form that libspatialjoin needs, so that spatial joins do "
+            "not have to parse them at query time (which takes seconds "
+            "for a huge geometry like a country boundary); requires "
+            "VOCABULARY_TYPE on-disk-compressed-geo-split, a value like "
+            "100000 covers the geometries that matter (default: none)",
         )
         index_args["encode_as_id"] = arg(
             "--encode-as-id",
@@ -460,6 +500,18 @@ class Qleverfile:
             help="Whether to produce the per-query metrics log, a JSONL log of "
             "query start/end events (`.metrics-log.jsonl`)",
         )
+        server_args["server_log_mode"] = arg(
+            "--server-log-mode",
+            choices=["append", "overwrite", "rotate", "no-log"],
+            default="rotate",
+            help="What to do with the server log of a previous run when "
+            "starting the server: `append` = keep it and append, "
+            "`overwrite` = remove it (the behavior before this option "
+            "existed), `rotate` = move it to `<log>.1`, shifting older "
+            "generations up (all are kept), `no-log` = write no server "
+            "log at all (in the foreground, the server output goes to "
+            "the terminal)",
+        )
         server_args["resource_usage_log"] = arg(
             "--resource-usage-log",
             choices=["yes", "no"],
@@ -533,10 +585,53 @@ class Qleverfile:
             "--restart-policy",
             type=str,
             choices=["no", "always", "unless-stopped", "on-failure"],
-            default="unless-stopped",
-            help="Restart policy for the server container"
-            " (only applies when running in a container)"
-            " (default: unless-stopped)",
+            default=None,
+            help="Restart policy for the server, that is, whether it is "
+            "restarted automatically after a crash. Applies to a server in "
+            "a container and, on Linux, to a native server, which then runs "
+            "as a systemd user service (where `unless-stopped` means "
+            "`always`). On a system without systemd, `start` fails if the "
+            "policy was set explicitly (default: unless-stopped)",
+        )
+        runtime_args["restart_delay"] = arg(
+            "--restart-delay",
+            type=str,
+            default="0",
+            help="How long to wait before a crashed server is restarted, "
+            "in systemd time syntax (like `5s` or `1min`). Only for a native "
+            "server that runs as a systemd user service (see "
+            "`--restart-policy`)",
+        )
+        runtime_args["restart_limit"] = arg(
+            "--restart-limit",
+            type=positive_int,
+            default=10,
+            help="How many starts of the server are allowed within "
+            "`--restart-limit-interval`. A server that crashes right after "
+            "each start is not restarted any more once this limit is "
+            "reached. Only for a native server that runs as a systemd user "
+            "service",
+        )
+        runtime_args["restart_limit_interval"] = arg(
+            "--restart-limit-interval",
+            type=str,
+            default="1h",
+            help="The interval for `--restart-limit`, in systemd time "
+            "syntax (like `1h` or `30min`). Only for a native server that "
+            "runs as a systemd user service",
+        )
+        runtime_args["seccomp_profile"] = arg(
+            "--seccomp-profile",
+            type=str,
+            default=None,
+            help=(
+                "Path to a seccomp profile (JSON file) for the server "
+                "container, passed to the container engine as "
+                "`--security-opt seccomp=<path>`; for example, to allow "
+                "the io_uring syscalls that the default profile blocks "
+                "(default: none, that is, the container engine's default "
+                "profile is used)"
+            ),
         )
 
         ui_args["ui_port"] = arg(

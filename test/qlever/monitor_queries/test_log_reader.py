@@ -4,10 +4,12 @@ from qlever.monitor_queries import log_reader
 from qlever.monitor_queries.log_reader import (
     SNIPPET_BYTES,
     CompletedQuery,
+    LogEvent,
     extract_qid_ip_query,
     line_query_contains,
     load_sparql_at,
     load_sparql_snippet_at,
+    log_has_operation_types,
     next_whole_line,
     offset_for_ts,
     open_log_buffer,
@@ -22,6 +24,12 @@ from qlever.monitor_queries.log_reader import (
 
 START = (
     b'{"ts-ms":1716000000000,"event":"start","qid":"q-8a4f",'
+    b'"type":"query","client-ip":"1.2.3.4",'
+    b'"query":"SELECT * WHERE { ?s ?p ?o }"}'
+)
+# A start line from a server old enough to not record the type.
+START_NO_TYPE = (
+    b'{"ts-ms":1716000000000,"event":"start","qid":"q-8a4f",'
     b'"client-ip":"1.2.3.4","query":"SELECT * WHERE { ?s ?p ?o }"}'
 )
 END = b'{"ts-ms":1716000000050,"event":"end","qid":"q-8a4f","status":"ok"}'
@@ -29,8 +37,33 @@ END = b'{"ts-ms":1716000000050,"event":"end","qid":"q-8a4f","status":"ok"}'
 VALID_STATUSES = ["ok", "failed", "cancelled", "timeout"]
 
 
+def start_event(ts_ms, qid, op_type=None):
+    """A parsed start line, which carries no status."""
+    return LogEvent(
+        ts_ms=ts_ms, event="start", qid=qid, status=None, op_type=op_type
+    )
+
+
+def end_event(ts_ms, qid, status):
+    """A parsed end line, which carries no operation type."""
+    return LogEvent(ts_ms=ts_ms, event="end", qid=qid, status=status)
+
+
 def test_parse_line_start_has_no_status_and_ignores_query():
-    assert parse_line(START) == (1716000000000, "start", "q-8a4f", None)
+    assert parse_line(START) == start_event(1716000000000, "q-8a4f", "query")
+
+
+@pytest.mark.parametrize("op_type", ["query", "update"])
+def test_parse_line_start_carries_each_operation_type(op_type):
+    line = (
+        b'{"ts-ms":1,"event":"start","qid":"q1","type":"%s","query":"x"}'
+        % (op_type.encode())
+    )
+    assert parse_line(line) == start_event(1, "q1", op_type)
+
+
+def test_parse_line_start_without_type_has_none():
+    assert parse_line(START_NO_TYPE) == start_event(1716000000000, "q-8a4f")
 
 
 @pytest.mark.parametrize("status", VALID_STATUSES)
@@ -38,11 +71,11 @@ def test_parse_line_end_carries_each_valid_status(status):
     line = b'{"ts-ms":1,"event":"end","qid":"q1","status":"%s"}' % (
         status.encode()
     )
-    assert parse_line(line) == (1, "end", "q1", status)
+    assert parse_line(line) == end_event(1, "q1", status)
 
 
 def test_parse_line_trailing_newline_tolerated():
-    assert parse_line(END + b"\n") == (1716000000050, "end", "q-8a4f", "ok")
+    assert parse_line(END + b"\n") == end_event(1716000000050, "q-8a4f", "ok")
 
 
 def test_parse_line_escaped_quote_in_query_does_not_break_qid():
@@ -50,7 +83,7 @@ def test_parse_line_escaped_quote_in_query_does_not_break_qid():
         b'{"ts-ms":1,"event":"start","qid":"q1",'
         b'"client-ip":"::1","query":"FILTER(?x = \\"a\\")"}'
     )
-    assert parse_line(line) == (1, "start", "q1", None)
+    assert parse_line(line) == start_event(1, "q1")
 
 
 def test_parse_line_wrong_first_key_is_a_miss():
@@ -67,7 +100,7 @@ def test_parse_line_unknown_event_is_a_miss():
 
 def test_parse_line_end_status_outside_known_set_maps_to_unknown():
     line = b'{"ts-ms":1,"event":"end","qid":"q1","status":"weird"}'
-    assert parse_line(line) == (1, "end", "q1", "unknown")
+    assert parse_line(line) == end_event(1, "q1", "unknown")
 
 
 def test_parse_line_missing_qid_is_a_miss():
@@ -79,16 +112,24 @@ def test_fallback_recovers_a_line_the_fast_path_rejects():
     # JSON, so the fallback still extracts the fields.
     line = b'{ "ts-ms":1716000000000,"event":"end","qid":"q1","status":"ok"}'
     assert parse_line(line) is None
-    assert parse_line_fallback(line) == (1716000000000, "end", "q1", "ok")
+    assert parse_line_fallback(line) == end_event(1716000000000, "q1", "ok")
 
 
 def test_fallback_start_returns_none_status():
-    assert parse_line_fallback(START) == (
-        1716000000000,
-        "start",
-        "q-8a4f",
-        None,
+    assert parse_line_fallback(START) == start_event(
+        1716000000000, "q-8a4f", "query"
     )
+
+
+def test_fallback_start_without_type_has_none():
+    assert parse_line_fallback(START_NO_TYPE) == start_event(
+        1716000000000, "q-8a4f"
+    )
+
+
+def test_fallback_non_string_type_is_dropped_not_rejected():
+    line = b'{"ts-ms":1,"event":"start","qid":"q1","type":7,"query":"x"}'
+    assert parse_line_fallback(line) == start_event(1, "q1")
 
 
 def test_fallback_malformed_json_returns_none():
@@ -106,7 +147,7 @@ def test_fallback_non_integer_ts_returns_none():
 
 def test_fallback_status_outside_known_set_maps_to_unknown():
     line = b'{"ts-ms":1,"event":"end","qid":"q1","status":"weird"}'
-    assert parse_line_fallback(line) == (1, "end", "q1", "unknown")
+    assert parse_line_fallback(line) == end_event(1, "q1", "unknown")
 
 
 FIRST_LINE = b'{"ts-ms":1000,"event":"start","qid":"q1","query":"SELECT 1"}\n'
@@ -216,9 +257,9 @@ def test_offset_for_ts_target_past_last_line_yields_empty_scan(monkeypatch):
 def test_scan_range_yields_each_whole_line_with_its_offset():
     data, offsets = build_log([1000, 1010, 1020])
     assert list(scan_range(data, 0, len(data))) == [
-        ((1000, "end", "q0", "ok"), offsets[0]),
-        ((1010, "end", "q1", "ok"), offsets[1]),
-        ((1020, "end", "q2", "ok"), offsets[2]),
+        (end_event(1000, "q0", "ok"), offsets[0]),
+        (end_event(1010, "q1", "ok"), offsets[1]),
+        (end_event(1020, "q2", "ok"), offsets[2]),
     ]
 
 
@@ -227,14 +268,14 @@ def test_scan_range_includes_the_line_straddling_hi_bound():
     # hi_bound falls inside the second line. The second line starts
     # before it so it is still emitted; the third starts past it.
     result = list(scan_range(data, 0, offsets[1] + 3))
-    assert [ts for (ts, _, _, _), _ in result] == [1000, 1010]
+    assert [entry.ts_ms for entry, offset in result] == [1000, 1010]
 
 
 def test_scan_range_stops_before_a_trailing_partial_line():
     data, _ = build_log([1000])
     buf = data + b'{"ts-ms":2000,"event":"end","qid":"q9"'
     assert list(scan_range(buf, 0, len(buf))) == [
-        ((1000, "end", "q0", "ok"), 0),
+        (end_event(1000, "q0", "ok"), 0),
     ]
 
 
@@ -244,8 +285,8 @@ def test_scan_range_skips_a_malformed_line_and_continues():
     tail = b'{"ts-ms":1020,"event":"end","qid":"q2","status":"ok"}\n'
     buf = good + junk + tail
     assert list(scan_range(buf, 0, len(buf))) == [
-        ((1000, "end", "q0", "ok"), 0),
-        ((1020, "end", "q2", "ok"), len(good) + len(junk)),
+        (end_event(1000, "q0", "ok"), 0),
+        (end_event(1020, "q2", "ok"), len(good) + len(junk)),
     ]
 
 
@@ -253,24 +294,24 @@ def test_scan_range_recovers_a_line_via_the_json_fallback():
     # Leading space defeats the fast byte path but is valid JSON.
     buf = b'{ "ts-ms":2000,"event":"end","qid":"q1","status":"ok"}\n'
     assert list(scan_range(buf, 0, len(buf))) == [
-        ((2000, "end", "q1", "ok"), 0),
+        (end_event(2000, "q1", "ok"), 0),
     ]
 
 
 def test_scan_range_parses_a_line_longer_than_head_bytes():
-    # The query blob pushes the line well past HEAD_BYTES, but the
-    # header fields sit in the head slice, so the line still parses
-    # without reading the blob.
+    # The query blob pushes the line well past HEAD_BYTES, but every
+    # header field including the type sits before it in the head slice,
+    # so the line still parses without reading the blob.
     big_query = b"x" * (log_reader.HEAD_BYTES * 4)
     start = (
-        b'{"ts-ms":1000,"event":"start","qid":"q0",'
+        b'{"ts-ms":1000,"event":"start","qid":"q0","type":"update",'
         b'"query":"' + big_query + b'"}\n'
     )
     end = b'{"ts-ms":1010,"event":"end","qid":"q0","status":"ok"}\n'
     buf = start + end
     assert list(scan_range(buf, 0, len(buf))) == [
-        ((1000, "start", "q0", None), 0),
-        ((1010, "end", "q0", "ok"), len(start)),
+        (start_event(1000, "q0", "update"), 0),
+        (end_event(1010, "q0", "ok"), len(start)),
     ]
 
 
@@ -287,8 +328,8 @@ def test_pair_start_end_events_empty_input_yields_empty_outputs():
 
 def test_pair_start_end_events_clean_pair():
     events = [
-        ((1000, "start", "q1", None), 0),
-        ((1050, "end", "q1", "ok"), 100),
+        (start_event(1000, "q1"), 0),
+        (end_event(1050, "q1", "ok"), 100),
     ]
     completed, still_open = pair_start_end_events(iter(events))
     assert completed == [
@@ -303,15 +344,36 @@ def test_pair_start_end_events_clean_pair():
     assert still_open == {}
 
 
+@pytest.mark.parametrize("op_type", ["query", "update"])
+def test_pair_start_end_events_operation_type_flows_through(op_type):
+    # The type is written on the start line, so pairing is what
+    # carries it onto the finished operation.
+    events = [
+        (start_event(1000, "q1", op_type), 0),
+        (end_event(1050, "q1", "ok"), 100),
+    ]
+    completed, _ = pair_start_end_events(iter(events))
+    assert completed[0].op_type == op_type
+
+
+def test_pair_start_end_events_without_type_leaves_it_none():
+    events = [
+        (start_event(1000, "q1"), 0),
+        (end_event(1050, "q1", "ok"), 100),
+    ]
+    completed, _ = pair_start_end_events(iter(events))
+    assert completed[0].op_type is None
+
+
 def test_pair_start_end_events_start_without_end_stays_open():
-    events = [((1000, "start", "q1", None), 42)]
+    events = [(start_event(1000, "q1", "update"), 42)]
     completed, still_open = pair_start_end_events(iter(events))
     assert completed == []
-    assert still_open == {"q1": (1000, 42)}
+    assert still_open == {"q1": (1000, 42, "update")}
 
 
 def test_pair_start_end_events_end_without_start_is_dropped():
-    events = [((1050, "end", "q1", "ok"), 0)]
+    events = [(end_event(1050, "q1", "ok"), 0)]
     completed, still_open = pair_start_end_events(iter(events))
     assert completed == []
     assert still_open == {}
@@ -319,10 +381,10 @@ def test_pair_start_end_events_end_without_start_is_dropped():
 
 def test_pair_start_end_events_interleaved_queries_pair_in_end_order():
     events = [
-        ((1000, "start", "qA", None), 0),
-        ((1010, "start", "qB", None), 100),
-        ((1020, "end", "qB", "ok"), 200),
-        ((1030, "end", "qA", "failed"), 300),
+        (start_event(1000, "qA"), 0),
+        (start_event(1010, "qB"), 100),
+        (end_event(1020, "qB", "ok"), 200),
+        (end_event(1030, "qA", "failed"), 300),
     ]
     completed, still_open = pair_start_end_events(iter(events))
     assert completed == [
@@ -348,10 +410,10 @@ def test_pair_start_end_events_pairs_by_qid_not_file_order():
     # qA's end is written before qB's start (timestamps out of order),
     # but pairing is by qid so each query gets its own duration.
     events = [
-        ((1000, "start", "qA", None), 0),
-        ((1100, "start", "qB", None), 100),
-        ((1050, "end", "qA", "ok"), 200),
-        ((1150, "end", "qB", "ok"), 300),
+        (start_event(1000, "qA"), 0),
+        (start_event(1100, "qB"), 100),
+        (end_event(1050, "qA", "ok"), 200),
+        (end_event(1150, "qB", "ok"), 300),
     ]
     completed, _ = pair_start_end_events(iter(events))
     assert completed == [
@@ -375,8 +437,8 @@ def test_pair_start_end_events_pairs_by_qid_not_file_order():
 @pytest.mark.parametrize("status", VALID_STATUSES)
 def test_pair_start_end_events_status_flows_through(status):
     events = [
-        ((1000, "start", "q1", None), 0),
-        ((1050, "end", "q1", status), 100),
+        (start_event(1000, "q1"), 0),
+        (end_event(1050, "q1", status), 100),
     ]
     completed, _ = pair_start_end_events(iter(events))
     assert completed[0].status == status
@@ -625,6 +687,55 @@ def test_read_last_timestamp_handles_a_long_last_line():
         b'"query":"' + long_query + b'"}\n'
     )
     assert read_last_timestamp(line) == 1000
+
+
+def write_metrics_log(tmp_path, text):
+    """Write a metrics log to a temp file and return its path."""
+    path = tmp_path / "metrics.jsonl"
+    path.write_bytes(text)
+    return path
+
+
+def test_log_has_operation_types_last_start_line_has_one(tmp_path):
+    path = write_metrics_log(tmp_path, START + b"\n" + END + b"\n")
+    assert log_has_operation_types(path) is True
+
+
+def test_log_has_operation_types_last_start_line_has_none(tmp_path):
+    path = write_metrics_log(tmp_path, START_NO_TYPE + b"\n" + END + b"\n")
+    assert log_has_operation_types(path) is False
+
+
+def test_log_has_operation_types_reads_the_last_start_not_the_first(tmp_path):
+    # A log spanning a server upgrade holds both kinds. What the server
+    # writes now is what decides whether the plot is worth offering.
+    path = write_metrics_log(
+        tmp_path, START_NO_TYPE + b"\n" + END + b"\n" + START + b"\n"
+    )
+    assert log_has_operation_types(path) is True
+
+
+def test_log_has_operation_types_ignores_a_long_query_after_it(tmp_path):
+    # The type sits before the query blob, so the search never has to
+    # enter it.
+    line = (
+        b'{"ts-ms":1,"event":"start","qid":"q1","type":"update",'
+        b'"query":"' + b"x" * (64 * 1024) + b'"}\n'
+    )
+    assert log_has_operation_types(write_metrics_log(tmp_path, line)) is True
+
+
+def test_log_has_operation_types_no_start_line_at_all(tmp_path):
+    path = write_metrics_log(tmp_path, END + b"\n")
+    assert log_has_operation_types(path) is False
+
+
+def test_log_has_operation_types_empty_file(tmp_path):
+    assert log_has_operation_types(write_metrics_log(tmp_path, b"")) is False
+
+
+def test_log_has_operation_types_missing_file(tmp_path):
+    assert log_has_operation_types(tmp_path / "nope.jsonl") is False
 
 
 def test_read_first_timestamp_returns_first_complete_line_ts():

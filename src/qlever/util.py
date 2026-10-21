@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import errno
 import glob
+import os
 import re
 import secrets
 import shlex
 import shutil
+import signal
 import socket
 import string
 import subprocess
@@ -412,14 +415,161 @@ def stop_process_with_regex(cmdline_regex: str) -> list[bool] | None:
                 f"{pinfo['username']} with command line: {cmdline}"
             )
             log.info("")
+            # A process that `start` runs as a systemd user service would
+            # just be restarted after a kill, so stop its unit instead.
+            unit = systemd_unit_of_process(pinfo["pid"])
+            if unit is not None and stop_systemd_unit(unit):
+                log.info(
+                    f'The process runs as systemd unit "{unit}", '
+                    "which is now stopped"
+                )
+                stop_process_results.append(True)
+                continue
             stop_process_results.append(stop_process(proc, pinfo))
     return stop_process_results
 
 
-def binary_exists(binary: str, cmd_arg: str, args) -> bool:
+def systemd_unit_name(name: str) -> str:
     """
-    Check if the binary exists on the user's system. If running inside a
-    container, check if the binary exists inside the container system.
+    The name of the transient systemd user service in which `start` runs the
+    server for the dataset with the given `name` (if it runs it as such a
+    service, see `start`).
+    """
+    return f"qlever.server.{name}"
+
+
+def systemd_user_env() -> dict[str, str]:
+    """
+    The environment for `systemctl --user`, `systemd-run --user`, and
+    `loginctl`. Outside of a login session (for example, in a cron job), the
+    variables that point to the user's systemd instance are not set, so they
+    are filled in with their standard values.
+    """
+    env = os.environ.copy()
+    runtime_dir = env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    env.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path={runtime_dir}/bus")
+    return env
+
+
+def systemd_linger_status() -> str | None:
+    """
+    Whether lingering is enabled for the current user ("yes" or "no"), that
+    is, whether the user's systemd instance and its services keep running
+    after the last login session ends. `None` if `loginctl` cannot tell (no
+    systemd, or no user instance).
+    """
+    if shutil.which("loginctl") is None:
+        return None
+    result = subprocess.run(
+        ["loginctl", "show-user", str(os.getuid()), "-p", "Linger", "--value"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=systemd_user_env(),
+    )
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def systemd_unit_property(unit: str, name: str) -> str | None:
+    """
+    The value of the property `name` of the systemd user service `unit`, as
+    `systemctl show` prints it. `None` if there is no `systemctl` or it
+    fails (for example, without a user instance of systemd).
+    """
+    if shutil.which("systemctl") is None:
+        return None
+    result = subprocess.run(
+        ["systemctl", "--user", "show", unit, "-p", name, "--value"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=systemd_user_env(),
+    )
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def systemd_unit_is_loaded(unit: str) -> bool:
+    """
+    Whether the systemd user service `unit` currently exists (active,
+    restarting, or failed). `False` if there is no `systemctl`.
+    """
+    return systemd_unit_property(unit, "LoadState") == "loaded"
+
+
+def systemd_unit_is_active(unit: str) -> bool:
+    """
+    Whether the systemd user service `unit` is active, that is, the server
+    process is running (not restarting after a crash, not failed). `False`
+    if there is no `systemctl`.
+    """
+    if shutil.which("systemctl") is None:
+        return False
+    result = subprocess.run(
+        ["systemctl", "--user", "is-active", "--quiet", unit],
+        capture_output=True,
+        check=False,
+        env=systemd_user_env(),
+    )
+    return result.returncode == 0
+
+
+def systemd_unit_of_process(pid: int) -> str | None:
+    """
+    The systemd user service in which `start` runs the process with the given
+    `pid` (see `systemd_unit_name`), or `None` if it does not run in one. This
+    is read from the control group of the process, so it also finds a server
+    that was started under another name or from another directory.
+    """
+    try:
+        cgroup = Path(f"/proc/{pid}/cgroup").read_text()
+    except OSError:
+        return None
+    match = re.search(r"/(qlever\.server\.[^/]+)\.service", cgroup)
+    return match.group(1) if match else None
+
+
+def systemd_unit_restarts(unit: str) -> int:
+    """
+    How often systemd has restarted the server of the systemd user service
+    `unit` since the unit was created. `0` if there is no `systemctl` or no
+    such unit.
+    """
+    restarts = systemd_unit_property(unit, "NRestarts")
+    return int(restarts) if restarts and restarts.isdigit() else 0
+
+
+def stop_systemd_unit(unit: str) -> bool:
+    """
+    Stop the systemd user service `unit` if it exists (this also ends the
+    automatic restarts) and forget it. Return `True` iff it existed and could
+    be stopped (a failure is logged).
+    """
+    if not systemd_unit_is_loaded(unit):
+        return False
+    result = subprocess.run(
+        ["systemctl", "--user", "stop", unit],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=systemd_user_env(),
+    )
+    if result.returncode != 0:
+        reason = result.stderr.strip() or f"exit code {result.returncode}"
+        log.error(f'Could not stop systemd unit "{unit}": {reason}')
+        return False
+    subprocess.run(
+        ["systemctl", "--user", "reset-failed", unit],
+        capture_output=True,
+        check=False,
+        env=systemd_user_env(),
+    )
+    return True
+
+
+def binary_help_command(binary: str, args) -> str:
+    """
+    The command that runs `binary --help` (inside the container system if
+    `--system` is one, using the image from `--image`).
     """
     from qlever.containerize import Containerize
 
@@ -435,9 +585,19 @@ def binary_exists(binary: str, cmd_arg: str, args) -> bool:
             volumes=[("$(pwd)", "/index")],
             working_directory="/index",
         )
+    return cmd
 
+
+def binary_exists(binary: str, cmd_arg: str, args) -> bool:
+    """
+    Check if the binary exists on the user's system. If running inside a
+    container, check if the binary exists inside the container system.
+    """
+    from qlever.containerize import Containerize
+
+    is_containerized = args.system in Containerize.supported_systems()
     try:
-        run_command(cmd)
+        run_command(binary_help_command(binary, args))
         return True
     except Exception as e:
         if is_containerized and (
@@ -757,11 +917,19 @@ def add_memory_options(subparser, index=True, server=True):
 def tail_log_file(
     log_file: Path,
     max_wait_seconds: int = 30,
+    from_beginning: bool = True,
+    stop_after: str | None = None,
 ) -> subprocess.Popen | None:
     """
-    Wait for the log file to appear and start tailing it from the
-    beginning. The old log file should be deleted before calling this
-    function.
+    Wait for the log file to appear and start tailing it. With
+    `from_beginning`, the whole file is shown (this assumes that the log
+    file of a previous run was deleted or rotated away before calling
+    this function); otherwise, only lines written after the tail starts
+    are shown (for a log file that is appended to). With `stop_after` (a
+    regular expression), the tail stops by itself after the first line that
+    matches it (for example, the line that says that the server is ready);
+    if no such line comes, it runs until the caller stops it via
+    `stop_tailing`.
 
     Returns the tail process, or None if the log file was not created
     within `max_wait_seconds`.
@@ -776,8 +944,36 @@ def tail_log_file(
             return None
         time.sleep(0.1)
         waited += 0.1
-    tail_cmd = f"exec tail -n +1 -f {log_file}"
-    return subprocess.Popen(tail_cmd, shell=True)
+    tail_from = "+1" if from_beginning else "0"
+    tail_cmd = f"tail -n {tail_from} -f {shlex.quote(str(log_file))}"
+    if stop_after is not None:
+        # The `awk` prints each line right away and quits after the first line
+        # that matches `stop_after` (passed as data, so that it can be any
+        # regular expression). The `tail` then ends by itself, either at once
+        # (GNU `tail` notices that its output is gone) or with the next line
+        # it cannot write, and `stop_tailing` gets it in any case. (Not
+        # `sed -u`, which is GNU-only.)
+        tail_cmd += (
+            f" | awk -v pattern={shlex.quote(stop_after)}"
+            " '{print; fflush()} $0 ~ pattern {exit}'"
+        )
+    # In a session of its own, so that `stop_tailing` can end the whole
+    # pipeline, not just the shell that runs it.
+    return subprocess.Popen(tail_cmd, shell=True, start_new_session=True)
+
+
+def stop_tailing(tail_proc: subprocess.Popen) -> None:
+    """
+    Stop a tail started by `tail_log_file`, including the filter behind it.
+    """
+    # Only ever signal the process group of a real child. In particular,
+    # `killpg(1)` would be `kill(-1)`, a signal to every process of the user
+    # (which happened once with a mocked `Popen` in a test).
+    pid = tail_proc.pid
+    if not isinstance(pid, int) or pid <= 1:
+        return
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(pid, signal.SIGTERM)
 
 
 def parse_git_hash(log_path: Path) -> str | None:

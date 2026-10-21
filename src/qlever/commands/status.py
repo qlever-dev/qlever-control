@@ -26,7 +26,11 @@ class StatusCommand(QleverCommand):
     def additional_arguments(self, subparser) -> None:
         subparser.add_argument(
             "--cmdline-regex",
-            default="^(qlever-server|qlever-index)",
+            # A server that runs as a systemd unit (see `start`) has the
+            # absolute path of its binary in its command line, because
+            # `systemd-run` resolves it; a server started with `nohup` has
+            # the name as given in `SERVER_BINARY`.
+            default=r"^(\S*/)?(qlever-server|qlever-index)",
             help="Show only processes where the command "
             "line matches this regex",
         )

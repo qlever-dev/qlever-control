@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import contextlib
+import os
+import platform
 import shlex
+import shutil
 import subprocess
 import time
 from collections.abc import Callable
@@ -20,14 +23,24 @@ from qlever.log import log
 from qlever.qleverfile import Qleverfile
 from qlever.util import (
     binary_exists,
+    binary_help_command,
     is_qlever_server_alive,
     run_command,
+    stop_systemd_unit,
+    stop_tailing,
+    systemd_linger_status,
+    systemd_unit_is_active,
+    systemd_unit_name,
+    systemd_unit_restarts,
+    systemd_user_env,
     tail_log_file,
 )
 
 
-# Construct the command line based on the config file.
-def construct_command(args) -> str:
+# Construct the command line based on the config file. With `use_systemd`,
+# the command has no redirect of its output, because the systemd unit takes
+# care of the log (see `wrap_command_in_systemd_unit`).
+def construct_command(args, use_systemd: bool = False) -> str:
     start_cmd = (
         f"{args.server_binary}"
         f" -i {args.name}"
@@ -43,6 +56,12 @@ def construct_command(args) -> str:
         start_cmd += f" -s {args.timeout}"
     if args.access_token:
         start_cmd += f" -a {args.access_token}"
+    if args.description:
+        start_cmd += f" --index-description {shlex.quote(args.description)}"
+    if args.text_description:
+        start_cmd += (
+            f" --text-description {shlex.quote(args.text_description)}"
+        )
     if args.persist_updates:
         start_cmd += " --persist-updates"
     # Only pass the flags for non-default values, so that older server
@@ -94,14 +113,23 @@ def construct_command(args) -> str:
             f" {shlex.quote(view_name)}"
             for view_name in preload_materialized_views
         )
-    start_cmd += f" > {args.name}.server-log.txt 2>&1"
+    if use_systemd:
+        return start_cmd
+    if args.server_log_mode == "no-log":
+        # No log file is written. In the foreground, the server output
+        # goes to the terminal; in the background, it is discarded.
+        if not args.run_in_foreground:
+            start_cmd += " > /dev/null 2>&1"
+    else:
+        redirect = ">>" if args.server_log_mode == "append" else ">"
+        start_cmd += f" {redirect} {args.name}.server-log.txt 2>&1"
     return start_cmd
 
 
 # Kill existing server on the same port. Trust that StopCommand() works?
 # Maybe return StopCommand().execute(args) and handle it with a try except?
 def kill_existing_server(args) -> bool:
-    args.cmdline_regex = f"^qlever-server.* -p {args.port}"
+    args.cmdline_regex = rf"^(\S*/)?qlever-server.* -p {args.port}"
     args.no_containers = True
     if not StopCommand().execute(args):
         log.error("Stopping the existing server failed")
@@ -126,40 +154,89 @@ def wrap_command_in_container(args, start_cmd) -> str:
         volumes=[("$(pwd)", "/index")],
         ports=[(args.port, args.port)],
         working_directory="/index",
+        seccomp_profile=args.seccomp_profile,
     )
     return start_cmd
 
 
-# Set the index description.
-def set_index_description(access_arg, port, desc) -> bool:
-    curl_cmd = (
-        f"curl -Gs http://localhost:{port}/api"
-        f' --data-urlencode "index-description={desc}"'
-        f" {access_arg} > /dev/null"
+# Run the command as a transient systemd user service. Like a container with
+# a restart policy, the service restarts the server after a crash, and it has
+# to be stopped via `systemctl` (which `stop` does). Unlike a container, the
+# server runs natively, in the current directory.
+def wrap_command_in_systemd_unit(args, start_cmd) -> str:
+    # Outside of a login session (cron), point `systemd-run` to the user's
+    # systemd instance (see `systemd_user_env`).
+    env = systemd_user_env()
+    prefix = "".join(
+        f"{var}={env[var]} "
+        for var in ("XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")
+        if var not in os.environ
     )
-    log.debug(curl_cmd)
-    try:
-        run_command(curl_cmd)
-    except Exception as e:
-        log.error(f"Setting the index description failed ({e})")
-        return False
-    return True
+    # For systemd, a server killed with `SIGTERM` (as `earlyoom` does it) has
+    # exited cleanly, so only `always` also covers that case. By default, the
+    # server is restarted at once (it can rebind its port right away), and
+    # the start limit ends a crash loop (a server that dies right after each
+    # start); see `--restart-delay`, `--restart-limit` and
+    # `--restart-limit-interval`.
+    restart = (
+        "always"
+        if args.restart_policy == "unless-stopped"
+        else args.restart_policy
+    )
+    unit_cmd = (
+        f"{prefix}systemd-run --user"
+        f" --unit {shlex.quote(systemd_unit_name(args.name))}"
+        ' --working-directory "$(pwd)"'
+        f" -p Restart={restart}"
+        f" -p RestartSec={shlex.quote(args.restart_delay)}"
+        f" -p StartLimitIntervalSec={shlex.quote(args.restart_limit_interval)}"
+        f" -p StartLimitBurst={args.restart_limit}"
+        " -p Delegate=yes"
+    )
+    # The server log is appended by the unit, so that a restart after a crash
+    # does not truncate the log of the crashed run. The rotation or removal
+    # of an existing log according to `--server-log-mode` still happens in
+    # `execute`, before the unit is created.
+    if args.server_log_mode == "no-log":
+        unit_cmd += " -p StandardOutput=null"
+    else:
+        # The path has to be absolute.
+        unit_cmd += (
+            ' -p StandardOutput=append:"$(pwd)"/'
+            f"{shlex.quote(args.name + '.server-log.txt')}"
+        )
+    unit_cmd += " -p StandardError=inherit"
+    return f"{unit_cmd} {start_cmd}"
 
 
-# Set the text description.
-def set_text_description(access_arg, port, text_desc) -> bool:
-    curl_cmd = (
-        f"curl -Gs http://localhost:{port}/api"
-        f' --data-urlencode "text-description={text_desc}"'
-        f" {access_arg} > /dev/null"
-    )
-    log.debug(curl_cmd)
+# Whether a native server can run as a systemd user service that restarts it
+# after a crash. Returns "ok", "no-systemd" (not Linux, no `systemd-run`, or no
+# user instance of systemd), or "no-linger" (lingering is not enabled for the
+# user, so the service would end together with the login session).
+def check_systemd_for_restarts() -> str:
+    if platform.system() != "Linux" or shutil.which("systemd-run") is None:
+        return "no-systemd"
+    linger = systemd_linger_status()
+    if linger is None:
+        return "no-systemd"
+    return "ok" if linger == "yes" else "no-linger"
+
+
+def server_supports_description_options(args) -> bool:
+    """
+    Whether the server binary knows the options `--index-description` and
+    `--text-description` (added to `qlever-server` in September 2026),
+    according to its `--help` output. A binary that cannot be run at all
+    counts as supporting them, so that the subsequent `binary_exists` check
+    reports the actual problem.
+    """
     try:
-        run_command(curl_cmd)
-    except Exception as e:
-        log.error(f"Setting the text description failed ({e})")
-        return False
-    return True
+        help_text = run_command(
+            binary_help_command(args.server_binary, args), return_output=True
+        )
+    except Exception:
+        return True
+    return "--index-description" in help_text
 
 
 def get_runtime_parameters_from_qleverfile(args) -> list[str]:
@@ -201,6 +278,22 @@ def merge_runtime_parameters(
     return list(merged.values())
 
 
+def rotate_server_log(log_file: Path) -> None:
+    """
+    Move an existing server log to `<log>.1`, first shifting all older
+    generations up by one (`<log>.1` -> `<log>.2`, ...). All generations
+    are kept.
+    """
+    if not log_file.exists():
+        return
+    num_old = 0
+    while Path(f"{log_file}.{num_old + 1}").exists():
+        num_old += 1
+    for i in range(num_old, 0, -1):
+        Path(f"{log_file}.{i}").rename(f"{log_file}.{i + 1}")
+    log_file.rename(f"{log_file}.1")
+
+
 def show_log_follow_info(log_name: str, run_in_foreground: bool) -> None:
     """
     Tell the user which log is being followed, until when, and what
@@ -222,16 +315,29 @@ def show_log_follow_info(log_name: str, run_in_foreground: bool) -> None:
 
 
 def make_server_liveness_check(
-    args, process: subprocess.Popen | None, pid: int | None
+    args,
+    process: subprocess.Popen | None,
+    pid: int | None,
+    use_systemd: bool = False,
 ) -> Callable[[], bool]:
     """
     Build a check that tells whether the server is still running: via the
-    container runtime, via the `Popen` handle (foreground), or via the
-    `pid` of the process started with `nohup`.
+    container runtime, via systemd, via the `Popen` handle (foreground), or
+    via the `pid` of the process started with `nohup`.
     """
     if args.system in Containerize.supported_systems():
         return lambda: Containerize.is_running(
             args.system, args.server_container
+        )
+    if use_systemd:
+        # A server that dies during the start is restarted by systemd, with
+        # no delay by default, so the unit can already be active again when
+        # it is checked. The unit is new (`execute` removes a leftover one
+        # before the start), so any restart counted on it means that the
+        # server has died.
+        unit = systemd_unit_name(args.name)
+        return lambda: (
+            systemd_unit_is_active(unit) and systemd_unit_restarts(unit) == 0
         )
     if args.run_in_foreground:
         return lambda: process.poll() is None
@@ -259,7 +365,7 @@ def wait_until_server_ready(
 
 def wait_for_foreground_server(
     process: subprocess.Popen,
-    log_proc: subprocess.Popen,
+    log_proc: subprocess.Popen | None,
     on_interrupt: Callable[[], None],
 ) -> None:
     """
@@ -274,7 +380,8 @@ def wait_for_foreground_server(
         log.info("")
         process.terminate()
         on_interrupt()
-    log_proc.terminate()
+    if log_proc is not None:
+        stop_tailing(log_proc)
 
 
 class StartCommand(QleverCommand):
@@ -319,6 +426,7 @@ class StartCommand(QleverCommand):
                 "resource_usage_log",
                 "resource_usage_interval",
                 "preload_materialized_views",
+                "server_log_mode",
                 "warmup_cmd",
                 "enable_metrics",
             ],
@@ -327,6 +435,10 @@ class StartCommand(QleverCommand):
                 "image",
                 "server_container",
                 "restart_policy",
+                "restart_delay",
+                "restart_limit",
+                "restart_limit_interval",
+                "seccomp_profile",
             ],
         }
 
@@ -365,12 +477,19 @@ class StartCommand(QleverCommand):
         # Set the endpoint URL.
         args.endpoint_url = f"http://{args.host_name}:{args.port}"
 
+        # The restart policy has no default in the Qleverfile, so that an
+        # explicitly set policy can be told apart from the default (which
+        # only applies where automatic restarts are possible, see below).
+        restart_policy_is_explicit = args.restart_policy is not None
+        if not restart_policy_is_explicit:
+            args.restart_policy = "unless-stopped"
+
         # Kill existing server with the same name if so desired.
         #
         # TODO: This is currently disabled because I never used it once over
         # the past weeks and it is not clear to me what the use case is.
         if False:  # or args.kill_existing_with_same_name:
-            args.cmdline_regex = f"^qlever-server.* -i {args.name}"
+            args.cmdline_regex = rf"^(\S*/)?qlever-server.* -i {args.name}"
             args.no_containers = True
             StopCommand().execute(args)
             log.info("")
@@ -380,14 +499,75 @@ class StartCommand(QleverCommand):
             if not kill_existing_server(args):
                 return False
 
-        # Construct the command line based on the config file.
-        start_cmd = construct_command(args)
+        # The descriptions are options of the server binary since September
+        # 2026. With an older binary, start without them and say so (there is
+        # deliberately no fallback to setting them via the API afterwards).
+        if (
+            not args.show
+            and (args.description or args.text_description)
+            and not server_supports_description_options(args)
+        ):
+            log.warning(
+                "The server binary does not know the options "
+                "`--index-description` and `--text-description`, so the "
+                "descriptions from the Qleverfile are NOT set. Please use the "
+                "latest version of `qlever-server`"
+                + (
+                    f" (`{args.system} pull {args.image}`)"
+                    if args.system in Containerize.supported_systems()
+                    else ""
+                )
+            )
+            log.info("")
+            args.description = None
+            args.text_description = None
 
-        # Run the command in a container (if so desired). Otherwise run with
-        # `nohup` so that it keeps running after the shell is closed. With
-        # `--run-in-foreground`, run the server in the foreground.
+        # A native server with a restart policy runs as a systemd user service
+        # (see `wrap_command_in_systemd_unit`), if that is possible. If not,
+        # an explicitly set policy is an error, the default just falls back
+        # to `nohup`.
+        use_systemd = False
+        if (
+            args.system == "native"
+            and not args.run_in_foreground
+            and args.restart_policy != "no"
+        ):
+            status = check_systemd_for_restarts()
+            if status == "ok":
+                use_systemd = True
+            elif status == "no-systemd":
+                message = (
+                    "Automatic restarts of the server (see "
+                    "`--restart-policy`) are not available on this system, "
+                    "they need systemd"
+                )
+                if restart_policy_is_explicit:
+                    log.error(message)
+                    return False
+                log.info(f"{message}, starting without them")
+                log.info("")
+            else:
+                log.warning(
+                    "Automatic restarts of the server (see "
+                    "`--restart-policy`) need lingering to be enabled for "
+                    "your user, so that the server survives the end of your "
+                    "login session. Enable it once with `loginctl "
+                    "enable-linger`. Until then, the server starts without "
+                    "automatic restarts"
+                )
+                log.info("")
+
+        # Construct the command line based on the config file.
+        start_cmd = construct_command(args, use_systemd)
+
+        # Run the command in a container or as a systemd service (see above).
+        # Otherwise run with `nohup` so that it keeps running after the shell
+        # is closed. With `--run-in-foreground`, run the server in the
+        # foreground.
         if args.system in Containerize.supported_systems():
             start_cmd = wrap_command_in_container(args, start_cmd)
+        elif use_systemd:
+            start_cmd = wrap_command_in_systemd_unit(args, start_cmd)
         elif args.run_in_foreground:
             start_cmd = f"{start_cmd}"
         else:
@@ -418,10 +598,18 @@ class StartCommand(QleverCommand):
             )
 
             # Show output of status command.
-            args.cmdline_regex = f"^qlever-server.* -p *{args.port}"
+            args.cmdline_regex = rf"^(\S*/)?qlever-server.* -p *{args.port}"
             log.info("")
             StatusCommand().execute(args)
             return False
+
+        # A leftover unit from a previous start (for example, one that hit
+        # the start limit after a crash loop) would prevent the new one.
+        if use_systemd:
+            unit = systemd_unit_name(args.name)
+            if stop_systemd_unit(unit):
+                log.info(f'Removed the leftover systemd unit "{unit}"')
+                log.info("")
 
         # Remove already existing container.
         if (
@@ -442,10 +630,17 @@ class StartCommand(QleverCommand):
         #                   f" (use `lsof -i :{port}` to find out which one)")
         #         return False
 
-        # Remove old log file so that the wait loop below correctly
-        # waits for the server to create a fresh one.
+        # Handle an existing log file from a previous server run according
+        # to `--server-log-mode`: keep it and append (`append`), remove it
+        # (`overwrite`), move it to `.1`, `.2`, ... (`rotate`, the
+        # default), or write no log at all (`no-log`). For `overwrite` and
+        # `rotate`, the wait loop below then correctly waits for the server
+        # to create a fresh log.
         log_file = Path(f"{args.name}.server-log.txt")
-        log_file.unlink(missing_ok=True)
+        if args.server_log_mode == "rotate":
+            rotate_server_log(log_file)
+        elif args.server_log_mode == "overwrite":
+            log_file.unlink(missing_ok=True)
 
         # Execute the command line.
         # For a server started with `nohup`, the `echo $!` in the command
@@ -455,6 +650,7 @@ class StartCommand(QleverCommand):
         capture_pid = (
             not args.run_in_foreground
             and args.system not in Containerize.supported_systems()
+            and not use_systemd
         )
         pid = None
         try:
@@ -464,10 +660,22 @@ class StartCommand(QleverCommand):
                 with contextlib.suppress(ValueError, AttributeError):
                     pid = int(output.strip().splitlines()[-1])
             else:
-                process = run_command(
-                    start_cmd,
-                    use_popen=args.run_in_foreground,
-                )
+                # For `no-log` in the foreground, the command has no
+                # redirection, so the output must go to the terminal
+                # (otherwise it would fill a pipe that nobody reads and
+                # eventually block the server).
+                if args.run_in_foreground and args.server_log_mode == "no-log":
+                    process = run_command(
+                        start_cmd,
+                        use_popen=True,
+                        show_output=True,
+                        show_stderr=True,
+                    )
+                else:
+                    process = run_command(
+                        start_cmd,
+                        use_popen=args.run_in_foreground,
+                    )
         except Exception as e:
             log.error(f"Starting the QLever server failed ({e})")
             return False
@@ -475,35 +683,59 @@ class StartCommand(QleverCommand):
         # Tail the server log until the server is ready (note that the `exec`
         # is important to make sure that the tail process is killed and not
         # just the bash process).
-        show_log_follow_info(str(log_file), args.run_in_foreground)
-        tail_proc = tail_log_file(log_file)
-        if tail_proc is None:
-            return False
-        if not wait_until_server_ready(
-            lambda: is_qlever_server_alive(args.endpoint_url),
-            make_server_liveness_check(args, process, pid),
-        ):
-            tail_proc.terminate()
+        if args.server_log_mode == "no-log":
+            if args.run_in_foreground:
+                log.info(
+                    "No server log is written, the server output goes to "
+                    "this terminal (Ctrl-C stops the server)"
+                )
+            else:
+                log.info("Server log disabled (`--server-log-mode no-log`)")
+            log.info("")
+            tail_proc = None
+        else:
+            show_log_follow_info(str(log_file), args.run_in_foreground)
+            # With `append`, only follow what the new server run writes,
+            # not the content of the previous runs. In the background, stop
+            # following the log as soon as the server says it is ready
+            # (the queries that a busy server logs right after that would
+            # otherwise scroll the startup messages away).
+            tail_proc = tail_log_file(
+                log_file,
+                from_beginning=args.server_log_mode != "append",
+                stop_after=None
+                if args.run_in_foreground
+                else "The server is ready",
+            )
+            if tail_proc is None:
+                if use_systemd:
+                    stop_systemd_unit(systemd_unit_name(args.name))
+                return False
+        try:
+            server_ready = wait_until_server_ready(
+                lambda: is_qlever_server_alive(args.endpoint_url),
+                make_server_liveness_check(args, process, pid, use_systemd),
+            )
+        except KeyboardInterrupt:
+            # The tail runs in a session of its own (see `tail_log_file`), so
+            # the Ctrl-C does not reach it.
+            if tail_proc is not None:
+                stop_tailing(tail_proc)
+            raise
+        if not server_ready:
+            if tail_proc is not None:
+                stop_tailing(tail_proc)
+            # A server that dies before it is ready has a problem with its
+            # configuration or its index, which restarting does not solve. So
+            # stop the unit right away, instead of letting it restart the
+            # server again and again until the start limit is reached.
+            if use_systemd:
+                stop_systemd_unit(systemd_unit_name(args.name))
             return False
 
-        # Set the description for the index and text.
-        access_arg = f'--data-urlencode "access-token={args.access_token}"'
-        if args.description:
-            ret = set_index_description(
-                access_arg, args.port, args.description
-            )
-            if not ret:
-                return False
-        if args.text_description:
-            ret = set_text_description(
-                access_arg, args.port, args.text_description
-            )
-            if not ret:
-                return False
-
-        # Kill the tail process. NOTE: `tail_proc.kill()` does not work.
-        if not args.run_in_foreground:
-            tail_proc.terminate()
+        # Stop following the log.
+        if not args.run_in_foreground and tail_proc is not None:
+            stop_tailing(tail_proc)
 
         # Execute the warmup command.
         if args.warmup_cmd and not args.no_warmup:

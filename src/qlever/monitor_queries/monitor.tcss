@@ -2,7 +2,7 @@
 
 HeaderRow {
     height: 1;
-    background: $primary;
+    background: $panel;
     color: $text;
 }
 
@@ -12,7 +12,28 @@ HeaderRow {
 
 .slot-center {
     width: 1fr;
-    text-align: center;
+    height: 1;
+    align-horizontal: center;
+}
+
+/* Full strength, not the 87% $text the rest of the bar inherits. */
+
+.title {
+    width: auto;
+    color: $foreground;
+    text-style: bold;
+}
+
+#help-badge {
+    display: none;
+}
+
+.-help #help-badge {
+    display: block;
+    width: auto;
+    margin-left: 2;
+    background: $success;
+    color: $text;
     text-style: bold;
 }
 
@@ -23,8 +44,12 @@ ThemeSelect {
 }
 
 ThemeSelect > SelectCurrent {
-    background: $accent;
+    background: $primary;
     padding: 0 1;
+}
+
+ThemeSelect > SelectCurrent:hover {
+    background: $primary-lighten-2;
 }
 
 ThemeSelect > SelectCurrent #label {
@@ -45,14 +70,14 @@ NavPill {
     width: auto;
     min-width: 18;
     padding: 0 1;
-    background: $accent;
+    background: $primary;
     color: $text;
     text-style: bold;
     text-align: center;
 }
 
 NavPill:hover {
-    background: $accent-lighten-2;
+    background: $primary-lighten-2;
 }
 
 /* ResourceRow: RSS sparkline | server status | CPU sparkline.
@@ -84,7 +109,18 @@ ResourceRow .resource-center {
     box-sizing: content-box;
     height: 3;
     padding: 0 4;
-    content-align: center bottom;
+}
+
+/* The stepper takes the row the sparkline titles sit on, so it names
+   the span the bars either side of it cover. */
+ResourceRow WindowStepper {
+    width: 100%;
+    height: 1;
+    align-horizontal: center;
+}
+
+ResourceRow .resource-status {
+    height: 2;
     text-align: center;
     text-style: italic;
     color: $text;
@@ -93,6 +129,7 @@ ResourceRow .resource-center {
 /* MetricsRow */
 
 MetricsRow {
+    width: 1fr;
     height: 3;
     margin-bottom: 1;
     margin-left: 1;
@@ -108,13 +145,65 @@ ResourceRow.stale {
     text-opacity: 50%;
 }
 
+/* A plot whose window is still being read. text-opacity again, since
+   plotext colors its lines inline. */
+ResourcePlotPane.stale {
+    text-opacity: 50%;
+}
+
 /* Timeline (Historic only) */
 
-Timeline {
+TimelineRow {
     height: 2;
     margin-bottom: 1;
     margin-left: 1;
     margin-right: 1;
+}
+
+Timeline {
+    width: 1fr;
+    height: 2;
+}
+
+/* Two stacked controls per side, glyphs kept against the timeline so
+   they line up; the key labels sit on the outside. */
+
+.timeline-controls {
+    width: auto;
+    height: 2;
+}
+
+.timeline-controls.-left {
+    align-horizontal: right;
+}
+
+.timeline-control {
+    width: auto;
+    height: 1;
+}
+
+.timeline-arrow,
+.range-arrow {
+    width: auto;
+    padding: 0 1;
+}
+
+.timeline-arrow:hover,
+.range-arrow:hover {
+    background: $primary-lighten-2;
+}
+
+/* One width for every key label here, so a longer one cannot push its
+   arrow out of line with the arrow above it. Fits the widest, "⇧ →". */
+
+.-help .timeline-control .key-pill {
+    width: 5;
+    text-align: center;
+}
+
+.timeline-arrow:disabled,
+.range-arrow:disabled {
+    color: $text-disabled;
 }
 
 /* Historic's MetricsRow is a single line; the global rule above
@@ -122,6 +211,26 @@ Timeline {
 
 HistoricScreen MetricsRow {
     height: auto;
+}
+
+/* The metrics line with its screen's button parked at the end */
+
+#metrics-filter-row, #metrics-freeze-row {
+    height: auto;
+}
+
+/* The buttons parked at the right end of a row, in one rule so they
+   cannot drift apart. */
+
+#edit-filter, #freeze, #clear-filters {
+    min-width: 0;
+    padding: 0 2;
+    margin-right: 2;
+    text-style: bold;
+}
+
+#edit-filter:hover, #freeze:hover, #clear-filters:hover {
+    background: $primary-lighten-2;
 }
 
 /* query tables (Live + Historic) */
@@ -135,6 +244,13 @@ QueryTable {
 
 QueryTable > .datatable--cursor {
     background: $secondary;
+    color: $text;
+}
+
+/* Clicking a header sorts by it, which nothing else says. */
+
+HistoricQueryTable > .datatable--header-hover {
+    background: $primary-lighten-2;
     color: $text;
 }
 
@@ -157,6 +273,40 @@ QueryTable.stale > .datatable--header {
     display: none;
 }
 
+#filter-summary {
+    width: 1fr;
+    height: 1;
+}
+
+/* help row above the table; hidden until help mode */
+
+#table-help {
+    height: 1;
+    padding: 0 1;
+    background: $boost;
+    color: $text-muted;
+    display: none;
+}
+
+.-help #table-help {
+    display: block;
+}
+
+/* Key labels next to the controls they belong to */
+
+.key-pill {
+    display: none;
+}
+
+.-help .key-pill {
+    display: block;
+    width: auto;
+    padding: 0 1;
+    background: $success;
+    color: $text;
+    text-style: bold;
+}
+
 /* table status line; a muted caption flush under the table reads as part of it */
 
 #table-status {
@@ -165,9 +315,88 @@ QueryTable.stale > .datatable--header {
     color: $text-muted;
 }
 
+/* DetailRow: the detail pane with a gutter of controls each side */
+
+/* One panel behind both panes and the gutter, so the detail area reads
+   as a single region. The plot draws no background of its own, so this
+   shows through it too. */
+
+#detail-row {
+    height: 1fr;
+    background: $boost;
+}
+
+/* Centred, so the controls sit level with the middle of either pane
+   whatever its border costs and however many controls it has. */
+
+.pane-gutter {
+    width: 3;
+    height: 1fr;
+    align-vertical: middle;
+}
+
+.pane-gutter.-left {
+    margin-right: 1;
+}
+
+.pane-gutter.-right {
+    margin-left: 1;
+}
+
+/* A control owns its glyph's row and its key label's row, with a blank
+   row after it so the labels are not squeezed together. */
+
+.gutter-control {
+    width: 3;
+    height: auto;
+    margin-bottom: 1;
+}
+
+.gutter-glyph {
+    width: 3;
+    min-width: 0;
+    padding: 0;
+    text-align: center;
+}
+
+.gutter-glyph:hover {
+    background: $primary-lighten-2;
+}
+
+/* A control with nowhere to go loses its fill as well as its glyph. */
+
+.gutter-glyph:disabled {
+    background: $panel;
+    color: $text-disabled;
+}
+
+/* The label's row is always reserved, so a glyph never moves. */
+
+.gutter-key {
+    width: 3;
+    height: 1;
+    text-align: center;
+    visibility: hidden;
+}
+
+.-help .gutter-key {
+    visibility: visible;
+    background: $success;
+    color: $text;
+    text-style: bold;
+}
+
+/* Only the showing pane's controls are drawn */
+
+#detail-row.-plot .-sparql,
+#detail-row.-sparql .-plot {
+    display: none;
+}
+
 /* DetailSwitcher */
 
 DetailSwitcher {
+    width: 1fr;
     height: 1fr;
 }
 
@@ -187,6 +416,18 @@ SparqlPane {
 #sparql-header {
     height: 1;
     margin-bottom: 1;
+}
+
+#sparql-identity {
+    width: 1fr;
+    height: 1;
+}
+
+/* The scroll hint is given the key-pill class only while the query
+   overflows; without it this rule keeps the hint hidden. */
+
+.scroll-key {
+    display: none;
 }
 
 #sparql-scroll {
@@ -239,21 +480,34 @@ ModePicker > Static {
     text-style: bold;
 }
 
+/* The bracketed group sits slightly raised off the page, so the
+   selected segment reads against it rather than against the screen. */
+
 .picker-bracket {
-    padding: 0 1;
+    background: $boost;
 }
 
 .picker-segment {
     padding: 0 1;
     color: $text-muted;
+    background: $boost;
+}
+
+/* Before the selected rule, so hovering the active segment leaves it
+   alone: it is already where you are. */
+
+.stepper-arrow:hover,
+.picker-segment:hover {
+    background: $primary-lighten-2;
 }
 
 .picker-sep {
     color: $text-muted;
+    background: $boost;
 }
 
 .picker-segment.-selected {
-    background: $accent;
+    background: $secondary;
     color: $text;
     text-style: bold;
 }
@@ -291,6 +545,11 @@ FilterModal {
     margin-bottom: 1;
 }
 
+#filter-apply {
+    dock: bottom;
+    width: 100%;
+}
+
 /* ResourcePlotModal */
 
 ResourcePlotModal {
@@ -298,12 +557,117 @@ ResourcePlotModal {
 }
 
 #resource-plot-modal {
-    width: 90%;
-    height: 90%;
-    padding: 1 2;
+    width: 100%;
+    height: 100%;
+    padding: 0 1;
     background: $surface;
 }
 
-#resource-plot-modal PlotextPlot {
+.modal-plot-row {
     height: 1fr;
+}
+
+.modal-plot-row PlotextPlot {
+    width: 1fr;
+    height: 1fr;
+}
+
+/* The inline left gutter's width and gap, beside each plot's left
+   axis. The two rails share the spare height, which keeps the arrows
+   level with the axis middle, and run down the gutter's center. */
+.modal-gutter {
+    width: 3;
+    height: 1fr;
+    margin-right: 1;
+    align-horizontal: center;
+}
+
+/* Each rail holds a tick next to its arrow, shown only on the plot the
+   keys step. The margin puts it in the gutter's middle column. */
+.axis-top-rail {
+    width: 1;
+    height: 1fr;
+    margin-left: 1;
+    color: $accent;
+    visibility: hidden;
+}
+
+.modal-plot-row.-picked .axis-top-rail {
+    visibility: visible;
+}
+
+.axis-top-rail.-above {
+    content-align-vertical: bottom;
+}
+
+/* One row between each arrow and the pill that picks the plot. Below
+   the lower arrow that row is its help pill, so the top pill gets a
+   blank row to match. */
+.modal-gutter > .gutter-key.-above {
+    margin-bottom: 1;
+}
+
+.modal-gutter > .gutter-control:last-of-type {
+    margin-bottom: 0;
+}
+
+/* In help mode a pill shows only where its key does something. */
+.-help .modal-plot-row .gutter-key {
+    visibility: hidden;
+}
+
+.-help .modal-plot-row .gutter-key.-shown {
+    visibility: visible;
+}
+
+/* The stepper and the range each take half the row, centered in it. */
+#modal-top-row {
+    height: 1;
+}
+
+#modal-top-row > WindowStepper,
+#modal-top-row > WindowRange {
+    width: 1fr;
+    align-horizontal: center;
+}
+
+WindowRange {
+    height: 1;
+}
+
+WindowRange > Static {
+    width: auto;
+}
+
+#range-text {
+    padding: 0 1;
+    text-style: bold;
+}
+
+/* Footer */
+
+/* A gap between entries, so a key and its label read as one control
+   rather than running into the next one. */
+
+FooterKey {
+    margin-right: 3;
+}
+
+/* Clicking one presses its key, so the cap is filled like every other
+   control. The green pills elsewhere are labels, not controls. */
+
+FooterKey > .footer-key--key {
+    background: $primary;
+    color: $text;
+    text-style: bold;
+    padding: 0 1;
+}
+
+FooterKey:hover > .footer-key--key {
+    background: $primary-lighten-2;
+}
+
+FooterKey > .footer-key--description {
+    padding: 0 0 0 1;
+    color: $text-muted;
 }

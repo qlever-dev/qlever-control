@@ -49,8 +49,11 @@ class TestIndexCommand(unittest.TestCase):
         args.ulimit = None
         args.geo_cell_grid_level = None
         args.geo_cell_grid_scheme = None
+        args.geo_point_encoding = None
+        args.parsed_geometries_min_length = None
         args.encode_as_id = None
         args.parser_buffer_size = None
+        args.index_rows_per_block = None
         args.materialized_views = None
         args.resource_usage_log = "yes"
         args.resource_usage_interval = 1
@@ -268,8 +271,11 @@ class TestIndexCommand(unittest.TestCase):
         args.ulimit = None
         args.geo_cell_grid_level = None
         args.geo_cell_grid_scheme = None
+        args.geo_point_encoding = None
+        args.parsed_geometries_min_length = None
         args.encode_as_id = None
         args.parser_buffer_size = None
+        args.index_rows_per_block = None
         args.materialized_views = None
         args.resource_usage_log = "yes"
         args.resource_usage_interval = 1
@@ -386,8 +392,11 @@ class TestIndexCommand(unittest.TestCase):
         args.ulimit = None
         args.geo_cell_grid_level = None
         args.geo_cell_grid_scheme = None
+        args.geo_point_encoding = "lat-major"
+        args.parsed_geometries_min_length = 100000
         args.encode_as_id = None
         args.parser_buffer_size = None
+        args.index_rows_per_block = 4000
         args.materialized_views = None
         args.resource_usage_log = "yes"
         args.resource_usage_interval = 1
@@ -404,11 +413,15 @@ class TestIndexCommand(unittest.TestCase):
             f" -i {args.name} -s {args.name}.settings.json"
             f" --vocabulary-type {args.vocabulary_type}"
             f" {mock_input_json.return_value}"
+            f" --geo-point-encoding {args.geo_point_encoding}"
+            f" --parsed-geometries-min-length"
+            f" {args.parsed_geometries_min_length}"
             f" --only-pso-and-pos-permutations"
             f" --no-patterns -w {args.name}.wordsfile.tsv"
             f" -d {args.name}.docsfile.tsv"
             f" --text-words-from-literals"
             f" --stxxl-memory {args.stxxl_memory}"
+            f" --index-rows-per-block {args.index_rows_per_block}"
             f" 2>&1 | tee {args.name}.index-log.txt"
         )
         settings_json_cmd = (

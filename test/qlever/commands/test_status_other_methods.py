@@ -31,7 +31,9 @@ class TestStatusCommand(unittest.TestCase):
         args = parser.parse_args([])
 
         # Test that the default value is set correctly
-        self.assertEqual(args.cmdline_regex, "^(qlever-server|qlever-index)")
+        self.assertEqual(
+            args.cmdline_regex, r"^(\S*/)?(qlever-server|qlever-index)"
+        )
 
         # Test that the help text is correctly set
         argument_help = subparser._group_actions[-1].help

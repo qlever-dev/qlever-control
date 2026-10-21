@@ -71,7 +71,7 @@ class HeaderRow(Horizontal):
         super().__init__()
         self.left = left if left is not None else Static("")
         self.center = center if center is not None else Static("")
-        self.center.add_class("slot-center")
+        self.center.add_class("title")
 
     def compose(self) -> ComposeResult:
         themes = list(self.app.available_themes)
@@ -79,7 +79,13 @@ class HeaderRow(Horizontal):
         left_slot = Horizontal(self.left, classes="slot-left")
         left_slot.styles.width = width
         yield left_slot
-        yield self.center
+        # The badge sits beside the title, so both centre as one group.
+        # It says why the screen is tinted; CSS shows it in help mode.
+        yield Horizontal(
+            self.center,
+            Static(" ? HELP MODE ", id="help-badge"),
+            classes="slot-center",
+        )
         select = ThemeSelect(themes, self.app.theme)
         select.styles.width = width
         yield select

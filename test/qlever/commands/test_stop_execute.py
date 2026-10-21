@@ -7,6 +7,131 @@ from qlever.commands.stop import StopCommand
 
 
 class TestStopCommand(unittest.TestCase):
+    # No test in this class may touch the real systemd of the machine that
+    # runs the tests, so by default there is no unit for the server and no
+    # process runs in one (the tests of the systemd path override this).
+    def setUp(self):
+        for target, value in (
+            ("qlever.commands.stop.systemd_unit_is_active", False),
+            ("qlever.commands.stop.stop_systemd_unit", False),
+            ("qlever.util.systemd_unit_of_process", None),
+        ):
+            patcher = patch(target, return_value=value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    # A matching process that runs as a systemd unit (for example, a server
+    # of another dataset on the same port) is stopped via that unit, because
+    # a killed process would just be restarted.
+    @patch("qlever.util.stop_systemd_unit", return_value=True)
+    @patch(
+        "qlever.util.systemd_unit_of_process",
+        return_value="qlever.server.other",
+    )
+    @patch("psutil.process_iter")
+    @patch("qlever.commands.stop.StopCommand.show")
+    @patch("qlever.util.log")
+    def test_execute_stops_unit_of_matching_process(
+        self,
+        mock_util_log,
+        mock_show,
+        mock_process_iter,
+        mock_unit_of_process,
+        mock_stop_systemd_unit,
+    ):
+        args = MagicMock()
+        args.cmdline_regex = "^qlever-server.* -p 7019"
+        args.name = "TestName"
+        args.no_containers = True
+        args.show = False
+        mock_process = MagicMock()
+        mock_process.as_dict.return_value = {
+            "pid": 4711,
+            "username": "user",
+            "create_time": 0,
+            "memory_info": MagicMock(),
+            "cmdline": ["qlever-server", "-i", "other", "-p", "7019"],
+        }
+        mock_process_iter.return_value = [mock_process]
+
+        self.assertTrue(StopCommand().execute(args))
+
+        mock_unit_of_process.assert_called_once_with(4711)
+        mock_stop_systemd_unit.assert_called_once_with("qlever.server.other")
+        mock_process.kill.assert_not_called()
+        mock_util_log.info.assert_any_call(
+            'The process runs as systemd unit "qlever.server.other", '
+            "which is now stopped"
+        )
+
+    # A server running as a systemd unit is stopped via the unit, and neither
+    # containers nor processes are touched.
+    @patch("qlever.commands.stop.systemd_unit_is_active", return_value=True)
+    @patch("qlever.commands.stop.stop_systemd_unit")
+    @patch("psutil.process_iter")
+    @patch("qlever.containerize.Containerize.stop_and_remove_container")
+    @patch("qlever.commands.stop.StopCommand.show")
+    @patch("qlever.commands.stop.log")
+    def test_execute_stops_systemd_unit(
+        self,
+        mock_log,
+        mock_show,
+        mock_stop_and_remove_container,
+        mock_process_iter,
+        mock_stop_systemd_unit,
+        mock_unit_is_active,
+    ):
+        args = MagicMock()
+        args.cmdline_regex = "qlever-server.* -i [^ ]*%%NAME%%"
+        args.name = "TestName"
+        args.no_containers = False
+        args.show = False
+        mock_stop_systemd_unit.return_value = True
+
+        self.assertTrue(StopCommand().execute(args))
+
+        mock_stop_systemd_unit.assert_called_once_with(
+            "qlever.server.TestName"
+        )
+        mock_log.info.assert_called_once_with(
+            'Systemd unit "qlever.server.TestName" stopped'
+        )
+        mock_stop_and_remove_container.assert_not_called()
+        mock_process_iter.assert_not_called()
+
+    # A unit that is not active any more (for example, after too many failed
+    # restarts) is only removed, and the search for the server continues.
+    @patch("qlever.commands.stop.StatusCommand.execute")
+    @patch("qlever.commands.stop.systemd_unit_is_active", return_value=False)
+    @patch("qlever.commands.stop.stop_systemd_unit", return_value=True)
+    @patch("psutil.process_iter", return_value=[])
+    @patch("qlever.containerize.Containerize.stop_and_remove_container")
+    @patch("qlever.commands.stop.StopCommand.show")
+    @patch("qlever.commands.stop.log")
+    def test_execute_removes_inactive_systemd_unit(
+        self,
+        mock_log,
+        mock_show,
+        mock_stop_and_remove_container,
+        mock_process_iter,
+        mock_stop_systemd_unit,
+        mock_unit_is_active,
+        mock_status_execute,
+    ):
+        args = MagicMock()
+        args.cmdline_regex = "qlever-server.* -i [^ ]*%%NAME%%"
+        args.name = "TestName"
+        args.no_containers = True
+        args.show = False
+
+        self.assertTrue(StopCommand().execute(args))
+
+        mock_log.info.assert_any_call(
+            'Systemd unit "qlever.server.TestName" was not active any more, '
+            "removed"
+        )
+        mock_process_iter.assert_called_once()
+
     @patch("qlever.commands.stop.StatusCommand.execute")
     @patch("psutil.process_iter")
     @patch("qlever.containerize.Containerize.stop_and_remove_container")

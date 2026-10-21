@@ -3,15 +3,15 @@ from __future__ import annotations
 from textual.reactive import reactive
 from textual.widgets import Static
 
+from qlever.monitor_queries.live_data import current_ms
 from qlever.monitor_queries.models import ControlsState
-from qlever.monitor_queries.util import format_clock
+from qlever.monitor_queries.util import format_range
 
 
 def format_selected_window(state: ControlsState) -> str:
     """Read-only summary of the current window's range and width."""
-    start = format_clock(state.start_ms)
-    end = format_clock(state.end_ms)
-    return f"[b]SELECTED[/b]  {start} → {end}  ([b]{state.window_size}[/b])"
+    window = format_range(state.start_ms, state.end_ms, current_ms())
+    return f"[b]SELECTED[/b]  {window}"
 
 
 class SelectedWindow(Static):

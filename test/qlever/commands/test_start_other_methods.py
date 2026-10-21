@@ -50,6 +50,7 @@ class TestStartCommand(unittest.TestCase):
                     "resource_usage_log",
                     "resource_usage_interval",
                     "preload_materialized_views",
+                    "server_log_mode",
                     "warmup_cmd",
                     "enable_metrics",
                 ],
@@ -58,6 +59,10 @@ class TestStartCommand(unittest.TestCase):
                     "image",
                     "server_container",
                     "restart_policy",
+                    "restart_delay",
+                    "restart_limit",
+                    "restart_limit_interval",
+                    "seccomp_profile",
                 ],
             },
         )
