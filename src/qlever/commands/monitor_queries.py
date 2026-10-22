@@ -5,6 +5,7 @@ from pathlib import Path
 from qlever.command import QleverCommand
 from qlever.log import log
 from qlever.monitor_queries.app import MonitorQueriesApp
+from qlever.util import timeout_seconds
 
 # `LiveLogReader` ingests new log lines every 0.2s, so a faster screen
 # refresh would only re-render the ticking duration; 0.2s is the floor.
@@ -100,16 +101,8 @@ class MonitorQueriesCommand(QleverCommand):
             log.error(f"Log file not found: {args.metrics_log}")
             return False
 
-        timeout_s = 30
+        timeout_s = timeout_seconds(args.timeout)
         if args.slow_threshold is None:
-            try:
-                timeout_s = int(args.timeout.rstrip("s"))
-            except ValueError:
-                log.error(
-                    f"Could not parse server timeout {args.timeout!r};"
-                    " pass --slow-threshold explicitly"
-                )
-                return False
             args.slow_threshold = max(1, timeout_s - 10)
 
         if args.refresh < REFRESH_MIN_S or args.refresh > REFRESH_MAX_S:
