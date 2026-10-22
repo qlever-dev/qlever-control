@@ -6,16 +6,24 @@ from typing import NamedTuple
 
 class Engine(NamedTuple):
     """
-    The package with the commands of an engine, and the name of the engine as
-    shown to the user.
+    The package with the commands of an engine, the name of the engine as
+    shown to the user, and the path of its SPARQL endpoint on the server.
     """
 
     package: str
     display_name: str
+    endpoint_path: str
 
 
 ENGINES = {
-    "qlever": Engine(package="qlever", display_name="QLever"),
+    "qlever": Engine(
+        package="qlever", display_name="QLever", endpoint_path="/"
+    ),
+    "oxigraph": Engine(
+        package="qeval.oxigraph",
+        display_name="Oxigraph",
+        endpoint_path="/query",
+    ),
 }
 
 
