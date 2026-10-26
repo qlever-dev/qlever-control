@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from termcolor import colored
 
 from qlever.log import log
+from qlever.util import redact_access_token
 
 
 class QleverCommand(ABC):
@@ -71,7 +72,7 @@ class QleverCommand(ABC):
         action, together with an explanation.
         """
 
-        log.info(colored(command_description, "blue"))
+        log.info(colored(redact_access_token(command_description), "blue"))
         log.info("")
         if only_show:
             log.info(

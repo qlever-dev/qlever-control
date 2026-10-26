@@ -9,6 +9,7 @@ from qlever.util import (
     parse_git_hash,
     parse_timeout,
     positive_int,
+    redact_access_token,
     stop_systemd_unit,
     stop_tailing,
     systemd_linger_status,
@@ -465,3 +466,47 @@ def test_tail_log_file_stop_after(tmp_path):
     assert tail_proc.poll() is None
     stop_tailing(tail_proc)
     assert tail_proc.wait(timeout=10) != 0
+
+
+# Each way in which the commands and the `qlever-server` command line pass the
+# access token.
+@pytest.mark.parametrize(
+    "command,expected",
+    [
+        (
+            "qlever-server -i olympics -j 8 -p 7001 -a s3cr3t_Tok-en -n",
+            "qlever-server -i olympics -j 8 -p 7001 -a [redacted] -n",
+        ),
+        (
+            "qlever start --access-token=s3cr3t_Tok-en",
+            "qlever start --access-token=[redacted]",
+        ),
+        (
+            "curl -s localhost:7001 -d access-token=s3cr3t_Tok-en",
+            "curl -s localhost:7001 -d access-token=[redacted]",
+        ),
+        (
+            'curl -s localhost:7001 --data-urlencode access-token="s3cr3t"',
+            'curl -s localhost:7001 --data-urlencode access-token="[redacted]"',
+        ),
+        (
+            "curl -s localhost:7001 --data access-token='s3cr3t'",
+            "curl -s localhost:7001 --data access-token='[redacted]'",
+        ),
+        (
+            "curl -s localhost:7001 -H 'Authorization: Bearer s3cr3t'",
+            "curl -s localhost:7001 -H 'Authorization: Bearer [redacted]'",
+        ),
+        (
+            '"localhost:7001?access-token=s3cr3t&cmd=stats"',
+            '"localhost:7001?access-token=[redacted]&cmd=stats"',
+        ),
+        (
+            "qlever-server -i olympics -p 7001 -n",
+            "qlever-server -i olympics -p 7001 -n",
+        ),
+        ("ls -a -l", "ls -a -l"),
+    ],
+)
+def test_redact_access_token(command, expected):
+    assert redact_access_token(command) == expected
