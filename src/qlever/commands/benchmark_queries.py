@@ -241,9 +241,14 @@ def get_result_size(
                 return_output=True,
             )
         elif accept_header == "application/qlever-results+json":
+            # The result of an ASK query has a `resultsize` of 0, but its
+            # boolean in `res`.
+            result_size_field = (
+                ".res | length" if query_type == "ASK" else ".resultsize"
+            )
             try:
                 result_size = run_command(
-                    f'jq -r ".resultsize" {result_file}',
+                    f"jq -r '{result_size_field}' {result_file}",
                     return_output=True,
                 )
             except Exception as e:
@@ -253,8 +258,8 @@ def get_result_size(
             try:
                 result_size = int(
                     run_command(
-                        f'jq -r "if has(\\"boolean\\") then 1'
-                        f' else .results.bindings | length end"'
+                        "jq -r 'if .boolean != null then 1"
+                        " else .results.bindings | length end'"
                         f" {result_file}",
                         return_output=True,
                     ).rstrip()
@@ -408,7 +413,7 @@ def get_query_results(
             return ["boolean"], [[str(results_json["boolean"]).lower()]]
 
         results = []
-        bindings = results_json.get("bindings", [])
+        bindings = results_json.get("bindings") or []
         for binding in bindings:
             result = []
             if not binding or not isinstance(binding, dict):

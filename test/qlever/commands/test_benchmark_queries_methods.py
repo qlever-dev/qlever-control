@@ -184,6 +184,13 @@ def test_sparql_json_ask_and_select_results(tmp_path):
         [["true"]],
     )
 
+    # The same for an ASK result that is false.
+    ask_file.write_text('{"boolean":false,"head":{}}')
+    assert get_query_results(str(ask_file), 1, accept_header) == (
+        ["boolean"],
+        [["false"]],
+    )
+
     # The SELECT result has its two rows as before.
     size, err = get_result_size(
         False, "SELECT", accept_header, str(select_file)
@@ -193,6 +200,27 @@ def test_sparql_json_ask_and_select_results(tmp_path):
     assert get_query_results(str(select_file), size, accept_header) == (
         ["x"],
         [["<http://a>"], ['"b"@en']],
+    )
+
+
+# Test that the result of an ASK query in `application/qlever-results+json`
+# has size 1 and is the boolean (QLever reports a `resultsize` of 0 for it).
+def test_qlever_json_ask_result(tmp_path):
+    # The result of an ASK query as returned by QLever.
+    ask_file = tmp_path / "ask.json"
+    ask_file.write_text(
+        '{"selected":["?result"],"resultsize":0,'
+        '"res":[["\\"true\\"^^<http://www.w3.org/2001/XMLSchema#boolean>"]]}'
+    )
+    accept_header = "application/qlever-results+json"
+
+    # The result has size 1 and the boolean as its single row.
+    size, err = get_result_size(False, "ASK", accept_header, str(ask_file))
+    assert size == 1
+    assert err is None
+    assert get_query_results(str(ask_file), size, accept_header) == (
+        ["?result"],
+        [['"true"^^<http://www.w3.org/2001/XMLSchema#boolean>']],
     )
 
 
