@@ -249,10 +249,13 @@ def get_result_size(
             except Exception as e:
                 error_msg = get_json_error_msg(e)
         else:
+            # The result of an ASK query is a single boolean.
             try:
                 result_size = int(
                     run_command(
-                        f'jq -r ".results.bindings | length" {result_file}',
+                        f'jq -r "if has(\\"boolean\\") then 1'
+                        f' else .results.bindings | length end"'
+                        f" {result_file}",
                         return_output=True,
                     ).rstrip()
                 )
@@ -393,11 +396,17 @@ def get_query_results(
     elif accept_header == "application/sparql-results+json":
         get_result_cmd = (
             f"jq '{{headers: .head.vars, "
-            f"bindings: .results.bindings[0:{result_size}]}}' "
+            f"bindings: .results.bindings[0:{result_size}], "
+            f"boolean: .boolean}}' "
             f"{result_file}"
         )
         results_str = run_command(get_result_cmd, return_output=True)
         results_json = json.loads(results_str)
+
+        # The result of an ASK query has no bindings, but a single boolean.
+        if results_json["boolean"] is not None:
+            return ["boolean"], [[str(results_json["boolean"]).lower()]]
+
         results = []
         bindings = results_json.get("bindings", [])
         for binding in bindings:

@@ -2,6 +2,7 @@ import pytest
 
 from qlever.commands.benchmark_queries import (
     filter_queries,
+    get_query_results,
     get_result_size,
     get_single_int_result,
     parse_queries_tsv,
@@ -158,6 +159,41 @@ def test_download_and_count_json_malformed(
         in err["long"]
     )
     assert "jq failed" in err["long"]
+
+
+# Test that the result of an ASK query in `application/sparql-results+json`
+# has size 1 and is the boolean, and that a SELECT result is unaffected.
+def test_sparql_json_ask_and_select_results(tmp_path):
+    # The result of an ASK query and of a SELECT query with two rows.
+    ask_file = tmp_path / "ask.json"
+    ask_file.write_text('{"boolean":true,"head":{}}')
+    select_file = tmp_path / "select.json"
+    select_file.write_text(
+        '{"head":{"vars":["x"]},"results":{"bindings":['
+        '{"x":{"type":"uri","value":"http://a"}},'
+        '{"x":{"type":"literal","value":"b","xml:lang":"en"}}]}}'
+    )
+    accept_header = "application/sparql-results+json"
+
+    # The ASK result has size 1, a single column and the boolean as value.
+    size, err = get_result_size(False, "ASK", accept_header, str(ask_file))
+    assert size == 1
+    assert err is None
+    assert get_query_results(str(ask_file), size, accept_header) == (
+        ["boolean"],
+        [["true"]],
+    )
+
+    # The SELECT result has its two rows as before.
+    size, err = get_result_size(
+        False, "SELECT", accept_header, str(select_file)
+    )
+    assert size == 2
+    assert err is None
+    assert get_query_results(str(select_file), size, accept_header) == (
+        ["x"],
+        [["<http://a>"], ['"b"@en']],
+    )
 
 
 def test_single_int_result_success(mock_command):
