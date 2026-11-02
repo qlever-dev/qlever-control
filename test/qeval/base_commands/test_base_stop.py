@@ -5,18 +5,30 @@ from qeval.base_commands.stop import BaseStopCommand
 
 
 class FakeStatusCommand(BaseStatusCommand):
+    def __init__(self):
+        super().__init__()
+        self.executed = False
+
     def default_regex(self):
         # Differs from `status_regex` of the stop command, so that a test can
-        # tell which one the fallback used.
+        # tell which regex the fallback used.
         return "^fake-"
+
+    def execute(self, args):
+        self.executed = True
+        return super().execute(args)
 
 
 class FakeStopCommand(BaseStopCommand):
+    def __init__(self):
+        super().__init__()
+        self.status = FakeStatusCommand()
+
     def default_regex(self):
         return "^fake-server .* %%NAME%%"
 
     def status_command(self):
-        return FakeStatusCommand()
+        return self.status
 
     def status_regex(self):
         return "^fake-server"
@@ -77,5 +89,6 @@ def test_base_stop_shows_servers_when_nothing_matches(
 
     assert command.execute(args)
 
+    assert command.status.executed
     assert args.cmdline_regex == "^fake-server"
     assert "No processes found" in capsys.readouterr().out
