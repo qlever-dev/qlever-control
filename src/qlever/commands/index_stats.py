@@ -6,6 +6,7 @@ from pathlib import Path
 from qlever.command import QleverCommand
 from qlever.log import log
 from qlever.util import (
+    SECONDS_PER_TIME_UNIT,
     get_total_file_size,
     iter_permutation_phases,
     parse_phase_markers,
@@ -136,7 +137,7 @@ def get_time_unit(time_unit: str, parse_duration: float | None) -> str:
 
 def get_time_unit_factor(time_unit: str) -> int:
     """Return the number of seconds per `time_unit`."""
-    return {"s": 1, "min": 60, "h": 3600}[time_unit]
+    return SECONDS_PER_TIME_UNIT[time_unit]
 
 
 def compute_sizes(

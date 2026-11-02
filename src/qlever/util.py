@@ -834,18 +834,21 @@ def parse_memory(value: str) -> str:
     return value.upper()
 
 
-# The timeout units in seconds. Smaller units are left out because the
-# server only keeps whole seconds.
-TIMEOUT_UNIT_SECONDS = {"s": 1, "min": 60, "h": 3600}
+# The number of seconds per time unit. These are also the units accepted
+# for a timeout, smaller units are left out because the server only keeps
+# whole seconds.
+SECONDS_PER_TIME_UNIT = {"s": 1, "min": 60, "h": 3600}
+
+# A timeout is a positive whole number followed by one of the units above.
+TIMEOUT_PATTERN = re.compile(rf"([1-9]\d*)({'|'.join(SECONDS_PER_TIME_UNIT)})")
 
 
 def parse_timeout(value: str) -> str:
     """
     Validate a timeout string like `180s` or `5min`.
     """
-    units = "|".join(TIMEOUT_UNIT_SECONDS)
-    if not re.fullmatch(rf"[1-9]\d*({units})", value):
-        unit_names = ", ".join(f"`{unit}`" for unit in TIMEOUT_UNIT_SECONDS)
+    if not TIMEOUT_PATTERN.fullmatch(value):
+        unit_names = ", ".join(f"`{unit}`" for unit in SECONDS_PER_TIME_UNIT)
         raise argparse.ArgumentTypeError(
             f"Invalid timeout `{value}`. "
             f"Use a whole number followed by one of {unit_names}, "
@@ -860,8 +863,8 @@ def timeout_seconds(value: str) -> int:
     A timeout like `5min` as a number of seconds. Expects a value that
     `parse_timeout` has accepted.
     """
-    number, unit = re.fullmatch(r"(\d+)(\D+)", value).groups()
-    return int(number) * TIMEOUT_UNIT_SECONDS[unit]
+    number, unit = TIMEOUT_PATTERN.fullmatch(value).groups()
+    return int(number) * SECONDS_PER_TIME_UNIT[unit]
 
 
 def positive_int(value: str) -> int:
