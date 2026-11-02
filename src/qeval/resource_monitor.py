@@ -199,13 +199,16 @@ class ResourceMonitor:
         and appends one TSV row per iteration until stop_event is set.
         """
         while not self.stop_event.is_set():
+            sample_start = time.monotonic()
             sample = self.take_sample()
-            sample.elapsed_s = round(time.monotonic() - self.start_time, 1)
+            sample.elapsed_s = round(sample_start - self.start_time, 1)
             if sample.rss is not None:
                 self.peak_rss = max(self.peak_rss, sample.rss)
                 self.log_file.write(sample_to_tsv_row(sample))
                 self.log_file.flush()
-            self.stop_event.wait(self.interval)
+            # Subtract the sampling time so samples stay one interval apart.
+            sample_duration = time.monotonic() - sample_start
+            self.stop_event.wait(max(0.0, self.interval - sample_duration))
 
     def __enter__(self):
         """Open the TSV log, write its header, and start the sampling thread."""
