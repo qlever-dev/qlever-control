@@ -12,3 +12,7 @@ class StopCommand(BaseStopCommand):
 
     def status_command(self) -> StatusCommand:
         return StatusCommand()
+
+    def status_regex(self) -> str:
+        # `serve` also matches `serve-read-only`.
+        return r"^(\S*/)?oxigraph\s+serve"
