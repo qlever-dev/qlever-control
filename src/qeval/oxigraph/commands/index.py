@@ -177,7 +177,9 @@ class IndexCommand(QleverCommand):
                 log.error(f"Building the index failed: {e}")
                 return False
 
-            optimize_s = 0.0
+            # Stays None if the optimize step is skipped or fails, so that the
+            # log only has the times of steps that completed.
+            optimize_s = None
             if optimize_cmd:
                 try:
                     log.info("")
@@ -195,11 +197,13 @@ class IndexCommand(QleverCommand):
                         f"{args.index_binary} optimize -l {args.name}_index/"
                     )
 
+        total_s = load_s
         with open(log_file_name, "a") as f:
             f.write(f"Load time: {load_s:.0f}s\n")
-            if optimize_cmd:
+            if optimize_s is not None:
                 f.write(f"Optimize time: {optimize_s:.0f}s\n")
-            f.write(f"TOTAL time: {load_s + optimize_s:.0f}s\n")
+                total_s += optimize_s
+            f.write(f"TOTAL time: {total_s:.0f}s\n")
 
         render_usage_plot_if_installed(
             args,
