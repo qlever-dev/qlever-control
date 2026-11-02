@@ -7,6 +7,7 @@ from qlever.util import (
     edit_option_line,
     get_random_string,
     parse_git_hash,
+    parse_timeout,
     positive_int,
     stop_systemd_unit,
     stop_tailing,
@@ -19,6 +20,7 @@ from qlever.util import (
     systemd_unit_restarts,
     systemd_user_env,
     tail_log_file,
+    timeout_seconds,
     update_ini_values,
 )
 
@@ -100,6 +102,56 @@ def test_parse_git_hash_empty_file(tmp_path):
     path = tmp_path / "empty.txt"
     path.write_text("")
     assert parse_git_hash(path) is None
+
+
+@pytest.mark.parametrize("value", ["30s", "5min", "2h"])
+def test_parse_timeout_accepts_every_unit(value):
+    assert parse_timeout(value) == value
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        # No unit at all.
+        "30",
+        # Unit not in the list.
+        "30sec",
+        # Units below a second, which the server cannot keep.
+        "5ns",
+        "5us",
+        "500ms",
+        # Zero, which the server refuses.
+        "0s",
+        "0min",
+        # Leading zero.
+        "030s",
+        # Wrong case, the server is case sensitive.
+        "30S",
+        "5MIN",
+        # Not a number.
+        "abc",
+        "",
+        # Fractional values are not supported.
+        "1.5s",
+        # Whitespace between number and unit.
+        "30 s",
+    ],
+)
+def test_parse_timeout_rejects(value):
+    with pytest.raises(argparse.ArgumentTypeError):
+        parse_timeout(value)
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("30s", 30),
+        ("5min", 300),
+        ("2h", 7200),
+    ],
+)
+def test_timeout_seconds(value, expected):
+    assert timeout_seconds(value) == expected
 
 
 def test_edit_option_line_replaces_value_and_keeps_alignment():

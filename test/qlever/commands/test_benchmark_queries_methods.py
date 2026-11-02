@@ -2,6 +2,7 @@ import pytest
 
 from qlever.commands.benchmark_queries import (
     filter_queries,
+    get_query_results,
     get_result_size,
     get_single_int_result,
     parse_queries_tsv,
@@ -158,6 +159,47 @@ def test_download_and_count_json_malformed(
         in err["long"]
     )
     assert "jq failed" in err["long"]
+
+
+# Test that the result of an ASK query has size 1 and is the boolean, in
+# `application/sparql-results+json` and `application/qlever-results+json`
+# (QLever reports a `resultsize` of 0 for it in the latter).
+def test_ask_results(tmp_path):
+    # The result of an ASK query in both formats, as returned by QLever.
+    sparql_json = "application/sparql-results+json"
+    sparql_file = tmp_path / "sparql.json"
+    sparql_file.write_text('{"boolean":true,"head":{}}')
+    qlever_json = "application/qlever-results+json"
+    qlever_file = tmp_path / "qlever.json"
+    qlever_file.write_text(
+        '{"selected":["?result"],"resultsize":0,'
+        '"res":[["\\"true\\"^^<http://www.w3.org/2001/XMLSchema#boolean>"]]}'
+    )
+
+    # In `application/sparql-results+json`, the result has size 1, a single
+    # column `boolean` and the boolean as value.
+    size, err = get_result_size(False, "ASK", sparql_json, str(sparql_file))
+    assert (size, err) == (1, None)
+    assert get_query_results(str(sparql_file), size, sparql_json) == (
+        ["boolean"],
+        [["true"]],
+    )
+
+    # The same for an ASK result that is false.
+    sparql_file.write_text('{"boolean":false,"head":{}}')
+    assert get_query_results(str(sparql_file), 1, sparql_json) == (
+        ["boolean"],
+        [["false"]],
+    )
+
+    # In `application/qlever-results+json`, the result has size 1 and the
+    # boolean as its single row.
+    size, err = get_result_size(False, "ASK", qlever_json, str(qlever_file))
+    assert (size, err) == (1, None)
+    assert get_query_results(str(qlever_file), size, qlever_json) == (
+        ["?result"],
+        [['"true"^^<http://www.w3.org/2001/XMLSchema#boolean>']],
+    )
 
 
 def test_single_int_result_success(mock_command):
