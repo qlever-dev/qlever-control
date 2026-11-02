@@ -5,7 +5,6 @@ import subprocess
 import time
 from pathlib import Path
 
-from qeval.oxigraph.commands.stop import StopCommand
 from qlever.command import QleverCommand
 from qlever.commands.start import (
     make_server_liveness_check,
@@ -13,6 +12,7 @@ from qlever.commands.start import (
     wait_for_foreground_server,
     wait_until_server_ready,
 )
+from qlever.commands.stop import stop_container
 from qlever.containerize import Containerize
 from qlever.log import log
 from qlever.util import (
@@ -246,12 +246,15 @@ class StartCommand(QleverCommand):
         # On Ctrl-C, terminate the process and clean up the container.
         if args.run_in_foreground:
 
-            def stop_container() -> None:
+            def remove_container() -> None:
                 if is_containerized:
-                    stop_command = StopCommand()
-                    args.cmdline_regex = stop_command.default_regex()
-                    stop_command.execute(args)
+                    if stop_container(args.server_container):
+                        return
+                    log.warning(
+                        "No container with name "
+                        f'"{args.server_container}" found'
+                    )
 
-            wait_for_foreground_server(process, log_proc, stop_container)
+            wait_for_foreground_server(process, log_proc, remove_container)
 
         return True
