@@ -43,7 +43,8 @@ class BaseIndexStatsCommand(QleverIndexStatsCommand):
     def parse_index_durations(self, log_text: str) -> dict[str, float]:
         """
         How long each phase of the build took in seconds, from the text of
-        the index log, in the order to show them.
+        the index log, in the order to show them. The result files of
+        `benchmark-queries` take the index time from the "TOTAL time" entry.
         """
 
     def index_durations(self, log_file_name: str | Path) -> dict[str, float]:
