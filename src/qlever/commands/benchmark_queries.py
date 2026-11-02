@@ -25,6 +25,7 @@ from qlever.util import (
     pretty_printed_query,
     run_command,
     run_curl_command,
+    timeout_seconds,
 )
 
 
@@ -240,18 +241,26 @@ def get_result_size(
                 return_output=True,
             )
         elif accept_header == "application/qlever-results+json":
+            # The result of an ASK query has a `resultsize` of 0, but its
+            # boolean in `res`.
+            result_size_field = (
+                ".res | length" if query_type == "ASK" else ".resultsize"
+            )
             try:
                 result_size = run_command(
-                    f'jq -r ".resultsize" {result_file}',
+                    f"jq -r '{result_size_field}' {result_file}",
                     return_output=True,
                 )
             except Exception as e:
                 error_msg = get_json_error_msg(e)
         else:
+            # The result of an ASK query is a single boolean.
             try:
                 result_size = int(
                     run_command(
-                        f'jq -r ".results.bindings | length" {result_file}',
+                        "jq -r 'if .boolean != null then 1"
+                        " else .results.bindings | length end'"
+                        f" {result_file}",
                         return_output=True,
                     ).rstrip()
                 )
@@ -392,13 +401,19 @@ def get_query_results(
     elif accept_header == "application/sparql-results+json":
         get_result_cmd = (
             f"jq '{{headers: .head.vars, "
-            f"bindings: .results.bindings[0:{result_size}]}}' "
+            f"bindings: .results.bindings[0:{result_size}], "
+            f"boolean: .boolean}}' "
             f"{result_file}"
         )
         results_str = run_command(get_result_cmd, return_output=True)
         results_json = json.loads(results_str)
+
+        # The result of an ASK query has no bindings, but a single boolean.
+        if results_json["boolean"] is not None:
+            return ["boolean"], [[str(results_json["boolean"]).lower()]]
+
         results = []
-        bindings = results_json.get("bindings", [])
+        bindings = results_json.get("bindings") or []
         for binding in bindings:
             result = []
             if not binding or not isinstance(binding, dict):
@@ -870,10 +885,7 @@ class BenchmarkQueriesCommand(QleverCommand):
         width_query_name_half = args.width_query_name // 2
         width_query_name = 2 * width_query_name_half + 1
 
-        try:
-            timeout = int(args.timeout[:-1])
-        except ValueError:
-            timeout = None
+        timeout = timeout_seconds(args.timeout)
 
         benchmark_name, benchmark_description = resolve_benchmark_metadata(
             args.benchmark_name,
@@ -895,8 +907,7 @@ class BenchmarkQueriesCommand(QleverCommand):
             "queries": [],
         }
         if args.result_file:
-            if timeout:
-                result_yml_query_records["timeout"] = timeout
+            result_yml_query_records["timeout"] = timeout
 
             index_time, index_size = compute_index_stats(IndexStatsCommand())
             result_yml_query_records["index_time"] = index_time
@@ -1015,7 +1026,7 @@ class BenchmarkQueriesCommand(QleverCommand):
             server_restarted = False
             try:
                 max_time = None
-                if args.restart_on_hang and timeout:
+                if args.restart_on_hang:
                     max_time = timeout + 30
                 http_code = run_curl_command(
                     sparql_endpoint,

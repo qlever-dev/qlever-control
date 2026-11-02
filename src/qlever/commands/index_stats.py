@@ -6,6 +6,7 @@ from pathlib import Path
 from qlever.command import QleverCommand
 from qlever.log import log
 from qlever.util import (
+    SECONDS_PER_TIME_UNIT,
     get_total_file_size,
     iter_permutation_phases,
     parse_phase_markers,
@@ -136,7 +137,7 @@ def get_time_unit(time_unit: str, parse_duration: float | None) -> str:
 
 def get_time_unit_factor(time_unit: str) -> int:
     """Return the number of seconds per `time_unit`."""
-    return {"s": 1, "min": 60, "h": 3600}[time_unit]
+    return SECONDS_PER_TIME_UNIT[time_unit]
 
 
 def compute_sizes(
@@ -286,18 +287,33 @@ class IndexStatsCommand(QleverCommand):
 
     def execute(self, args) -> bool:
         return_value = True
+        log_file_name = f"{args.name}.index-log.txt"
 
-        # The "time" part of the command.
+        # The heading of the "time" part, shown before the log is parsed so
+        # that messages about a missing or incomplete log appear below it.
         if not args.only_space:
-            log_file_name = f"{args.name}.index-log.txt"
             self.show(
                 f"Breakdown of the time used for "
                 f"building the index, based on the timestamps for key "
                 f'lines in "{log_file_name}"',
                 only_show=args.show,
             )
-            if not args.show:
+
+        # Compute both breakdowns before printing either, so that the time
+        # and the space part pad their headings to a common width.
+        durations = {}
+        sizes = {}
+        if not args.show:
+            if not args.only_space:
                 durations = self.execute_time(args, log_file_name)
+            if not args.only_time:
+                sizes = self.execute_space(args)
+        # At least 25 wide, and wider if a heading needs it.
+        width = max([25, *(len(heading) for heading in [*durations, *sizes])])
+
+        # The "time" part of the command.
+        if not args.only_space:
+            if not args.show:
                 # Display each phase duration, skipping phases with
                 # missing timestamps (duration is None).
                 for heading, (duration, time_unit) in durations.items():
@@ -305,7 +321,8 @@ class IndexStatsCommand(QleverCommand):
                         if heading == "TOTAL time" and len(durations) != 1:
                             log.info("")
                         log.info(
-                            f"{heading:<25} : {duration:>6.1f} {time_unit}"
+                            f"{heading:<{width}} : {duration:>6.1f} "
+                            f"{time_unit}"
                         )
                 return_value &= len(durations) != 0
             if not args.only_time:
@@ -318,15 +335,16 @@ class IndexStatsCommand(QleverCommand):
                 only_show=args.show,
             )
             if not args.show:
-                sizes = self.execute_space(args)
                 # Display the disk space used by each group of index files.
                 for heading, (size, size_unit) in sizes.items():
                     if heading == "TOTAL size" and len(sizes) != 1:
                         log.info("")
                     if size_unit == "B":
-                        log.info(f"{heading:<25} :  {size:,} {size_unit}")
+                        log.info(f"{heading:<{width}} :  {size:,} {size_unit}")
                     else:
-                        log.info(f"{heading:<25} : {size:>6.1f} {size_unit}")
+                        log.info(
+                            f"{heading:<{width}} : {size:>6.1f} {size_unit}"
+                        )
                 return_value &= len(sizes) != 0
 
         return return_value
