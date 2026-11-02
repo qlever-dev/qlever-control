@@ -25,24 +25,6 @@ from qlever.util import (
 )
 
 
-def timeout_supported(args, serve_subcommand: str) -> bool:
-    """Check whether the oxigraph server binary supports query timeouts."""
-    help_cmd = f"{serve_subcommand} --help"
-    if args.system in Containerize.supported_systems():
-        help_cmd = f"{args.system} run --rm {args.image} {help_cmd}"
-    else:
-        help_cmd = f"{args.server_binary} {help_cmd}"
-    try:
-        help_output = run_command(help_cmd, return_output=True)
-        return "timeout-s" in help_output
-    except Exception as e:
-        log.warning(
-            "Could not determine if query timeouts are supported by this "
-            f"version of Oxigraph! Falling back to no timeouts. Error: {e}",
-        )
-        return False
-
-
 def wrap_cmd_in_container(args, cmd: str) -> str:
     """Wrap the server start command in a container with restart policy."""
     run_subcommand = "run --restart=unless-stopped"
@@ -118,18 +100,10 @@ class StartCommand(QleverCommand):
         serve_subcommand = (
             "serve-read-only" if args.read_only == "yes" else "serve"
         )
-        timeout_str = ""
-        if timeout_supported(args, serve_subcommand):
-            timeout_str = f"--timeout-s {timeout_seconds(args.timeout)}"
-        else:
-            log.info(
-                f"Ignoring the set timeout value of {args.timeout} as your "
-                "version of Oxigraph doesn't currently support query timeouts!"
-            )
-
         start_cmd = (
             f"{serve_subcommand} --location {args.name}_index/ "
-            f"{args.extra_args} {timeout_str} --bind={bind}"
+            f"{args.extra_args} --timeout-s {timeout_seconds(args.timeout)} "
+            f"--bind={bind}"
         )
 
         if is_containerized:
