@@ -312,6 +312,14 @@ class Qleverfile:
             help="Whether to add `ql:has-word` triples for text literals "
             "(which can then be used for custom text search queries)",
         )
+        index_args["has_word_normalization"] = arg(
+            "--has-word-normalization",
+            choices=["lowercase", "lowercase-no-accents"],
+            default=None,
+            help="How to normalize the words of the `ql:has-word` triples "
+            "(default: `lowercase`; `lowercase-no-accents` also removes "
+            "accents, meant for Latin, Greek, or Cyrillic scripts)",
+        )
         index_args["text_index"] = arg(
             "--text-index",
             choices=[
