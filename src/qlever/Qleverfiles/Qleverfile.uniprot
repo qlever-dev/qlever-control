@@ -4,24 +4,27 @@
 # qlever index     # takes ~ 40 hours and ~ 60 GB RAM (on an AMD Ryzen 9 9950X)
 # qlever start     # starts the server (takes a few seconds)
 #
-# Install packages: sudo apt install -y libxml2-utils raptor2-utils parallel xz-utils wget
-# Install manually: Apache Jena binaries (https://dlcdn.apache.org/jena/binaries)
+# Install packages: sudo apt install -y libxml2-utils parallel xz-utils wget
+# Install manually: Apache Jena binaries (https://dlcdn.apache.org/jena/binaries),
+# with their `bin` directory on the PATH and a valid JAVA_HOME (`qlever get-data`
+# checks that `rdfxml` works before it downloads anything)
 #
 # Set DATE to the date of the latest release. Build on SSD (requires ~ 7 TB
 # during build, ~ 3 TB after build).
 
 [data]
 NAME             = uniprot
-DATE             = 2025-06-18
+DATE             = 2026-09-02
 RDFXML_DIR       = rdf.${DATE}
 TTL_DIR          = ttl.${DATE}
 UNIPROT_URL      = https://ftp.uniprot.org/pub/databases/uniprot/current_release/rdf
 RHEA_URL         = https://ftp.expasy.org/databases/rhea/rdf
 EXAMPLES_URL     = https://github.com/sib-swiss/sparql-examples
 GET_EXAMPLES_CMD = mkdir -p ${TTL_DIR} && git clone ${EXAMPLES_URL} && (cd sparql-examples && ./convertToOneTurtle.sh -p uniprot && gzip examples_uniprot.ttl && mv -f examples_uniprot.ttl.gz ../${TTL_DIR} && cd .. && rm -rf sparql-examples)
-GET_RDFXML_CMD   = mkdir -p ${RDFXML_DIR} && (echo "${RHEA_URL}/chebi.owl.gz"; echo "${RHEA_URL}/rhea.rdf.gz"; curl -s ${UNIPROT_URL}/RELEASE.meta4 | sed "s/<metalink.*/<metalink>/" | xmllint --xpath "/metalink/files/file/url[@location=\"ch\"]/text()" -) | while read URL; do wget --no-verbose -P ${RDFXML_DIR} $$URL 2>&1 | tee -a uniprot.download-log; done
-RDFXML2TTL_CMD   = mkdir -p ${TTL_DIR} && for RDFXML in ${RDFXML_DIR}/*.{owl,owl.xz,rdf,rdf.xz}; do echo "xzcat -f $$RDFXML | rdfxml --output=ttl -q 2> ${TTL_DIR}/$$(basename $$RDFXML).stderr | gzip -c > ${TTL_DIR}/$$(basename $$RDFXML | sed 's/\(rdf\|rdf.xz\|owl\|owl.xz\)$$/ttl.gz/') && echo 'DONE converting $$RDFXML'"; done | parallel
-GET_DATA_CMD     = date > ${NAME}.get-data.begin-date && ${GET_EXAMPLES_CMD} && ${GET_RDFXML_CMD} && ${RDFXML2TTL_CMD} && date > ${NAME}.get-data.end-date
+CHECK_TOOLS_CMD  = for CMD in git curl xmllint wget xzcat zcat parallel rdfxml; do command -v $$CMD > /dev/null || { echo "ERROR: command \`$$CMD\` not found" >&2; exit 1; }; done && rdfxml --version > /dev/null
+GET_RDFXML_CMD   = mkdir -p ${RDFXML_DIR} && (echo "${RHEA_URL}/chebi.owl.gz"; echo "${RHEA_URL}/rhea.rdf.gz"; curl -s ${UNIPROT_URL}/RELEASE.meta4 | sed "s/<metalink.*/<metalink>/" | xmllint --xpath "/metalink/files/file/url[@location=\"ch\"]/text()" -) | while read URL; do wget --no-verbose --continue -P ${RDFXML_DIR} $$URL 2>&1 | tee -a ${NAME}.download-log || exit 1; done
+RDFXML2TTL_CMD   = mkdir -p ${TTL_DIR} && export JVM_ARGS="-Djdk.xml.maxGeneralEntitySizeLimit=0 -Djdk.xml.totalEntitySizeLimit=0 -Djdk.xml.entityExpansionLimit=0" && shopt -s nullglob && for RDFXML in ${RDFXML_DIR}/*.{owl,rdf}{,.gz,.xz}; do case $$RDFXML in *.gz) CAT=zcat ;; *) CAT="xzcat -f" ;; esac; echo "set -o pipefail; $$CAT $$RDFXML | rdfxml --output=ttl -q 2> ${TTL_DIR}/$$(basename $$RDFXML).stderr | gzip -c > ${TTL_DIR}/$$(basename $$RDFXML | sed -E 's/\.(owl|rdf)(\.gz|\.xz)?$$/.ttl.gz/') && echo 'DONE converting $$RDFXML'"; done | parallel
+GET_DATA_CMD     = set -o pipefail && ${CHECK_TOOLS_CMD} && date > ${NAME}.get-data.begin-date && ${GET_EXAMPLES_CMD} && ${GET_RDFXML_CMD} && ${RDFXML2TTL_CMD} && date > ${NAME}.get-data.end-date
 DESCRIPTION      = UniProt, RDF XML from ${UNIPROT_URL} + additional data from ${RHEA_URL} and ${EXAMPLES_URL}, version ${DATE}
 
 [index]
