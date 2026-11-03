@@ -63,7 +63,7 @@ def parse_command_line() -> argparse.Namespace:
     tool_description = (
         f"{SCRIPT_NAME} sets up, indexes, queries, and benchmarks "
         "graph databases in a uniform way. "
-        f"Supported engines: {supported_engines}"
+        f"Supported graph databases: {supported_engines}"
     )
     parser = argparse.ArgumentParser(
         description=colored(tool_description, attrs=["bold"])
@@ -99,6 +99,7 @@ def parse_command_line() -> argparse.Namespace:
             script_name=SCRIPT_NAME,
             engine_short_name=engine,
             engine_display_name=engine_info.display_name,
+            endpoint_path=engine_info.endpoint_path,
             main_command_name=main_command_name,
         )
         subparsers = engine_parser.add_subparsers(
