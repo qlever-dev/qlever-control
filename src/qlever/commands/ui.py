@@ -102,7 +102,7 @@ class UiCommand(QleverCommand):
         )
         start_ui_cmd = (
             f"{args.ui_system} run -d "
-            f"--volume $(pwd):/app/db "
+            f'--volume "$(pwd)":/app/db '
             f"--env QLEVERUI_DATABASE_URL=sqlite:////app/db/{ui_db_file} "
             f"--publish {args.ui_port}:7000 "
             f"--name {args.ui_container} "
