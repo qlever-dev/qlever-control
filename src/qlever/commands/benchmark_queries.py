@@ -867,7 +867,7 @@ class BenchmarkQueriesCommand(QleverCommand):
                 args.queries_yml
             )
         elif args.queries_tsv:
-            queries = parse_queries_tsv(f"cat {args.queries_tsv}")
+            queries = parse_queries_tsv(f"cat {shlex.quote(args.queries_tsv)}")
         else:
             queries = parse_queries_tsv(example_queries_cmd)
 
