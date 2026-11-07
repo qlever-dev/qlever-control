@@ -73,7 +73,7 @@ class Qleverfile:
         "small-index-scan-size-estimate-divisor",
         "sort-in-memory-threshold",
         "sort-num-tasks-in-flight",
-        "sparql-results-json-with-time",
+        "sparql-results-json-with-meta",
         "spatial-join-max-num-threads",
         "spatial-join-prefilter-max-size",
         "spatial-join-tmp-dir",
