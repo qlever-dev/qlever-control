@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from qlever.command import QleverCommand
 from qlever.log import log
@@ -63,6 +64,10 @@ class ExtractQueriesCommand(QleverCommand):
         )
         if args.show:
             return True
+
+        if not Path(log_file_name).is_file():
+            log.error(f"Log file not found: {log_file_name}")
+            return False
 
         # Regex for log entries of the form
         # 2025-01-14 04:47:44.950 - INFO
