@@ -1,11 +1,17 @@
+import logging
+import os
+import subprocess
+import time
 from unittest.mock import MagicMock
 
 import psutil
 import pytest
 
 from qeval.resource_monitor import (
+    ResourceMonitor,
     Sample,
     container_memory_to_bytes,
+    find_process_by_binary,
     sample_container,
     sample_process,
     sample_to_tsv_row,
@@ -87,3 +93,56 @@ def test_sample_process_returns_empty_when_process_gone():
     proc.memory_info.side_effect = psutil.NoSuchProcess(pid=123)
     sample = sample_process(proc)
     assert sample == Sample()
+
+
+def test_find_process_by_binary_finds_child():
+    child = subprocess.Popen(["sleep", "5"])
+    try:
+        proc = find_process_by_binary(os.getpid(), "sleep")
+        assert proc is not None
+        assert proc.pid == child.pid
+    finally:
+        child.kill()
+        child.wait()
+
+
+def test_find_process_by_binary_returns_none_when_not_running():
+    assert find_process_by_binary(os.getpid(), "no-such-binary") is None
+
+
+def read_log_rows(path):
+    """Split the TSV log into a list of rows, each a list of columns."""
+    return [line.split("\t") for line in path.read_text().splitlines()]
+
+
+def test_resource_monitor_logs_samples_of_child(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with ResourceMonitor(
+        dataset="data", engine="testengine", binary="sleep", interval=0.05
+    ):
+        subprocess.run(["sleep", "0.5"])
+    rows = read_log_rows(
+        tmp_path / "data.testengine.index.resource-usage-log.tsv"
+    )
+    assert rows[0] == ["elapsed_s", "rss", "cpu_percent"]
+    samples = rows[1:]
+    assert len(samples) >= 3
+    assert all(int(rss) > 0 for _, rss, _ in samples)
+    elapsed = [float(elapsed_s) for elapsed_s, _, _ in samples]
+    assert elapsed == sorted(elapsed)
+    assert elapsed[0] < elapsed[-1]
+
+
+def test_resource_monitor_without_child_writes_header_only(
+    tmp_path, monkeypatch, caplog
+):
+    monkeypatch.chdir(tmp_path)
+    with ResourceMonitor(
+        dataset="data", engine="testengine", binary="sleep", interval=0.05
+    ):
+        time.sleep(0.2)
+    rows = read_log_rows(
+        tmp_path / "data.testengine.index.resource-usage-log.tsv"
+    )
+    assert rows == [["elapsed_s", "rss", "cpu_percent"]]
+    assert caplog.records[-1].levelno == logging.WARNING
