@@ -37,6 +37,7 @@ class TestIndexCommand(unittest.TestCase):
         args.use_patterns = True
         args.parallel_parsing = False
         args.add_has_word_triples = False
+        args.has_word_normalization = None
         args.text_index = "Test Index"
         args.stxxl_memory = False
         args.system = "native"
@@ -128,6 +129,7 @@ class TestIndexCommand(unittest.TestCase):
         args.only_pso_and_pos_permutations = False
         args.use_patterns = True
         args.add_has_word_triples = False
+        args.has_word_normalization = None
         args.text_index = None
         args.stxxl_memory = None
         args.system = "native"
@@ -192,6 +194,7 @@ class TestIndexCommand(unittest.TestCase):
         args.only_pso_and_pos_permutations = False
         args.use_patterns = True
         args.add_has_word_triples = False
+        args.has_word_normalization = None
         args.text_index = None
         args.stxxl_memory = None
         args.system = "native"
@@ -259,6 +262,7 @@ class TestIndexCommand(unittest.TestCase):
         args.use_patterns = True
         args.parallel_parsing = False
         args.add_has_word_triples = False
+        args.has_word_normalization = None
         args.text_index = None
         args.stxxl_memory = None
         args.system = "native"
@@ -382,6 +386,7 @@ class TestIndexCommand(unittest.TestCase):
         args.only_pso_and_pos_permutations = True
         args.use_patterns = "no"
         args.add_has_word_triples = False
+        args.has_word_normalization = None
         args.text_index = "from_text_records_and_literals"
         args.stxxl_memory = True
         args.input_files = "*.nt"

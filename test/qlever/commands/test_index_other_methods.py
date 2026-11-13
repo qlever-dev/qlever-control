@@ -48,6 +48,7 @@ class TestIndexCommand(unittest.TestCase):
                     "ulimit",
                     "use_patterns",
                     "add_has_word_triples",
+                    "has_word_normalization",
                     "text_index",
                     "stxxl_memory",
                     "parser_buffer_size",
