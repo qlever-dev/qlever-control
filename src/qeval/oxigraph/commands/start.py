@@ -194,7 +194,7 @@ class StartCommand(QleverCommand):
             return False
         try:
             server_ready = wait_until_server_ready(
-                lambda: is_server_alive(endpoint_url),
+                lambda: is_server_alive(url=endpoint_url),
                 make_server_liveness_check(args, process, pid),
             )
         except KeyboardInterrupt:

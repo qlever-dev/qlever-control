@@ -21,7 +21,7 @@ from qlever.util import (
 def wrap_cmd_in_container(args, cmd: str, ulimit: int | None = None) -> str:
     """
     Wrap an indexing command in a container that is automatically removed
-    after the process exits (`--rm`) Use `use_bash=False` as Oxigraph image
+    after the process exits (`--rm`). Use `use_bash=False` as Oxigraph image
     doesn't support bash entrypoint.
     """
     run_subcommand = "run --rm"

@@ -13,9 +13,6 @@ class LogCommand(QleverLogCommand):
     not possible to redirect oxigraph logs to a log file.
     """
 
-    def __init__(self):
-        pass
-
     def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {
             "data": ["name"],
