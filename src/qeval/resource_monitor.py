@@ -224,14 +224,18 @@ class ResourceMonitor:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Stop sampling and close the log, reporting where it was saved."""
+        """
+        Stop sampling and close the log, reporting where it was saved and
+        the peak RSS.
+        """
         self.stop_event.set()
         self.thread.join()
         self.log_file.close()
         if self.peak_rss > 0:
             log.info(
                 "Resource-usage log (RSS memory and CPU usage) saved to "
-                f"`{self.log_path.name}`"
+                f"`{self.log_path.name}`, peak RSS "
+                f"{self.peak_rss / 1024**3:.1f} GB"
             )
         else:
             log.warning(
