@@ -64,18 +64,16 @@ class Qleverfile:
         "permutation-writer-num-blocks-in-flight",
         "prefiltered-optional-join",
         "query-planning-budget",
-        "rebuild-index-scan-num-threads",
+        "rebuild-index-max-num-threads",
         "rebuild-max-concurrent-permutation-pairs",
-        "rebuild-permutation-writer-num-threads",
         "request-body-limit",
         "service-allowed-iri-prefixes",
         "service-max-redirects",
         "service-max-value-rows",
         "small-index-scan-size-estimate-divisor",
-        "sort-estimate-cancellation-factor",
         "sort-in-memory-threshold",
         "sort-num-tasks-in-flight",
-        "sparql-results-json-with-time",
+        "sparql-results-json-with-meta",
         "spatial-join-max-num-threads",
         "spatial-join-prefilter-max-size",
         "spatial-join-tmp-dir",
@@ -311,6 +309,14 @@ class Qleverfile:
             default=False,
             help="Whether to add `ql:has-word` triples for text literals "
             "(which can then be used for custom text search queries)",
+        )
+        index_args["has_word_normalization"] = arg(
+            "--has-word-normalization",
+            choices=["lowercase", "lowercase-no-accents"],
+            default=None,
+            help="How to normalize the words of the `ql:has-word` triples "
+            "(default: `lowercase`; `lowercase-no-accents` also removes "
+            "accents, meant for Latin, Greek, or Cyrillic scripts)",
         )
         index_args["text_index"] = arg(
             "--text-index",

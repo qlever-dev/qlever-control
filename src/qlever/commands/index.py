@@ -92,6 +92,7 @@ class IndexCommand(QleverCommand):
                 "ulimit",
                 "use_patterns",
                 "add_has_word_triples",
+                "has_word_normalization",
                 "text_index",
                 "stxxl_memory",
                 "parser_buffer_size",
@@ -314,6 +315,10 @@ class IndexCommand(QleverCommand):
             index_cmd += " --no-patterns"
         if args.add_has_word_triples:
             index_cmd += " --add-has-word-triples"
+        if args.has_word_normalization:
+            index_cmd += (
+                f" --has-word-normalization {args.has_word_normalization}"
+            )
         if args.text_index in [
             "from_text_records",
             "from_text_records_and_literals",
