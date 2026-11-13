@@ -44,6 +44,9 @@ def sample_process(proc: psutil.Process) -> Sample:
         cpu_pct = proc.cpu_percent(interval=None)
     except (psutil.NoSuchProcess, psutil.AccessDenied):
         return Sample()
+    # A process that is exiting has already freed its memory.
+    if mem.rss == 0:
+        return Sample()
     return Sample(rss=mem.rss, cpu_percent=cpu_pct)
 
 
