@@ -262,6 +262,22 @@ def get_existing_index_files(
     return [path.name for path in existing_index_files]
 
 
+# The ways in which an access token appears in the commands that `qlever` runs
+# and in the command lines of `qlever-server` processes.
+ACCESS_TOKEN_REGEX = re.compile(
+    r"((?:^|\s)(?:-a|--access-token)[\s=]+|access-token=|Bearer\s+)"
+    r"(['\"]?)(?!-)[^\s'\"&]+"
+)
+
+
+def redact_access_token(text: str) -> str:
+    """
+    Replace every access token in the given command line with `[redacted]`,
+    so that it can be shown in output that may end up in shared logs.
+    """
+    return ACCESS_TOKEN_REGEX.sub(r"\1\2[redacted]", text)
+
+
 def show_process_info(psutil_process, cmdline_regex, show_heading=True):
     """
     Helper function that shows information about a process if information
@@ -272,7 +288,10 @@ def show_process_info(psutil_process, cmdline_regex, show_heading=True):
 
     # Helper function that shows a line of the process table.
     def show_table_line(pid, user, start_time, rss, cmdline):
-        log.info(f"{pid:<8} {user:<8} {start_time:>5}  {rss:>5} {cmdline}")
+        log.info(
+            f"{pid:<8} {user:<8} {start_time:>5}  {rss:>5} "
+            f"{redact_access_token(cmdline)}"
+        )
 
     try:
         pinfo = psutil_process.as_dict(
@@ -412,7 +431,8 @@ def stop_process_with_regex(cmdline_regex: str) -> list[bool] | None:
         if re.search(cmdline_regex, cmdline):
             log.info(
                 f"Found process {pinfo['pid']} from user "
-                f"{pinfo['username']} with command line: {cmdline}"
+                f"{pinfo['username']} with command line: "
+                f"{redact_access_token(cmdline)}"
             )
             log.info("")
             # A process that `start` runs as a systemd user service would
