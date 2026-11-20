@@ -92,12 +92,14 @@ def sample_container(system: str, container: str) -> Sample:
         memory_field, cpu_field = output.strip().split("\t")
         used_memory = memory_field.split("/")[0].strip()
         cpu_percent = float(cpu_field.strip().rstrip("%"))
-        return Sample(
-            rss=container_memory_to_bytes(used_memory),
-            cpu_percent=cpu_percent,
-        )
+        rss = container_memory_to_bytes(used_memory)
     except Exception:
         return Sample()
+    # A container that is exiting reports `0B / 0B` (like a process that
+    # is exiting, see `sample_process`).
+    if rss == 0:
+        return Sample()
+    return Sample(rss=rss, cpu_percent=cpu_percent)
 
 
 def find_process_by_binary(

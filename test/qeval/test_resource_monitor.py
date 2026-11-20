@@ -79,6 +79,13 @@ def test_sample_container_returns_empty_on_malformed_output(mock_command):
     assert sample == Sample()
 
 
+def test_sample_container_returns_empty_for_exiting_container(mock_command):
+    run_cmd_mock = mock_command(MODULE, "run_command")
+    run_cmd_mock.return_value = "0B / 0B\t0.00%"
+    sample = sample_container("docker", "qlever.index.test")
+    assert sample == Sample()
+
+
 def test_sample_process_reads_rss_and_cpu():
     proc = MagicMock()
     proc.memory_info.return_value.rss = 2048
