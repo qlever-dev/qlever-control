@@ -45,11 +45,11 @@ jobs:
 
       - name: Install the latest oxigraph release binary on PATH
         if: matrix.system == 'native'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          url=$(curl -sL https://api.github.com/repos/oxigraph/oxigraph/releases/latest \
-            | grep -oE 'https://[^"]+x86_64_linux_gnu' | head -1)
-          echo "Downloading oxigraph binary from $url"
-          curl -sL "$url" -o oxigraph
+          gh release download --repo oxigraph/oxigraph \
+            --pattern '*x86_64_linux_gnu' -O oxigraph
           chmod +x oxigraph
           sudo mv oxigraph /usr/local/bin/oxigraph
           oxigraph --version
