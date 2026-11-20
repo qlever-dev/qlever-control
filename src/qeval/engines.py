@@ -19,6 +19,11 @@ ENGINES = {
     "qlever": Engine(
         package="qlever", display_name="QLever", endpoint_path="/"
     ),
+    "oxigraph": Engine(
+        package="qeval.oxigraph",
+        display_name="Oxigraph",
+        endpoint_path="/query",
+    ),
 }
 
 
