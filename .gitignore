@@ -3,3 +3,7 @@ build/
 dist/
 *.egg-info
 *.swp
+
+# pixi environments
+.pixi
+*.egg-info
