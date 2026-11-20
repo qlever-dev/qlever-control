@@ -40,6 +40,21 @@ class QueryCommand(QleverCommand):
     def relevant_qleverfile_arguments(self) -> dict[str, list[str]]:
         return {"server": ["host_name", "port", "access_token"]}
 
+    def accept_header_choices(self) -> list[str]:
+        """The media types that `--accept` offers."""
+        return [
+            "text/tab-separated-values",
+            "text/csv",
+            "application/sparql-results+json",
+            "application/sparql-results+xml",
+            "application/qlever-results+json",
+            "application/octet-stream",
+        ]
+
+    def can_pin_to_cache(self) -> bool:
+        """Whether `--pin-to-cache` is offered, which needs an access token."""
+        return True
+
     def additional_arguments(self, subparser) -> None:
         subparser.add_argument(
             "query",
@@ -54,26 +69,23 @@ class QueryCommand(QleverCommand):
             choices=self.predefined_queries.keys(),
             help="Use a predefined query",
         )
-        subparser.add_argument(
-            "--pin-to-cache",
-            action="store_true",
-            default=False,
-            help="Pin the query to the cache",
-        )
+        if self.can_pin_to_cache():
+            subparser.add_argument(
+                "--pin-to-cache",
+                action="store_true",
+                default=False,
+                help="Pin the query to the cache",
+            )
+        else:
+            # `execute` reads this option, so it needs a value.
+            subparser.set_defaults(pin_to_cache=False)
         subparser.add_argument(
             "--sparql-endpoint", type=str, help="URL of the SPARQL endpoint"
         )
         subparser.add_argument(
             "--accept",
             type=str,
-            choices=[
-                "text/tab-separated-values",
-                "text/csv",
-                "application/sparql-results+json",
-                "application/sparql-results+xml",
-                "application/qlever-results+json",
-                "application/octet-stream",
-            ],
+            choices=self.accept_header_choices(),
             default="text/tab-separated-values",
             help="Accept header for the SPARQL query",
         )
@@ -110,7 +122,7 @@ class QueryCommand(QleverCommand):
         sparql_endpoint = (
             args.sparql_endpoint
             if args.sparql_endpoint
-            else f"{args.host_name}:{args.port}"
+            else f"{args.host_name}:{args.port}{args.endpoint_path}"
         )
         curl_cmd = (
             f"curl -s {sparql_endpoint}"

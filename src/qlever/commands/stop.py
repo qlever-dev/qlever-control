@@ -50,10 +50,32 @@ class StopCommand(QleverCommand):
             "runtime": ["server_container"],
         }
 
+    def default_regex(self) -> str:
+        """
+        Regex for the command line of the server, where `%%NAME%%` stands for
+        the dataset name.
+        """
+        return "qlever-server.* -i [^ ]*%%NAME%%"
+
+    def systemd_unit(self, name: str) -> str | None:
+        """
+        The systemd unit the server for dataset `name` may run in, or None if
+        it never does.
+        """
+        return systemd_unit_name(name)
+
+    def status_command(self) -> StatusCommand:
+        """The `status` command, shown when no server matches."""
+        return StatusCommand()
+
+    def status_regex(self) -> str:
+        """Regex for the command lines of all servers, shown by `status`."""
+        return r"^(\S*/)?qlever-server.* -i [^ ]*"
+
     def additional_arguments(self, subparser) -> None:
         subparser.add_argument(
             "--cmdline-regex",
-            default="qlever-server.* -i [^ ]*%%NAME%%",
+            default=self.default_regex(),
             help="Show only processes where the command "
             "line matches this regex",
         )
@@ -81,15 +103,18 @@ class StopCommand(QleverCommand):
         # be stopped via its unit (otherwise it would just be restarted). A
         # unit that is not active any more (for example, one that has hit its
         # start limit) is only cleaned up, and the search for the server
-        # continues below.
-        unit = systemd_unit_name(args.name)
-        unit_was_active = systemd_unit_is_active(unit)
-        if stop_systemd_unit(unit):
-            if unit_was_active:
-                log.info(f'Systemd unit "{unit}" stopped')
-                return True
-            log.info(f'Systemd unit "{unit}" was not active any more, removed')
-            log.info("")
+        # continues below. An engine that never uses systemd has no unit.
+        unit = self.systemd_unit(args.name)
+        if unit is not None:
+            unit_was_active = systemd_unit_is_active(unit)
+            if stop_systemd_unit(unit):
+                if unit_was_active:
+                    log.info(f'Systemd unit "{unit}" stopped')
+                    return True
+                log.info(
+                    f'Systemd unit "{unit}" was not active any more, removed'
+                )
+                log.info("")
 
         # First check if there is container running and if yes, stop and remove
         # it (unless the user has specified `--no-containers`).
@@ -114,7 +139,7 @@ class StopCommand(QleverCommand):
             else "No matching process or container found"
         )
         log.error(message)
-        args.cmdline_regex = r"^(\S*/)?qlever-server.* -i [^ ]*"
+        args.cmdline_regex = self.status_regex()
         log.info("")
-        StatusCommand().execute(args)
+        self.status_command().execute(args)
         return True

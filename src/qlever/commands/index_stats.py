@@ -293,9 +293,8 @@ class IndexStatsCommand(QleverCommand):
         # that messages about a missing or incomplete log appear below it.
         if not args.only_space:
             self.show(
-                f"Breakdown of the time used for "
-                f"building the index, based on the timestamps for key "
-                f'lines in "{log_file_name}"',
+                "Breakdown of the time used for building the index, "
+                f'based on key lines in "{log_file_name}"',
                 only_show=args.show,
             )
 
