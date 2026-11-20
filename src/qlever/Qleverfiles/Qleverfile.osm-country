@@ -21,6 +21,7 @@ VOCABULARY_TYPE  = on-disk-compressed-geo-split
 STXXL_MEMORY     = 10G
 SETTINGS_JSON    = { "num-triples-per-batch": 10000000 }
 ENCODE_AS_ID     = https://www.openstreetmap.org/node/ http://www.openstreetmap.org/node/ https://www.openstreetmap.org/way/ https://www.openstreetmap.org/relation/ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmnode_tagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmnode_untagged_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmway_ https://osm2rdf.cs.uni-freiburg.de/rdf/geom#osmrel_ https://www.openstreetmap.org/changeset/
+MATERIALIZED_VIEWS = { "geometries" : "PREFIX geo: <http://www.opengis.net/ont/geosparql#> PREFIX geof: <http://www.opengis.net/def/function/geosparql/> SELECT ?subject ?intermediate ?geometry ?centroid ?area ?length WHERE { ?subject geo:hasGeometry ?intermediate . ?intermediate geo:asWKT ?geometry . BIND(geof:centroid(?geometry) AS ?centroid) BIND(geof:metricArea(?geometry) AS ?area) BIND(geof:metricLength(?geometry) AS ?length) BIND(ql:envelopeLowerLeft(?geometry) AS ?lower_left) BIND(ql:envelopeUpperRight(?geometry) AS ?upper_right) }" }
 
 [server]
 PORT                        = 7025
@@ -29,6 +30,7 @@ MEMORY_FOR_QUERIES          = 20G
 CACHE_MAX_SIZE              = 10G
 CACHE_MAX_SIZE_SINGLE_ENTRY = 5G
 TIMEOUT                     = 100s
+PRELOAD_MATERIALIZED_VIEWS = geometries
 
 [runtime]
 SYSTEM = docker
