@@ -1,6 +1,6 @@
 # Qleverfile for Wikidata, use with the QLever CLI (`pip install qlever`)
 #
-# qlever get-data  # ~7 hours, ~110 GB (compressed), ~20 billion triples
+# qlever get-data  # ~15 minutes, ~130 GB (compressed), ~20 billion triples
 # qlever index     # ~5 hours, ~20 GB RAM, ~500 GB index size on disk
 # qlever start     # a few seconds, adjust MEMORY_FOR_QUERIES as needed
 #
@@ -12,7 +12,7 @@
 NAME = wikidata
 
 [data]
-GET_DATA_URL      = https://dumps.wikimedia.org/wikidatawiki/entities
+GET_DATA_URL      = https://ftp.acc.umu.se/mirror/wikimedia.org/other/wikibase/wikidatawiki
 GET_DATA_CMD      = curl -LRC - -O ${GET_DATA_URL}/latest-all.ttl.bz2 -O ${GET_DATA_URL}/latest-lexemes.ttl.bz2 2>&1 | tee wikidata.download-log.txt && curl -sL ${GET_DATA_URL}/dcatap.rdf | docker run -i --rm -v $$(pwd):/data stain/jena riot --syntax=RDF/XML --output=NT /dev/stdin > dcatap.nt
 DATE_WIKIDATA     = $$(date -r latest-all.ttl.bz2 +%d.%m.%Y || echo "NO_DATE")
 DATE_WIKIPEDIA    = $$(date -r wikipedia-abstracts.nt +%d.%m.%Y || echo "NO_DATE")
