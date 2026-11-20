@@ -5,7 +5,9 @@ import json
 import logging
 import os
 import re
+import shutil
 import signal
+import sys
 import time
 from datetime import datetime, timedelta, timezone
 from enum import Enum, auto
@@ -831,12 +833,23 @@ class UpdateWikidataCommand(QleverCommand):
 
             # Process one event at a time (unless using cached file).
             if not use_cached_file:
+                # The width of the progress bar: dynamic on a terminal;
+                # when the output is piped (for example, through `tee`),
+                # `tqdm` cannot detect the terminal width and falls back to
+                # a bar of only 10 characters, so use the width from the
+                # `COLUMNS` environment variable (or 80) instead.
+                ncols = (
+                    None
+                    if sys.stderr.isatty()
+                    else shutil.get_terminal_size().columns
+                )
                 with tqdm_logging_redirect(
                     loggers=[logging.getLogger("qlever")],
                     desc="Batch",
                     total=args.batch_size,
                     leave=False,
                     bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}{postfix}",
+                    ncols=ncols,
                 ) as pbar:
                     for event in self.iter_sse_events(source):
                         # Skip events that are not of type `message` (should not
