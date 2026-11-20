@@ -53,6 +53,7 @@ class TestIndexCommand(unittest.TestCase):
         args.geo_point_encoding = None
         args.parsed_geometries_min_length = None
         args.encode_as_id = None
+        args.encode_as_id_wide = None
         args.parser_buffer_size = None
         args.index_rows_per_block = None
         args.materialized_views = None
@@ -278,6 +279,7 @@ class TestIndexCommand(unittest.TestCase):
         args.geo_point_encoding = None
         args.parsed_geometries_min_length = None
         args.encode_as_id = None
+        args.encode_as_id_wide = None
         args.parser_buffer_size = None
         args.index_rows_per_block = None
         args.materialized_views = None
@@ -400,6 +402,7 @@ class TestIndexCommand(unittest.TestCase):
         args.geo_point_encoding = "lat-major"
         args.parsed_geometries_min_length = 100000
         args.encode_as_id = None
+        args.encode_as_id_wide = None
         args.parser_buffer_size = None
         args.index_rows_per_block = 4000
         args.materialized_views = None

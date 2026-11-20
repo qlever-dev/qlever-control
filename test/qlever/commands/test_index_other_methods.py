@@ -38,6 +38,7 @@ class TestIndexCommand(unittest.TestCase):
                     "geo_point_encoding",
                     "parsed_geometries_min_length",
                     "encode_as_id",
+                    "encode_as_id_wide",
                     "multi_input_json",
                     "parallel_parsing",
                     "settings_json",

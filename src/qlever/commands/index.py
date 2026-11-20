@@ -44,6 +44,7 @@ class IndexCommand(QleverCommand):
                 "geo_point_encoding",
                 "parsed_geometries_min_length",
                 "encode_as_id",
+                "encode_as_id_wide",
                 "multi_input_json",
                 "parallel_parsing",
                 "settings_json",
@@ -260,6 +261,8 @@ class IndexCommand(QleverCommand):
             )
         if args.encode_as_id:
             index_cmd += f" --encode-as-id {args.encode_as_id}"
+        if args.encode_as_id_wide:
+            index_cmd += f" --encode-as-id-wide {args.encode_as_id_wide}"
         if args.only_pso_and_pos_permutations:
             index_cmd += " --only-pso-and-pos-permutations"
         if args.use_patterns == "no":
