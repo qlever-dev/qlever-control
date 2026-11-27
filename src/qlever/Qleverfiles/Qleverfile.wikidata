@@ -24,7 +24,7 @@ MULTI_INPUT_JSON = [{ "cmd": "lbzcat -n 4 latest-all.ttl.bz2", "format": "ttl", 
                     { "cmd": "lbzcat -n 1 latest-lexemes.ttl.bz2", "format": "ttl", "parallel": "false" },
                     { "cmd": "cat dcatap.nt", "format": "nt", "parallel": "false" }]
 SETTINGS_JSON    = { "languages-internal": [], "prefixes-external": [""], "locale": { "language": "en", "country": "US", "ignore-punctuation": true }, "ascii-prefixes-only": true, "num-triples-per-batch": 5000000 }
-STXXL_MEMORY     = 10G
+STXXL_MEMORY     = 20G
 
 [server]
 PORT                        = 7001
